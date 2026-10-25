@@ -1,9 +1,9 @@
 # Primary GPU Switcher — Research Findings & Implementation Plan (v1)
 
-Scope decision (agreed): **v1 = GNOME / Mutter only.** KDE Plasma and X11 paths are designed as
+Scope: **v1 = GNOME / Mutter only.** KDE Plasma and X11 paths are designed as
 future extensions, not built now.
 
-Identity (agreed):
+Identity:
 - Local repo: `~/Dev/gpu-switcher` · remote: `github.com/wl04/gpu-switcher` (GitHub: @wl04)
 - Package name: `gpu-switcher`
 - GApplication / desktop ID: `com.github.wl04.gpu-switcher`
@@ -135,11 +135,12 @@ switch is cheap.
 - Service: `com.github.wl04.gpu_switcher.Helper`
 - Object: `/com/github/wl04/gpu_switcher/Helper`
 - Interface methods (all async from the app's point of view):
-  - `SetPrimary(pci: s, locale: s) → (ok: b, message: s, backup_path: s)`
-  - `SetAuto(locale: s) → (ok: b, message: s)`  *(removes only the managed rule)*
-  - `RefreshUdev(locale: s) → (ok: b, message: s)`  *(reload-rules + scoped trigger;
-    used by the fast path; also run after every SetPrimary/SetAuto)*
-  - `Status() → (rule_on_disk: s, tags: as, ok: b, message: s)`  *(helper-side sanity view)*
+  - `Status(locale: s) → (rule_on_disk: s, message: s)` — implemented (M0): read-only
+    view of the managed rule
+  - `SetPrimary(pci: s, locale: s) → (ok: b, message: s, backup_path: s)` — M2
+  - `SetAuto(locale: s) → (ok: b, message: s)` — M2 (removes only the managed rule)
+  - `RefreshUdev(locale: s) → (ok: b, message: s)` — M3 (reload-rules + scoped
+    trigger; used by the fast path; also run after every SetPrimary/SetAuto)
 
 `locale` is passed explicitly because a root-activated helper has **no user locale in its
 environment** — the localized polkit dialog message must come from the caller.
@@ -199,13 +200,13 @@ fighting over state.
 ```
 gpu-switcher/
 ├── debian/
-│   ├── control  changelog  compat  source/format  rules
+│   ├── control  compat  source/format  rules   (changelog added in M4)
 ├── src/
 │   ├── gpu_switcher/
 │   │   ├── __init__.py          # GApplication, wiring
 │   │   ├── main.py              # GTK4 UI
-│   │   ├── detect.py            # GPUs, running/configured primary
-│   │   ├── bus.py               # D-Bus clients: helper + login1
+│   │   ├── detect.py            # M1: GPUs, running/configured primary
+│   │   ├── bus.py               # M2: D-Bus clients: helper + login1
 │   │   └── i18n.py              # gettext setup
 │   └── helper/gpu_switcher_helper.py   # root D-Bus service + raw-D-Bus polkit
 ├── data/
@@ -216,6 +217,11 @@ gpu-switcher/
 │   ├── icons/  (SVG: app icon + symbolic)
 │   └── locale/  (compiled .mo built from po/)
 ├── po/  gpu-switcher-en.po  gpu-switcher-ru.po
+├── tools/
+│   ├── build-deb.sh             # .deb builder (plain dpkg-deb, no debhelper)
+│   └── po2mo.py                 # pure-Python .po → .mo compiler
+├── Makefile                     # locale / package / install / uninstall
+├── README.md
 └── PLAN.md
 ```
 
@@ -254,9 +260,12 @@ Interaction rules:
 ## 5. Internationalization (en + ru from day one)
 
 - All strings via **gettext**: `po/gpu-switcher-en.po`, `po/gpu-switcher-ru.po` →
-  compiled with `msgfmt` to `gpu-switcher.mo`, installed to
+  compiled with the pure-Python `tools/po2mo.py` (no gettext tools needed) to
+  `gpu-switcher.mo`, installed to
   `/usr/share/gpu-switcher/locale/{en,ru}/LC_MESSAGES/`.
-- App: `gettext.translation("gpu-switcher", localedir=…, languages=[env locale, "en"])`.
+- App: `gettext.translation("gpu-switcher", …, languages=[env locale, "en"])`,
+  searching the installed location first, then the source tree, with an
+  English identity fallback.
 - GTK widget built-ins (buttons, dialogs) localize automatically from the system locale.
 - Helper: localized polkit messages selected by the `locale` argument passed over D-Bus
   (root process has no user locale).
@@ -271,16 +280,18 @@ Interaction rules:
 - GApplication / desktop ID: `com.github.wl04.gpu-switcher` (D-Bus service name uses
   `gpu_switcher` — hyphens are not allowed in D-Bus names).
 - Repository: `~/Dev/gpu-switcher`, branch `main`, remote `origin` →
-  `https://github.com/wl04/gpu-switcher`. Commits land per milestone (M0–M4);
-  tag `v0.1.0` when the `.deb` test matrix passes. Pushing to GitHub happens
-  only on explicit request.
+  `https://github.com/wl04/gpu-switcher` (public). Commits land per milestone
+  (M0–M4); tag `v0.1.0` when the `.deb` test matrix passes.
 - Depends: `python3 (>=3.12)`, `python3-gi`, `libgtk-4-1`, `polkitd`, `dbus`, `udev`,
   `systemd`, `pciutils`.
 - Installed files:
   - `/usr/bin/gpu-switcher` (thin wrapper), `/usr/lib/gpu-switcher/gpu_switcher/*.py`
   - `/usr/lib/gpu-switcher/helper/gpu_switcher_helper.py` (mode 0755, root-owned;
     exec: `/usr/bin/python3 <path>`)
-  - `/usr/share/gpu-switcher/desktop`, `.desktop`, icons, `locale/**`
+  - `/usr/share/applications/com.github.wl04.gpu-switcher.desktop`
+  - `/usr/share/icons/hicolor/scalable/apps/com.github.wl04.gpu-switcher.svg`
+    and `/usr/share/icons/hicolor/symbolic/apps/com.github.wl04.gpu-switcher-symbolic.svg`
+  - `/usr/share/gpu-switcher/locale/{en,ru}/LC_MESSAGES/gpu-switcher.mo`
   - `/usr/share/polkit-1/actions/gpu-switcher.policy`
   - `/usr/share/dbus-1/system-services/com.github.wl04.gpu_switcher.Helper.service`
     (filename must be exactly `<service name>.service` for activation)
@@ -288,11 +299,10 @@ Interaction rules:
     (the system bus denies name ownership by default; this policy lets root
     own the helper name and lets any user call the helper, which then
     authorizes via polkit)
-- Build: `dpkg-buildpackage -us -uc` with a minimal `debian/rules`
-  (`dh_install` + `dh_installdocs` + `dh_compress` + `dh_fixperms` +
-  `dh_strip_nondeterminism`); catalogs compiled with the pure-Python
-  `tools/po2mo.py` (same as `tools/build-deb.sh`) rather than `msgfmt`.
-  If `debhelper`/`devscripts` are not installed on the machine, install them first.
+- Build: `tools/build-deb.sh` (plain `dpkg-deb`, no debhelper required) is the
+  canonical build; `debian/` is kept for a future `dpkg-buildpackage -us -uc`
+  flow once `debhelper` is available. Both paths compile catalogs with the
+  pure-Python `tools/po2mo.py` (`msgfmt` is not a build dependency).
 - Quality gate before release: `lintian` clean, `dpkg-deb --info` sanity,
   `dpkg -i` / `dpkg -r` install+remove tested.
 
@@ -302,7 +312,7 @@ Interaction rules:
 
 | Phase | Deliverable | Acceptance |
 |---|---|---|
-| **M0 skeleton** | git repo, project layout, `.desktop`, icon, empty app window, `debian/` boilerplate | `dpkg -i` works, app launches from menu, first commit in |
+| **M0 skeleton — done** | git repo, project layout, `.desktop`, icon, app window, `debian/` boilerplate, `.deb` build | `dpkg -i` works, app launches from menu, first commits in |
 | **M1 detection** | GPU enumeration + naming, running primary (journal), configured preference (rule+TAGS), session guard | both GPUs listed with correct names; "In use now" = card2 (iGPU) today; "Preferred" = card2 |
 | **M2 polkit + apply** | `.policy`, helper service, `SetPrimary`/`SetAuto`, confirmation dialogs, Apply button, Reboot button | polkit dialog with localized message; rule file + backup written correctly; denial path safe |
 | **M3 fast path + activation** | `RefreshUdev`, Log-out button, status banners, verification hint | logout/login path actually switches primary (journal shows new GPU); reboot path verified end-to-end |
@@ -320,16 +330,3 @@ Interaction rules:
 7. `dpkg -r gpu-switcher` → managed rule and backups untouched.
 8. Run `gpu-switcher` in a non-GNOME context (e.g. `DISPLAY=`-only shell) → warning banner,
    no crash.
-
----
-
-## 8. Decisions (resolved 2026-10-25)
-
-1. **App identity**: package `gpu-switcher`; GApplication ID `com.github.wl04.gpu-switcher`;
-   D-Bus service `com.github.wl04.gpu_switcher.Helper`. ✓
-2. **Fast path**: "Log out" button is shown next to "Reboot" by default. ✓
-3. **Icon**: symbolic GPU icon (SVG) is created as part of M0. ✓
-4. **Source control**: new git repo at `~/Dev/gpu-switcher` with remote
-   `github.com/wl04/gpu-switcher` (GitHub authenticated as @wl04). ✓
-5. **Commit identity** (repo-local, not global): `wl04 <wl04@users.noreply.github.com>`
-   (GitHub email is private). ✓
