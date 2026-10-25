@@ -1,0 +1,11 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+
+msgid "Primary GPU Switcher"
+msgstr "Primary GPU Switcher"
+
+msgid "M0 skeleton - GPU detection arrives in the next milestone."
+msgstr "M0 skeleton - GPU detection arrives in the next milestone."

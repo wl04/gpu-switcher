@@ -1,1 +1,5 @@
-.git
+*.deb
+debian/gpu-switcher/
+debian/files
+debian/changelog.tmp
+__pycache__/

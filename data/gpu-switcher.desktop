@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Primary GPU Switcher
+Name[ru]=Переключатель основного GPU
+GenericName=Display adapter switcher
+GenericName[ru]=Переключатель дисплейных адаптеров
+Comment=Choose which GPU GNOME (Mutter) uses as the primary display adapter
+Comment[ru]=Выбор того, какой GPU GNOME (Mutter) будет использовать как основной дисплейный адаптер
+Exec=gpu-switcher
+Icon=com.github.wl04.gpu-switcher
+Terminal=false
+Type=Application
+Categories=HardwareSettings;Utility;
+StartupNotify=true

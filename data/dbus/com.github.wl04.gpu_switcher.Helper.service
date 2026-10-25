@@ -1,0 +1,14 @@
+# D-Bus activation service for the gpu-switcher helper.
+#
+# The filename must be exactly "<service name>.service" for dbus-daemon to
+# activate it. When an unprivileged client (the GUI app) calls the service,
+# dbus-daemon starts this process as root on demand.
+#
+# Name ownership for this service is granted by the policy file
+# com.github.wl04.gpu_switcher.Helper.conf installed into
+# /usr/share/dbus-1/system.d/ (the system bus denies name ownership by
+# default).
+[D-BUS Service]
+Name=com.github.wl04.gpu_switcher.Helper
+Exec=/usr/bin/python3 /usr/lib/gpu-switcher/helper/gpu_switcher_helper.py
+User=root

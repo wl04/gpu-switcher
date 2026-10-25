@@ -211,9 +211,11 @@ gpu-switcher/
 ├── data/
 │   ├── gpu-switcher.desktop
 │   ├── polkit/gpu-switcher.policy
-│   ├── dbus/gpu-switcher-helper.service   # D-Bus activation (system, user=root)
+│   ├── dbus/com.github.wl04.gpu_switcher.Helper.service   # D-Bus activation (system, user=root)
+│   ├── dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf   # system-bus policy
 │   ├── icons/  (SVG: app icon + symbolic)
-│   └── po/  gpu-switcher-en.po  gpu-switcher-ru.po
+│   └── locale/  (compiled .mo built from po/)
+├── po/  gpu-switcher-en.po  gpu-switcher-ru.po
 └── PLAN.md
 ```
 
@@ -280,10 +282,16 @@ Interaction rules:
     exec: `/usr/bin/python3 <path>`)
   - `/usr/share/gpu-switcher/desktop`, `.desktop`, icons, `locale/**`
   - `/usr/share/polkit-1/actions/gpu-switcher.policy`
-  - `/usr/share/dbus-1/system-services/gpu-switcher-helper.service`
+  - `/usr/share/dbus-1/system-services/com.github.wl04.gpu_switcher.Helper.service`
+    (filename must be exactly `<service name>.service` for activation)
+  - `/usr/share/dbus-1/system.d/com.github.wl04.gpu_switcher.Helper.conf`
+    (the system bus denies name ownership by default; this policy lets root
+    own the helper name and lets any user call the helper, which then
+    authorizes via polkit)
 - Build: `dpkg-buildpackage -us -uc` with a minimal `debian/rules`
   (`dh_install` + `dh_installdocs` + `dh_compress` + `dh_fixperms` +
-  `dh_strip_nondeterminism`); `msgfmt` in `override_dh_auto_build`.
+  `dh_strip_nondeterminism`); catalogs compiled with the pure-Python
+  `tools/po2mo.py` (same as `tools/build-deb.sh`) rather than `msgfmt`.
   If `debhelper`/`devscripts` are not installed on the machine, install them first.
 - Quality gate before release: `lintian` clean, `dpkg-deb --info` sanity,
   `dpkg -i` / `dpkg -r` install+remove tested.

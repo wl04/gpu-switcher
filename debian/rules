@@ -1,0 +1,28 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# Same pure-Python compiler as tools/build-deb.sh (msgfmt is not a
+	# build dependency of this package).
+	mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
+	python3 tools/po2mo.py po/gpu-switcher-en.po -o data/locale/en/LC_MESSAGES/gpu-switcher.mo
+	python3 tools/po2mo.py po/gpu-switcher-ru.po -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo
+
+override_dh_auto_install:
+	install -D -m 0755 src/wrapper/gpu-switcher debian/gpu-switcher/usr/bin/gpu-switcher
+	install -D -m 0644 src/gpu_switcher/__init__.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/__init__.py
+	install -D -m 0644 src/gpu_switcher/i18n.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/i18n.py
+	install -D -m 0644 src/gpu_switcher/main.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/main.py
+	install -D -m 0755 src/helper/gpu_switcher_helper.py debian/gpu-switcher/usr/lib/gpu-switcher/helper/gpu_switcher_helper.py
+	install -D -m 0644 data/gpu-switcher.desktop debian/gpu-switcher/usr/share/applications/com.github.wl04.gpu-switcher.desktop
+	install -D -m 0644 data/icons/gpu-switcher.svg debian/gpu-switcher/usr/share/icons/hicolor/scalable/apps/com.github.wl04.gpu-switcher.svg
+	install -D -m 0644 data/icons/symbolic/gpu-switcher-symbolic.svg debian/gpu-switcher/usr/share/icons/hicolor/symbolic/apps/com.github.wl04.gpu-switcher-symbolic.svg
+	install -D -m 0644 data/locale/en/LC_MESSAGES/gpu-switcher.mo debian/gpu-switcher/usr/share/gpu-switcher/locale/en/LC_MESSAGES/gpu-switcher.mo
+	install -D -m 0644 data/locale/ru/LC_MESSAGES/gpu-switcher.mo debian/gpu-switcher/usr/share/gpu-switcher/locale/ru/LC_MESSAGES/gpu-switcher.mo
+	install -D -m 0644 data/polkit/gpu-switcher.policy debian/gpu-switcher/usr/share/polkit-1/actions/gpu-switcher.policy
+	# D-Bus activation: service file (name must be <service name>.service)
+	# plus the system-bus policy that lets root own the helper's name.
+	install -D -m 0644 data/dbus/com.github.wl04.gpu_switcher.Helper.service debian/gpu-switcher/usr/share/dbus-1/system-services/com.github.wl04.gpu_switcher.Helper.service
+	install -D -m 0644 data/dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf debian/gpu-switcher/usr/share/dbus-1/system.d/com.github.wl04.gpu_switcher.Helper.conf

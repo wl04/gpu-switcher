@@ -1,0 +1,17 @@
+Source: gpu-switcher
+Section: utils
+Priority: optional
+Maintainer: wl04 <wl04@users.noreply.github.com>
+Build-Depends: debhelper
+Standards-Version: 4.7.0
+Homepage: https://github.com/wl04/gpu-switcher
+
+Package: gpu-switcher
+Version: 0.1.0-1
+Architecture: all
+Maintainer: wl04 <wl04@users.noreply.github.com>
+Depends: python3 (>= 3.12), python3-gi, libgtk-4-1, polkitd, dbus, udev, systemd, pciutils
+Description: GUI to switch the primary display adapter (GNOME/Mutter)
+ Select which GPU GNOME (Mutter) uses as the primary display adapter.
+ The app manages Mutter's udev rule under polkit authorization and
+ activates the change via reboot or logout.

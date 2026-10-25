@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+  "-//freedesktop//DTD PolicyKit Policy Configuration 1//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+
+  <action id="com.github.wl04.gpu_switcher.set-primary">
+    <description>Change the primary display adapter (primary GPU)</description>
+    <description xml:lang="ru">Смена основного дисплейного адаптера (основного GPU)</description>
+    <message>Authentication is required to change the primary display adapter.</message>
+    <message xml:lang="ru">Для смены основного дисплейного адаптера требуется авторизация.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_active>no</allow_active>
+      <allow_inactive>no</allow_inactive>
+    </defaults>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+  </action>
+
+</policyconfig>

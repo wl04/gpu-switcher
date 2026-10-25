@@ -1,0 +1,11 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+
+msgid "Primary GPU Switcher"
+msgstr "Переключатель основного GPU"
+
+msgid "M0 skeleton - GPU detection arrives in the next milestone."
+msgstr "Каркас M0 - определение GPU появится на следующем этапе."
