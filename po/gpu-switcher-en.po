@@ -4,8 +4,23 @@ msgstr ""
 "Language: en\n"
 "MIME-Version: 1.0\n"
 
-msgid "Primary GPU Switcher"
-msgstr "Primary GPU Switcher"
+msgid "In use now"
+msgstr "In use now"
 
-msgid "M0 skeleton - GPU detection arrives in the next milestone."
-msgstr "M0 skeleton - GPU detection arrives in the next milestone."
+msgid "Preferred (configured)"
+msgstr "Preferred (configured)"
+
+msgid "System default (auto)"
+msgstr "System default (auto)"
+
+msgid "No GPUs detected."
+msgstr "No GPUs detected."
+
+msgid "Not running in a GNOME Wayland session - this build only supports GNOME."
+msgstr "Not running in a GNOME Wayland session - this build only supports GNOME."
+
+msgid "Running primary: unknown (verify in the journal after restart)."
+msgstr "Running primary: unknown (verify in the journal after restart)."
+
+msgid "M1: detection and selection only. Apply, Reboot and Log out arrive in M2-M3."
+msgstr "M1: detection and selection only. Apply, Reboot and Log out arrive in M2-M3."

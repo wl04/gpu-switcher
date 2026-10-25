@@ -1,6 +1,5 @@
 [Desktop Entry]
-Name=Primary GPU Switcher
-Name[ru]=Переключатель основного GPU
+Name=gpu-switcher
 GenericName=Display adapter switcher
 GenericName[ru]=Переключатель дисплейных адаптеров
 Comment=Choose which GPU GNOME (Mutter) uses as the primary display adapter

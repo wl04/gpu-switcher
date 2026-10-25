@@ -4,8 +4,23 @@ msgstr ""
 "Language: ru\n"
 "MIME-Version: 1.0\n"
 
-msgid "Primary GPU Switcher"
-msgstr "Переключатель основного GPU"
+msgid "In use now"
+msgstr "Используется сейчас"
 
-msgid "M0 skeleton - GPU detection arrives in the next milestone."
-msgstr "Каркас M0 - определение GPU появится на следующем этапе."
+msgid "Preferred (configured)"
+msgstr "Назначен (конфигурация)"
+
+msgid "System default (auto)"
+msgstr "Системный по умолчанию (авто)"
+
+msgid "No GPUs detected."
+msgstr "GPU не обнаружены."
+
+msgid "Not running in a GNOME Wayland session - this build only supports GNOME."
+msgstr "Не запущено в сессии GNOME Wayland - эта сборка поддерживает только GNOME."
+
+msgid "Running primary: unknown (verify in the journal after restart)."
+msgstr "Основной GPU сейчас: неизвестно (проверьте в журнале после перезапуска)."
+
+msgid "M1: detection and selection only. Apply, Reboot and Log out arrive in M2-M3."
+msgstr "M1: только определение и выбор. Кнопки «Применить», «Перезагрузка» и «Выход» появятся в M2-M3."

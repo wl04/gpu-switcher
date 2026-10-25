@@ -205,7 +205,7 @@ gpu-switcher/
 │   ├── gpu_switcher/
 │   │   ├── __init__.py          # GApplication, wiring
 │   │   ├── main.py              # GTK4 UI
-│   │   ├── detect.py            # M1: GPUs, running/configured primary
+│   │   ├── detect.py            # GPU enumeration, names, running/configured primary, conflicts, session guard
 │   │   ├── bus.py               # M2: D-Bus clients: helper + login1
 │   │   └── i18n.py              # gettext setup
 │   └── helper/gpu_switcher_helper.py   # root D-Bus service + raw-D-Bus polkit
@@ -313,7 +313,7 @@ Interaction rules:
 | Phase | Deliverable | Acceptance |
 |---|---|---|
 | **M0 skeleton — done** | git repo, project layout, `.desktop`, icon, app window, `debian/` boilerplate, `.deb` build | `dpkg -i` works, app launches from menu, first commits in |
-| **M1 detection** | GPU enumeration + naming, running primary (journal), configured preference (rule+TAGS), session guard | both GPUs listed with correct names; "In use now" = card2 (iGPU) today; "Preferred" = card2 |
+| **M1 detection — done** | GPU enumeration + naming, running primary (journal), configured preference (rule+TAGS), session guard | both GPUs listed with correct names; "In use now" = card2 (iGPU) today; "Preferred" = card2 |
 | **M2 polkit + apply** | `.policy`, helper service, `SetPrimary`/`SetAuto`, confirmation dialogs, Apply button, Reboot button | polkit dialog with localized message; rule file + backup written correctly; denial path safe |
 | **M3 fast path + activation** | `RefreshUdev`, Log-out button, status banners, verification hint | logout/login path actually switches primary (journal shows new GPU); reboot path verified end-to-end |
 | **M4 packaging polish** | lintian clean, changelog, icon, locale catalogs, install/remove scripts | full test matrix below passes |

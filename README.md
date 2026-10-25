@@ -11,9 +11,10 @@ plus the CPU's integrated graphics.
 
 ## Status
 
-**v0.1.0 (M0)** — initial release: app shell with i18n (English + Russian),
-D-Bus-activated helper stub, polkit policy, `.deb` packaging. GPU detection and
-the actual switcher UI land in the next milestone (see [Roadmap](#roadmap)).
+**0.1.0-3 (M1)** — GPU detection: card list with "in use now" /
+"preferred (configured)" badges, i18n (English + Russian), D-Bus-activated
+helper stub, polkit policy, `.deb` packaging. The polkit-gated Apply / Reboot /
+Log out actions land in M2-M3 (see [Roadmap](#roadmap)).
 
 ## Screenshot
 
@@ -43,7 +44,7 @@ journalctl -b0 /usr/bin/gnome-shell | grep 'selected primary'
 ### `.deb`
 
 ```sh
-sudo dpkg -i gpu-switcher_0.1.0-1_all.deb
+sudo dpkg -i gpu-switcher_0.1.0-3_all.deb
 ```
 
 ### From source
@@ -51,8 +52,8 @@ sudo dpkg -i gpu-switcher_0.1.0-1_all.deb
 ```sh
 git clone https://github.com/wl04/gpu-switcher
 cd gpu-switcher
-make package            # builds ../gpu-switcher_0.1.0-1_all.deb
-sudo dpkg -i ../gpu-switcher_0.1.0-1_all.deb
+./tools/build-deb.sh    # builds ../gpu-switcher_0.1.0-3_all.deb
+sudo dpkg -i ../gpu-switcher_0.1.0-3_all.deb
 ```
 
 Requires: `python3 (>= 3.12)`, `python3-gi`, `libgtk-4-1`, `polkitd`, `dbus`,
