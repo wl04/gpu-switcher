@@ -1,17 +1,23 @@
 """Primary GPU Switcher - GTK4 application.
 
 M1: GPU list with "In use now" / "Preferred (configured)" badges and the
-GNOME Wayland session guard. The polkit-gated Apply / Reboot / Log out
-actions arrive in M2-M3 (see PLAN.md).
+GNOME Wayland session guard.
+M2: polkit-gated Apply / Reset to auto, Reboot now, confirmation dialogs
+and a contextual status banner (see PLAN.md). The Log out fast path lands
+in M3.
 """
+from __future__ import annotations
+
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
+gi.require_version("GLib", "2.0")
+from gi.repository import Gtk, GLib
 
-from . import detect, i18n
+from . import bus, detect, i18n
 
 APP_ID = "com.github.wl04.gpu-switcher"
+SELECTION_AUTO = "auto"
 
 
 def _badge(text: str) -> Gtk.Label:
@@ -23,6 +29,18 @@ def _badge(text: str) -> Gtk.Label:
 class GpuSwitcherApp(Gtk.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID)
+        self.window = None
+        self.detection = None
+        self.selected_card = SELECTION_AUTO   # card name or SELECTION_AUTO
+        self.radios_by_gpu: dict = {}
+        self.rows_box = None
+        self.banner = None
+        self.banner_label = None
+        self.apply_btn = None
+        self.reset_btn = None
+        self.reboot_btn = None
+
+    # ------------------------------------------------------------------ UI
 
     def _gpu_row(self, radio, name: str, sub: str, badges: list) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -40,18 +58,13 @@ class GpuSwitcherApp(Gtk.Application):
         row.append(text)
         return row
 
-    def do_activate(self) -> None:
-        window = Gtk.ApplicationWindow(application=self)
-        window.set_title("gpu-switcher")
-        window.set_default_size(560, 430)
-
+    def _build_content(self) -> None:
+        result = self.detection
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         box.set_margin_top(24)
         box.set_margin_bottom(24)
         box.set_margin_start(24)
         box.set_margin_end(24)
-
-        result = detect.detect()
 
         if not result.gnome_wayland:
             warning = Gtk.Label(label=i18n._(
@@ -60,12 +73,12 @@ class GpuSwitcherApp(Gtk.Application):
             warning.add_css_class("dim-label")
             box.append(warning)
 
-        rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.radios_by_gpu = {}
         if not result.gpus:
-            rows.append(Gtk.Label(label=i18n._("No GPUs detected.")))
+            self.rows_box.append(Gtk.Label(label=i18n._("No GPUs detected.")))
         else:
             first_radio = None
-            radios_by_gpu = {}
             for gpu in result.gpus:
                 badges = []
                 if gpu.in_use:
@@ -78,23 +91,24 @@ class GpuSwitcherApp(Gtk.Application):
                     first_radio = radio
                 else:
                     radio.set_group(first_radio)
-                radios_by_gpu[gpu.card] = radio
+                card = gpu.card
+                radio.connect("toggled", self._on_radio_toggled, card)
+                self.radios_by_gpu[card] = radio
                 sub = f"PCI {gpu.pci} \u00b7 {gpu.node}"
-                rows.append(self._gpu_row(radio, gpu.name, sub, badges))
-            auto = Gtk.CheckButton(label="")
-            auto.add_css_class("radio")
-            auto.set_group(first_radio)
-            rows.append(self._gpu_row(auto,
-                                     i18n._("System default (auto)"),
-                                     "", []))
-            # Default selection: the configured GPU, else system default.
-            for gpu in result.gpus:
-                if gpu.preferred:
-                    radios_by_gpu[gpu.card].set_active(True)
-                    break
+                self.rows_box.append(self._gpu_row(radio, gpu.name, sub, badges))
+            self.auto_radio = Gtk.CheckButton(label="")
+            self.auto_radio.add_css_class("radio")
+            self.auto_radio.set_group(first_radio)
+            self.auto_radio.connect("toggled", self._on_radio_toggled,
+                                   SELECTION_AUTO)
+            self.rows_box.append(self._gpu_row(
+                self.auto_radio, i18n._("System default (auto)"), "", []))
+            known = self.selected_card in self.radios_by_gpu
+            if self.selected_card == SELECTION_AUTO or not known:
+                self.auto_radio.set_active(True)
             else:
-                auto.set_active(True)
-        box.append(rows)
+                self.radios_by_gpu[self.selected_card].set_active(True)
+        box.append(self.rows_box)
 
         if result.running_card is None:
             unknown = Gtk.Label(label=i18n._(
@@ -103,15 +117,195 @@ class GpuSwitcherApp(Gtk.Application):
             unknown.add_css_class("dim-label")
             box.append(unknown)
 
-        note = Gtk.Label(label=i18n._(
-            "M1: detection and selection only. "
-            "Apply, Reboot and Log out arrive in M2-M3."))
-        note.set_wrap(True)
-        note.add_css_class("dim-label")
-        box.append(note)
+        # Status banner: Gtk.InfoBar is deprecated since GTK 4.10; the
+        # documented replacement is a Revealer with a Box + Label using
+        # Adwaita style classes (no custom CSS).
+        self.banner = Gtk.Revealer()
+        self.banner_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.banner_label = Gtk.Label(label="")
+        self.banner_label.set_wrap(True)
+        self.banner_label.set_margin_top(6)
+        self.banner_label.set_margin_bottom(6)
+        self.banner_label.set_margin_start(12)
+        self.banner_label.set_margin_end(12)
+        self.banner_box.append(self.banner_label)
+        self.banner.set_child(self.banner_box)
+        self.banner.set_reveal_child(False)
+        if result.conflicts:
+            self._banner_show(
+                i18n._("Another udev rule sets the preferred GPU: %s. "
+                        "Resolve it manually first.")
+                % result.conflicts[0], "warning")
+        box.append(self.banner)
 
-        window.set_child(box)
-        window.present()
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.apply_btn = Gtk.Button(label=i18n._("Apply"))
+        self.apply_btn.add_css_class("suggested-action")
+        self.apply_btn.connect("clicked", self._on_apply)
+        buttons.append(self.apply_btn)
+        self.reset_btn = Gtk.Button(label=i18n._("Reset to auto"))
+        self.reset_btn.connect("clicked", self._on_reset)
+        buttons.append(self.reset_btn)
+        self.reboot_btn = Gtk.Button(label=i18n._("Reboot now"))
+        self.reboot_btn.add_css_class("destructive-action")
+        self.reboot_btn.connect("clicked", self._on_reboot)
+        buttons.append(self.reboot_btn)
+        box.append(buttons)
+
+        self.window.set_child(box)
+
+    def _on_radio_toggled(self, radio, card: str) -> None:
+        if radio.get_active():
+            self.selected_card = card
+
+    def _banner_show(self, text: str, kind: str) -> None:
+        for css_class in ("suggested-action", "destructive-action", "dim-label"):
+            self.banner_box.remove_css_class(css_class)
+        if kind == "warning":
+            self.banner_box.add_css_class("dim-label")
+        elif kind == "error":
+            self.banner_box.add_css_class("destructive-action")
+        else:
+            self.banner_box.add_css_class("suggested-action")
+        self.banner_label.set_label(text)
+        self.banner.set_reveal_child(True)
+
+    def _set_busy(self, busy: bool) -> None:
+        for button in (self.apply_btn, self.reset_btn, self.reboot_btn):
+            button.set_sensitive(not busy)
+
+    def _confirm(self, text: str, confirm_label: str, on_result) -> None:
+        """Modal confirmation via Gtk.AlertDialog (GTK >= 4.10).
+
+        The old Gtk.MessageDialog run()/add_button API no longer exists in
+        GTK 4; choose()/choose_finish() is the modern async flow. The result
+        is the clicked button's index: 0 = Cancel, 1 = confirm button; Escape
+        and closing the window both map to Cancel. The dialog's window is
+        disposed by choose_finish itself.
+        """
+        dialog = Gtk.AlertDialog()
+        dialog.set_message(text)
+        dialog.set_modal(True)
+        dialog.set_buttons([i18n._("Cancel"), confirm_label])
+        dialog.set_cancel_button(0)
+        dialog.set_default_button(1)
+
+        def on_choose(_d, task):
+            try:
+                index = _d.choose_finish(task)
+            except GLib.Error:
+                index = -1
+            on_result(index == 1)
+
+        dialog.choose(self.window, None, on_choose)
+
+    # ------------------------------------------------------------- actions
+
+    def _on_apply(self, _button) -> None:
+        if self.selected_card != SELECTION_AUTO:
+            gpu = next((g for g in self.detection.gpus
+                        if g.card == self.selected_card), None)
+            if gpu is None:  # card vanished since selection; fall back to auto
+                self.selected_card = SELECTION_AUTO
+                self.auto_radio.set_active(True)
+        if self.selected_card == SELECTION_AUTO:
+            kind = SELECTION_AUTO
+            text = i18n._(
+                "Apply removes the managed udev rule, returning to automatic "
+                "GPU selection.\n\n"
+                "If a rule is present, a backup is saved. The change takes "
+                "effect after a reboot, or after logging out and back in.")
+        else:
+            kind = gpu.card
+            text = i18n._(
+                "Apply sets %s (PCI %s) as the primary display adapter.\n\n"
+                "The managed udev rule is written; if a rule is present, a "
+                "backup is saved. The change takes effect after a reboot, or "
+                "after logging out and back in.") % (gpu.name, gpu.pci)
+
+        self._confirm(text, i18n._("Apply"),
+                      lambda ok: self._do_apply(ok, kind))
+
+    def _do_apply(self, ok, kind) -> None:
+        if not ok:
+            return
+        self._set_busy(True)
+        locale = i18n._requested_language()
+        if kind == SELECTION_AUTO:
+            bus.set_auto(locale, self._on_set_auto_done)
+        else:
+            bus.set_primary(kind, locale, self._on_set_primary_done)
+
+    def _on_set_primary_done(self, ok, message, _backup) -> None:
+        self._set_busy(False)
+        if ok:
+            self._banner_show(message, "success")
+            self._refresh()
+        else:
+            self._banner_show(message, "error")
+
+    def _on_set_auto_done(self, ok, message) -> None:
+        self._set_busy(False)
+        if ok:
+            self._banner_show(message, "success")
+            self._refresh()
+        else:
+            self._banner_show(message, "error")
+
+    def _on_reset(self, _button) -> None:
+        self.selected_card = SELECTION_AUTO
+        self.auto_radio.set_active(True)
+        self._on_apply(None)
+
+    def _on_reboot(self, _button) -> None:
+        self._confirm(i18n._("Reboot the computer now?"),
+                      i18n._("Reboot"), self._do_reboot)
+
+    def _do_reboot(self, ok) -> None:
+        if not ok:
+            return
+        self._confirm(
+            i18n._("Are you sure? The system will reboot immediately and "
+                   "the selected GPU will become primary on boot."),
+            i18n._("Reboot"), self._do_reboot_now)
+
+    def _do_reboot_now(self, ok) -> None:
+        if not ok:
+            return
+        self._set_busy(True)
+
+        def done(ok, message):
+            if ok:
+                # The machine is going down; keep the UI calm.
+                self._banner_show(i18n._("Rebooting."), "info")
+            else:
+                self._set_busy(False)
+                self._banner_show(message or i18n._("Reboot failed."), "error")
+
+        bus.reboot(done)
+
+    def _refresh(self) -> None:
+        """Re-detect (read-only) and rebuild the window after a change."""
+        self.detection = detect.detect()
+        known = self.selected_card in self.radios_by_gpu
+        if not known:
+            self.selected_card = SELECTION_AUTO
+        self._build_content()
+
+    # ------------------------------------------------------------- lifecycle
+
+    def do_activate(self) -> None:
+        self.window = Gtk.ApplicationWindow(application=self)
+        self.window.set_title("gpu-switcher")
+        self.window.set_default_size(560, 430)
+        self.detection = detect.detect()
+        # Default selection: the configured GPU, else system default.
+        for gpu in self.detection.gpus:
+            if gpu.preferred:
+                self.selected_card = gpu.card
+                break
+        self._build_content()
+        self.window.present()
 
 
 def run(argv) -> int:

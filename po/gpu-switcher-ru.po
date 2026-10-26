@@ -22,5 +22,94 @@ msgstr "Не запущено в сессии GNOME Wayland - эта сборк�
 msgid "Running primary: unknown (verify in the journal after restart)."
 msgstr "Основной GPU сейчас: неизвестно (проверьте в журнале после перезапуска)."
 
-msgid "M1: detection and selection only. Apply, Reboot and Log out arrive in M2-M3."
-msgstr "M1: только определение и выбор. Кнопки «Применить», «Перезагрузка» и «Выход» появятся в M2-M3."
+# App UI: actions and dialogs
+
+msgid "Apply"
+msgstr "Применить"
+
+msgid "Reset to auto"
+msgstr "Сбросить к авто"
+
+msgid "Reboot now"
+msgstr "Перезагрузить сейчас"
+
+msgid "Reboot"
+msgstr "Перезагрузить"
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Rebooting."
+msgstr "Идёт перезагрузка."
+
+msgid "Reboot failed."
+msgstr "Не удалось перезагрузить."
+
+msgid "Reboot the computer now?"
+msgstr "Перезагрузить компьютер сейчас?"
+
+msgid "Are you sure? The system will reboot immediately and the selected GPU will become primary on boot."
+msgstr "Вы уверены? Система немедленно перезагрузится, и выбранный GPU станет основным при загрузке."
+
+msgid "Apply sets %s (PCI %s) as the primary display adapter.\n\nThe managed udev rule is written; if a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
+msgstr "Будет назначен %s (PCI %s) основным дисплейным адаптером.\n\nЗапишется управляемое udev-правило; если правило присутствует, будет сохранена резервная копия. Изменение вступит в силу после перезагрузки, либо после выхода из сессии и повторного входа."
+
+msgid "Apply removes the managed udev rule, returning to automatic GPU selection.\n\nIf a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
+msgstr "Удалится управляемое udev-правило и выбор GPU снова станет автоматическим.\n\nЕсли правило присутствует, будет сохранена резервная копия. Изменение вступит в силу после перезагрузки, либо после выхода из сессии и повторного входа."
+
+# Helper messages (the helper loads the same catalogs; one message is shared
+# with the app's startup conflict warning)
+
+msgid "Managed rule present."
+msgstr "Управляемое правило присутствует."
+
+msgid "No managed rule (auto selection)."
+msgstr "Управляемого правила нет (автовыбор)."
+
+msgid "Authentication is required to change the primary display adapter."
+msgstr "Для смены основного дисплейного адаптера требуется авторизация."
+
+msgid "Authorization was denied. Nothing changed."
+msgstr "Авторизация отклонена. Ничего не изменено."
+
+msgid "Another udev rule sets the preferred GPU: %s. Resolve it manually first."
+msgstr "Другое udev-правило задаёт предпочтительный GPU: %s. Сначала устраните его вручную."
+
+msgid "Target PCI %s is not a valid display controller."
+msgstr "Целевой PCI %s — не корректный дисплейный контроллер."
+
+msgid "The managed rule is a symlink; refusing to modify it."
+msgstr "Управляемое правило — символьная ссылка; его изменение отклонено."
+
+msgid "The rule is already set for %s. Nothing changed."
+msgstr "Правило уже задано для %s. Ничего не изменено."
+
+msgid "udevadm verify rejected the rule; nothing changed."
+msgstr "udevadm verify отклонил правило; ничего не изменено."
+
+msgid "Backup of the existing rule failed; nothing changed."
+msgstr "Не удалось создать резервную копию текущего правила; ничего не изменено."
+
+msgid "Rule written for %s. A backup was saved to %s. The change takes effect after a reboot."
+msgstr "Правило записано для %s. Резервная копия сохранена: %s. Изменение вступит в силу после перезагрузки."
+
+msgid "Rule written for %s. The change takes effect after a reboot."
+msgstr "Правило записано для %s. Изменение вступит в силу после перезагрузки."
+
+msgid "Note: udev rule reload failed; the change will take effect on reboot."
+msgstr "Примечание: повторная загрузка udev-правил не удалась; изменение вступит в силу при перезагрузке."
+
+msgid "The managed rule is a symlink; refusing to remove it."
+msgstr "Управляемое правило — символьная ссылка; его удаление отклонено."
+
+msgid "No managed rule (auto selection already in effect)."
+msgstr "Управляемого правила нет (автовыбор уже действует)."
+
+msgid "Backup of the existing rule failed; nothing removed."
+msgstr "Не удалось создать резервную копию текущего правила; ничего не удалено."
+
+msgid "Failed to remove the managed rule; nothing changed."
+msgstr "Не удалось удалить управляемое правило; ничего не изменено."
+
+msgid "Managed rule removed. A backup was saved to %s. Auto selection applies after a reboot."
+msgstr "Управляемое правило удалено. Резервная копия сохранена: %s. Автовыбор вступит в силу после перезагрузки."

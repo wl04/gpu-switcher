@@ -22,5 +22,94 @@ msgstr "Not running in a GNOME Wayland session - this build only supports GNOME.
 msgid "Running primary: unknown (verify in the journal after restart)."
 msgstr "Running primary: unknown (verify in the journal after restart)."
 
-msgid "M1: detection and selection only. Apply, Reboot and Log out arrive in M2-M3."
-msgstr "M1: detection and selection only. Apply, Reboot and Log out arrive in M2-M3."
+# App UI: actions and dialogs
+
+msgid "Apply"
+msgstr "Apply"
+
+msgid "Reset to auto"
+msgstr "Reset to auto"
+
+msgid "Reboot now"
+msgstr "Reboot now"
+
+msgid "Reboot"
+msgstr "Reboot"
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Rebooting."
+msgstr "Rebooting."
+
+msgid "Reboot failed."
+msgstr "Reboot failed."
+
+msgid "Reboot the computer now?"
+msgstr "Reboot the computer now?"
+
+msgid "Are you sure? The system will reboot immediately and the selected GPU will become primary on boot."
+msgstr "Are you sure? The system will reboot immediately and the selected GPU will become primary on boot."
+
+msgid "Apply sets %s (PCI %s) as the primary display adapter.\n\nThe managed udev rule is written; if a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
+msgstr "Apply sets %s (PCI %s) as the primary display adapter.\n\nThe managed udev rule is written; if a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
+
+msgid "Apply removes the managed udev rule, returning to automatic GPU selection.\n\nIf a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
+msgstr "Apply removes the managed udev rule, returning to automatic GPU selection.\n\nIf a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
+
+# Helper messages (the helper loads the same catalogs; one message is shared
+# with the app's startup conflict warning)
+
+msgid "Managed rule present."
+msgstr "Managed rule present."
+
+msgid "No managed rule (auto selection)."
+msgstr "No managed rule (auto selection)."
+
+msgid "Authentication is required to change the primary display adapter."
+msgstr "Authentication is required to change the primary display adapter."
+
+msgid "Authorization was denied. Nothing changed."
+msgstr "Authorization was denied. Nothing changed."
+
+msgid "Another udev rule sets the preferred GPU: %s. Resolve it manually first."
+msgstr "Another udev rule sets the preferred GPU: %s. Resolve it manually first."
+
+msgid "Target PCI %s is not a valid display controller."
+msgstr "Target PCI %s is not a valid display controller."
+
+msgid "The managed rule is a symlink; refusing to modify it."
+msgstr "The managed rule is a symlink; refusing to modify it."
+
+msgid "The rule is already set for %s. Nothing changed."
+msgstr "The rule is already set for %s. Nothing changed."
+
+msgid "udevadm verify rejected the rule; nothing changed."
+msgstr "udevadm verify rejected the rule; nothing changed."
+
+msgid "Backup of the existing rule failed; nothing changed."
+msgstr "Backup of the existing rule failed; nothing changed."
+
+msgid "Rule written for %s. A backup was saved to %s. The change takes effect after a reboot."
+msgstr "Rule written for %s. A backup was saved to %s. The change takes effect after a reboot."
+
+msgid "Rule written for %s. The change takes effect after a reboot."
+msgstr "Rule written for %s. The change takes effect after a reboot."
+
+msgid "Note: udev rule reload failed; the change will take effect on reboot."
+msgstr "Note: udev rule reload failed; the change will take effect on reboot."
+
+msgid "The managed rule is a symlink; refusing to remove it."
+msgstr "The managed rule is a symlink; refusing to remove it."
+
+msgid "No managed rule (auto selection already in effect)."
+msgstr "No managed rule (auto selection already in effect)."
+
+msgid "Backup of the existing rule failed; nothing removed."
+msgstr "Backup of the existing rule failed; nothing removed."
+
+msgid "Failed to remove the managed rule; nothing changed."
+msgstr "Failed to remove the managed rule; nothing changed."
+
+msgid "Managed rule removed. A backup was saved to %s. Auto selection applies after a reboot."
+msgstr "Managed rule removed. A backup was saved to %s. Auto selection applies after a reboot."
