@@ -1,47 +1,44 @@
 # gpu-switcher
 
-A small GUI Linux application that switches which GPU GNOME (Mutter) uses as the
-**primary display adapter** — no hand-edited udev rules.
+A small GTK 4 GUI application that switches which GPU GNOME (Mutter) uses as
+the **primary display adapter** — no hand-edited udev rules, no terminal.
 
-Built for dual-GPU machines (dGPU + iGPU), e.g. a desktop with an AMD RX 9070 XT
-plus the CPU's integrated graphics.
+Built for dual-GPU machines (dGPU + iGPU), e.g. a desktop with a discrete AMD
+GPU plus the CPU's integrated graphics.
 
-> **v1 scope: GNOME / Wayland (Mutter) only.** KDE Plasma and X11 paths are
-> designed as later extensions, not built now.
+> **v1 scope: GNOME / Wayland (Mutter) only.** KDE Plasma and X11 are planned
+> as later extensions.
 
-## Status
+![gpu-switcher](docs/screenshot.png)
 
-**0.1.0-21 (M3.2)** — GPU detection: card list with "in use now" /
-"preferred (configured)" badges (running primary read from gnome-shell's
-journal in both rule and auto selection modes), polkit-gated **Apply** / **Reset to auto**
-(a root D-Bus-activated helper writes or removes the managed udev rule with
-backup and conflict checks), confirmation dialogs, **Reboot now**, the
-**Log out** fast path (the udev refresh — rule reload plus a scoped DRM
-re-trigger — runs inside Apply / Reset to auto under the same authorization,
-so logging out needs no extra prompt; the button is enabled only after an
-apply whose refresh succeeded),
-contextual status banners, a collapsible verification hint, i18n (English
-+ Russian), `.deb` packaging.
+## Features
 
-## Screenshot
-
-_TBD_
+- GPU list with `lspci` names, PCI addresses and `/dev/dri` nodes
+- Badges: **In use now** (primary selected by gnome-shell this boot) and
+  **Preferred (configured)** (managed udev rule on disk)
+- **Apply** / **Reset to auto** — write or remove the managed udev rule under
+  polkit authorization (a root D-Bus-activated helper does the privileged
+  work; the GUI app never touches polkit directly)
+- **Reboot now** and the **Log out** fast path (enabled after an apply whose
+  udev refresh succeeded — no extra prompt)
+- Confirmation dialogs, contextual status banners, a collapsible
+  verification hint with the exact `journalctl` command
+- English and Russian (gettext; adding a language = one more `.po` file)
 
 ## How it works
 
-Mutter chooses the primary GPU when the session starts, reading the udev tag
-`mutter-device-preferred-primary` from the udev database. `gpu-switcher`:
+Mutter reads the udev tag `mutter-device-preferred-primary` from the udev
+database when the session starts and does not re-read tags mid-session.
+`gpu-switcher` therefore:
 
-1. writes the managed udev rule `/etc/udev/rules.d/61-mutter-primary-gpu.rules`
-   (with backup and conflict checks) under **polkit** authorization — a
-   root D-Bus-activated helper does the privileged work, the GUI app never
-   touches polkit directly;
-2. activates the change: Apply already ran the udev refresh (`udevadm`
-   rules reload + scoped trigger) under the same authorization, then
-   **Reboot** (always works) or **Log out** (no extra prompt) — gnome-shell
-   re-reads the fresh tag at login.
+1. writes the managed rule `/etc/udev/rules.d/61-mutter-primary-gpu.rules`
+   (with backup and conflict checks) under **polkit** authorization;
+2. runs the udev refresh (`udevadm` rules reload + a scoped DRM re-trigger)
+   under the same authorization, then activates the change via **Reboot**
+   (always works) or **Log out** (no extra prompt) — gnome-shell re-reads the
+   fresh tag at the next session start.
 
-Verification after restart (straight from Mutter's own docs):
+Verify after restart (the line Mutter writes at session start):
 
 ```sh
 journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
@@ -52,7 +49,14 @@ journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
 ### `.deb`
 
 ```sh
-sudo dpkg -i gpu-switcher_0.1.0-21_all.deb
+sudo dpkg -i gpu-switcher_0.1.0-22_all.deb
+```
+
+When upgrading from an older version, stop a still-running helper first so
+the fresh code takes over the D-Bus name:
+
+```sh
+sudo pkill -f gpu_switcher_helper
 ```
 
 ### From source
@@ -60,30 +64,32 @@ sudo dpkg -i gpu-switcher_0.1.0-21_all.deb
 ```sh
 git clone https://github.com/wl04/gpu-switcher
 cd gpu-switcher
-./tools/build-deb.sh    # builds ../gpu-switcher_0.1.0-21_all.deb
-sudo dpkg -i ../gpu-switcher_0.1.0-21_all.deb
+./tools/build-deb.sh    # builds ../gpu-switcher_0.1.0-22_all.deb
+sudo dpkg -i ../gpu-switcher_0.1.0-22_all.deb
 ```
 
 Requires: `python3 (>= 3.12)`, `python3-gi`, `libgtk-4-1`, `polkitd`, `dbus`,
 `udev`, `systemd`, `pciutils` — all standard on Ubuntu/Debian.
 
+Uninstalling (`sudo dpkg -r gpu-switcher`) leaves the managed udev rule and
+its backups in place: they are your primary-GPU choice, not package data.
+Remove the rule manually if you no longer need it.
+
+## Development
+
+- Plain Python 3 + PyGObject (GTK 4); no compilation.
+- `.deb`: `tools/build-deb.sh` (plain `dpkg-deb`); `debian/` is kept for a
+  future `dpkg-buildpackage` flow.
+- gettext catalogs (`po/`) compile with the pure-Python `tools/po2mo.py`.
+- Unit tests: `PYTHONPATH=src python3 tests/test_detect.py -v`.
+- Design notes (architecture, polkit, detection, packaging):
+  [PLAN.md](PLAN.md).
+
 ## Roadmap
 
-| Milestone | What lands |
-|---|---|
-| **M1** | GPU detection: enumerate cards, lspci names, running primary (journal), configured preference (rule + udev tags), session guard |
-| **M2** | polkit-gated **Apply** / **Reset to auto**, confirmation dialogs, **Reboot** button |
-| **M3** | **Log out** fast path, status banners, verification hint |
-| **M4** | Packaging polish (lintian clean, changelog), release test matrix, `v0.1.0` tag |
-
-## Development notes
-
-- App + helper are plain Python 3 with PyGObject (GTK 4) — no compilation.
-- `.deb` is built with plain `dpkg-deb` via `tools/build-deb.sh`
-  (`debian/` is kept for a future debhelper flow).
-- gettext catalogs (`po/`) are compiled with the pure-Python `tools/po2mo.py`.
-- `PLAN.md` contains the full research notes and the original plan.
+- KDE Plasma and X11 support
+- More languages
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).
