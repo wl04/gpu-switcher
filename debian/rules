@@ -23,7 +23,14 @@ override_dh_auto_install:
 	install -D -m 0644 data/locale/en/LC_MESSAGES/gpu-switcher.mo debian/gpu-switcher/usr/share/gpu-switcher/locale/en/LC_MESSAGES/gpu-switcher.mo
 	install -D -m 0644 data/locale/ru/LC_MESSAGES/gpu-switcher.mo debian/gpu-switcher/usr/share/gpu-switcher/locale/ru/LC_MESSAGES/gpu-switcher.mo
 	install -D -m 0644 data/polkit/gpu-switcher.policy debian/gpu-switcher/usr/share/polkit-1/actions/gpu-switcher.policy
+	# man/gpu-switcher.1 is installed and compressed by dh_installman;
+	# the changelog above is compressed and renamed by dh_compress,
+	# the copyright stays plain text.
 	# D-Bus activation: service file (name must be <service name>.service)
 	# plus the system-bus policy that lets root own the helper's name.
 	install -D -m 0644 data/dbus/com.github.wl04.gpu_switcher.Helper.service debian/gpu-switcher/usr/share/dbus-1/system-services/com.github.wl04.gpu_switcher.Helper.service
 	install -D -m 0644 data/dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf debian/gpu-switcher/usr/share/dbus-1/system.d/com.github.wl04.gpu_switcher.Helper.conf
+	# Debian docs (copyright + changelog); the postrm maintainer script is
+	# picked up from debian/ by dh_installdeb automatically.
+	install -D -m 0644 debian/copyright debian/gpu-switcher/usr/share/doc/gpu-switcher/copyright
+	install -D -m 0644 debian/changelog debian/gpu-switcher/usr/share/doc/gpu-switcher/changelog

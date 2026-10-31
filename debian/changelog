@@ -1,0 +1,10 @@
+gpu-switcher (0.1.0-22) unstable; urgency=low
+
+  * Initial public release: GUI to switch the primary display adapter
+    (GNOME/Mutter). Polkit-gated Apply / Reset to auto via a root
+    D-Bus-activated helper, Reboot / Log out activation, GPU detection
+    (running and configured primary), verification hint, en/ru i18n.
+  * Packaging: Debian copyright and changelog files, postrm that leaves
+    the managed udev rule and its backups in place on removal.
+
+ -- wl04 <wl04@users.noreply.github.com>  Sat, 31 Oct 2026 21:00:00 +0100

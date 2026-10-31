@@ -7,8 +7,10 @@ Standards-Version: 4.7.0
 Homepage: https://github.com/wl04/gpu-switcher
 
 Package: gpu-switcher
-Version: 0.1.0-21
+Version: 0.1.0-22
 Architecture: all
+Priority: optional
+Section: utils
 Maintainer: wl04 <wl04@users.noreply.github.com>
 Depends: python3 (>= 3.12), python3-gi, libgtk-4-1, polkitd, dbus, udev, systemd, pciutils
 Description: GUI to switch the primary display adapter (GNOME/Mutter)

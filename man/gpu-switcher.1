@@ -1,0 +1,26 @@
+.TH GPU-SWITCHER 1 "31 October 2026" "gpu-switcher 0.1.0" "User Manual"
+.SH NAME
+gpu-switcher \- switch the primary display adapter (GNOME/Mutter)
+.SH SYNOPSIS
+.B gpu-switcher
+.SH DESCRIPTION
+.B gpu-switcher
+is a small GTK 4 GUI application for dual-GPU machines. It selects which
+GPU the GNOME compositor (Mutter) uses as the
+.BR primary
+display adapter by managing the udev rule
+.BR /etc/udev/rules.d/61-mutter-primary-gpu.rules
+under polkit authorization, and activates the change via reboot or logout.
+.PP
+Only GNOME/Wayland sessions are supported in v1; in any other session the
+app shows a warning banner and makes no changes.
+.SH FILES
+.TP
+.B /etc/udev/rules.d/61-mutter-primary-gpu.rules
+Managed udev rule. The app keeps
+.BI .bak.
+backups of previous rule contents.
+.SH SEE ALSO
+.BR journalctl (1),
+.BR udevadm (8),
+.BR lspci (8)

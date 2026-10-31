@@ -2,10 +2,11 @@
 # Build the gpu-switcher .deb without debhelper (plain dpkg-deb).
 # Usage: tools/build-deb.sh [output.deb]
 set -euo pipefail
+umask 022
 cd "$(dirname "$0")/.."
 
 PKG="gpu-switcher"
-VERSION="0.1.0-21"
+VERSION="0.1.0-22"
 OUT="${1:-../${PKG}_${VERSION}_all.deb}"
 
 STAGE="$(mktemp -d)"
@@ -23,7 +24,9 @@ mkdir -p \
   "$ROOT/usr/share/gpu-switcher/locale/ru/LC_MESSAGES" \
   "$ROOT/usr/share/polkit-1/actions" \
   "$ROOT/usr/share/dbus-1/system-services" \
-  "$ROOT/usr/share/dbus-1/system.d"
+  "$ROOT/usr/share/dbus-1/system.d" \
+  "$ROOT/usr/share/doc/gpu-switcher" \
+  "$ROOT/usr/share/man/man1"
 
 # Compile the gettext catalogs (also leaves them in the source tree for dev runs).
 mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
@@ -50,9 +53,18 @@ install -D -m 0644 data/dbus/com.github.wl04.gpu_switcher.Helper.service \
   "$ROOT/usr/share/dbus-1/system-services/com.github.wl04.gpu_switcher.Helper.service"
 install -D -m 0644 data/dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf \
   "$ROOT/usr/share/dbus-1/system.d/com.github.wl04.gpu_switcher.Helper.conf"
+# Debian docs and man page. Policy requires the installed changelog and
+# man page to be gzip-compressed; the copyright file stays plain text.
+# -n: no embedded name/timestamp, for reproducible builds.
+gzip -9n -c debian/changelog > "$ROOT/usr/share/doc/gpu-switcher/changelog.Debian.gz"
+install -D -m 0644 debian/copyright "$ROOT/usr/share/doc/gpu-switcher/copyright"
+gzip -9n -c man/gpu-switcher.1 > "$ROOT/usr/share/man/man1/gpu-switcher.1.gz"
+chmod 0644 "$ROOT/usr/share/doc/gpu-switcher/"* "$ROOT/usr/share/man/man1/"*
+# The postrm maintainer script.
+install -D -m 0755 debian/postrm "$ROOT/DEBIAN/postrm"
 
 # control: the binary stanza of debian/control
-mkdir "$ROOT/DEBIAN"
+mkdir -p "$ROOT/DEBIAN"
 awk '/^Package: /{found = 1} found {print}' debian/control > "$ROOT/DEBIAN/control"
 
 # md5sums

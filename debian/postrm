@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+remove)
+  # The managed udev rule and its backups are user state, not package
+  # data: leave them in place so the user's primary-GPU choice survives
+  # a package removal.
+  if [ -e /etc/udev/rules.d/61-mutter-primary-gpu.rules ]; then
+    echo "gpu-switcher: the managed udev rule /etc/udev/rules.d/61-mutter-primary-gpu.rules"
+    echo "gpu-switcher: (and its .bak.* backups) is intentionally left in place."
+    echo "gpu-switcher: Remove the rule manually if you no longer need it."
+  fi
+  ;;
+esac
