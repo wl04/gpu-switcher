@@ -40,68 +40,49 @@ HELPER_TIMEOUT_MS = 180000
 LOGIN1_TIMEOUT_MS = 15000
 
 
-def refresh_udev(locale: str, callback) -> None:
-    """Ask the helper to reload the udev rules and re-trigger the DRM
-    devices (fast path: makes the configured rule take effect without a
-    reboot).
-
-    callback(ok: bool, message: str)
-    """
-    connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
-    params = GLib.Variant("(s)", (locale,))
-
-    def on_call(c, task):
-        try:
-            ok, message = c.call_finish(task)
-        except GLib.Error as error:
-            callback(False, error.message)
-            return
-        callback(bool(ok), message)
-
-    connection.call(HELPER_NAME, HELPER_PATH, HELPER_IFACE, "RefreshUdev",
-                    params, GLib.VariantType("(bs)"), 0, HELPER_TIMEOUT_MS,
-                    None, on_call)
-
-
 def set_primary(pci: str, locale: str, callback) -> None:
     """Ask the helper to write the managed rule for this PCI address.
 
-    callback(ok: bool, message: str, backup_path: str)
+    The helper also refreshes udev (reload-rules + scoped DRM trigger)
+    under the same authorization, so the rule takes effect without a
+    second prompt. callback(ok, message, backup_path, refresh_ok).
     """
     connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
     params = GLib.Variant("(ss)", (pci, locale))
 
     def on_call(c, task):
         try:
-            ok, message, backup = c.call_finish(task)
+            ok, message, backup, refresh_ok = c.call_finish(task)
         except GLib.Error as error:
-            callback(False, error.message, "")
+            callback(False, error.message, "", False)
             return
-        callback(bool(ok), message, backup)
+        callback(bool(ok), message, backup, bool(refresh_ok))
 
     connection.call(HELPER_NAME, HELPER_PATH, HELPER_IFACE, "SetPrimary",
-                    params, GLib.VariantType("(bss)"), 0, HELPER_TIMEOUT_MS,
+                    params, GLib.VariantType("(bssb)"), 0, HELPER_TIMEOUT_MS,
                     None, on_call)
 
 
 def set_auto(locale: str, callback) -> None:
     """Ask the helper to remove the managed rule (auto selection).
 
-    callback(ok: bool, message: str)
+    The helper also refreshes udev under the same authorization, so the
+    auto selection takes effect without a second prompt.
+    callback(ok, message, refresh_ok).
     """
     connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
     params = GLib.Variant("(s)", (locale,))
 
     def on_call(c, task):
         try:
-            ok, message = c.call_finish(task)
+            ok, message, refresh_ok = c.call_finish(task)
         except GLib.Error as error:
-            callback(False, error.message)
+            callback(False, error.message, False)
             return
-        callback(bool(ok), message)
+        callback(bool(ok), message, bool(refresh_ok))
 
     connection.call(HELPER_NAME, HELPER_PATH, HELPER_IFACE, "SetAuto",
-                    params, GLib.VariantType("(bs)"), 0, HELPER_TIMEOUT_MS,
+                    params, GLib.VariantType("(bsb)"), 0, HELPER_TIMEOUT_MS,
                     None, on_call)
 
 

@@ -6,9 +6,14 @@ GUI app) calls one of its methods.
 
 Methods:
   Status(locale)            -> (rule_on_disk, message)
-  SetPrimary(pci, locale)   -> (ok, message, backup_path)
-  SetAuto(locale)           -> (ok, message)
-  RefreshUdev(locale)       -> (ok, message)
+  SetPrimary(pci, locale)   -> (ok, message, backup_path, refresh_ok)
+  SetAuto(locale)           -> (ok, message, refresh_ok)
+
+SetPrimary and SetAuto also refresh udev (udevadm control --reload-rules
+plus a scoped udevadm trigger for the DRM subsystem) under the SAME
+authorization, so activating the rule needs no second prompt; a failed
+refresh is reported per call (refresh_ok is false) and leaves reboot as
+the fallback.
 
 Authorization: polkit CheckAuthorization over raw D-Bus with the INTERACTIVE
 flag, so the standard agent dialog authenticates the caller. The dialog
@@ -86,16 +91,13 @@ INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
       <arg type="b" name="ok" direction="out"/>
       <arg type="s" name="message" direction="out"/>
       <arg type="s" name="backup_path" direction="out"/>
+      <arg type="b" name="refresh_ok" direction="out"/>
     </method>
     <method name="SetAuto">
       <arg type="s" name="locale" direction="in"/>
       <arg type="b" name="ok" direction="out"/>
       <arg type="s" name="message" direction="out"/>
-    </method>
-    <method name="RefreshUdev">
-      <arg type="s" name="locale" direction="in"/>
-      <arg type="b" name="ok" direction="out"/>
-      <arg type="s" name="message" direction="out"/>
+      <arg type="b" name="refresh_ok" direction="out"/>
     </method>
   </interface>
 </node>
@@ -346,6 +348,23 @@ def _trigger_drm():
     return out.returncode == 0
 
 
+def _refresh_udev():
+    """Reload the udev rules and re-trigger the DRM devices so the new
+    rule's tag lands in the persistent device database without a reboot.
+
+    Scoped to the DRM subsystem: only display devices are touched, nothing
+    else is re-probed. Returns True only when both steps succeeded.
+    """
+    if not _reload_rules():
+        _log("udev refresh: udevadm control --reload-rules failed")
+        return False
+    if not _trigger_drm():
+        _log("udev refresh: udevadm trigger --subsystem-match=drm failed")
+        return False
+    _log("udev refresh: reload-rules and DRM trigger succeeded")
+    return True
+
+
 def _backup_rule():
     """Copy the existing managed rule to <RULE>.bak.<UTC-ts>.<suffix>; '' on failure."""
     suffix = os.urandom(3).hex()
@@ -378,28 +397,28 @@ def handle_set_primary(connection, sender, params, invocation):
     if not _authorized(invocation, connection, locale):
         _log("SetPrimary: authorization denied or failed; nothing changed")
         invocation.return_value(
-            GLib.Variant("(bss)",
-                         (False, tr("Authorization was denied. Nothing changed."), "")))
+            GLib.Variant("(bssb)",
+                         (False, tr("Authorization was denied. Nothing changed."), "", False)))
         return
     _log("SetPrimary: authorized")
     conflicts = _rule_conflicts()
     if conflicts:
         _log(f"SetPrimary: conflicts found: {conflicts}")
         invocation.return_value(
-            GLib.Variant("(bss)",
+            GLib.Variant("(bssb)",
                          (False,
                           tr("Another udev rule sets the preferred GPU: %s. "
                              "Resolve it manually first.") % conflicts[0],
-                          "")))
+                          "", False)))
         return
     resolved = _resolve_gpu(pci)
     if resolved is None:
         _log(f"SetPrimary: invalid PCI {pci}")
         invocation.return_value(
-            GLib.Variant("(bss)",
+            GLib.Variant("(bssb)",
                          (False,
                           tr("Target PCI %s is not a valid display controller.") % pci,
-                          "")))
+                          "", False)))
         return
     _card, vendor, device = resolved
     _log(f"SetPrimary: resolved {pci} -> card={_card} vendor={vendor} device={device}")
@@ -407,10 +426,10 @@ def handle_set_primary(connection, sender, params, invocation):
     if os.path.islink(MANAGED_RULE):
         _log("SetPrimary: managed rule is a symlink; refusing")
         invocation.return_value(
-            GLib.Variant("(bss)",
+            GLib.Variant("(bssb)",
                          (False,
                           tr("The managed rule is a symlink; refusing to modify it."),
-                          "")))
+                          "", False)))
         return
 
     content = _rule_text(pci, vendor, device)
@@ -421,11 +440,14 @@ def handle_set_primary(connection, sender, params, invocation):
         existing = ""
     if existing == content:
         _log(f"SetPrimary: rule already set for {pci}; nothing to do")
+        refresh_ok = _refresh_udev()
+        if refresh_ok:
+            message = tr("The rule is already set for %s. Udev rules reloaded.") % pci
+        else:
+            message = tr("The rule is already set for %s. "
+                         "The udev refresh failed; a reboot is required.") % pci
         invocation.return_value(
-            GLib.Variant("(bss)",
-                         (True,
-                          tr("The rule is already set for %s. Nothing changed.") % pci,
-                          "")))
+            GLib.Variant("(bssb)", (True, message, "", refresh_ok)))
         return
 
     tmp_fd, tmp_path = tempfile.mkstemp(
@@ -439,10 +461,10 @@ def handle_set_primary(connection, sender, params, invocation):
             os.unlink(tmp_path)
             _log("SetPrimary: udevadm verify rejected the rule")
             invocation.return_value(
-                GLib.Variant("(bss)",
+                GLib.Variant("(bssb)",
                              (False,
                               tr("udevadm verify rejected the rule; nothing changed."),
-                              "")))
+                              "", False)))
             return
         if os.path.exists(MANAGED_RULE):
             backup = _backup_rule()
@@ -450,10 +472,10 @@ def handle_set_primary(connection, sender, params, invocation):
                 os.unlink(tmp_path)
                 _log("SetPrimary: backup of the existing rule failed")
                 invocation.return_value(
-                    GLib.Variant("(bss)",
+                    GLib.Variant("(bssb)",
                                  (False,
                                   tr("Backup of the existing rule failed; nothing changed."),
-                                  "")))
+                                  "", False)))
                 return
         else:
             backup = ""
@@ -467,16 +489,25 @@ def handle_set_primary(connection, sender, params, invocation):
             except OSError:
                 pass
 
-    if backup:
-        message = tr("Rule written for %s. A backup was saved to %s. "
-                     "The change takes effect after a reboot.") % (pci, backup)
+    refresh_ok = _refresh_udev()
+    if refresh_ok:
+        if backup:
+            message = tr("Rule written for %s. A backup was saved to %s. "
+                         "Udev rules reloaded; the change takes effect "
+                         "after the next login (or after a reboot).") % (pci, backup)
+        else:
+            message = tr("Rule written for %s. Udev rules reloaded; "
+                         "the change takes effect after the next login "
+                         "(or after a reboot).") % pci
     else:
-        message = tr("Rule written for %s. "
-                     "The change takes effect after a reboot.") % pci
-    if not _reload_rules():
-        message += " " + tr("Note: udev rule reload failed; "
-                            "the change will take effect on reboot.")
-    invocation.return_value(GLib.Variant("(bss)", (True, message, backup)))
+        if backup:
+            message = tr("Rule written for %s. A backup was saved to %s. "
+                         "The udev refresh failed; a reboot is required.") % (pci, backup)
+        else:
+            message = tr("Rule written for %s. "
+                         "The udev refresh failed; a reboot is required.") % pci
+    invocation.return_value(
+        GLib.Variant("(bssb)", (True, message, backup, refresh_ok)))
 
 
 def handle_set_auto(connection, sender, params, invocation):
@@ -486,48 +517,73 @@ def handle_set_auto(connection, sender, params, invocation):
     if not _authorized(invocation, connection, locale):
         _log("SetAuto: authorization denied or failed; nothing changed")
         invocation.return_value(
-            GLib.Variant("(bs)",
-                         (False, tr("Authorization was denied. Nothing changed."))))
+            GLib.Variant("(bsb)",
+                         (False, tr("Authorization was denied. Nothing changed."), False)))
         return
     _log("SetAuto: authorized")
     if os.path.islink(MANAGED_RULE):
         _log("SetAuto: managed rule is a symlink; refusing")
         invocation.return_value(
-            GLib.Variant("(bs)",
+            GLib.Variant("(bsb)",
                          (False,
-                          tr("The managed rule is a symlink; refusing to remove it."))))
+                          tr("The managed rule is a symlink; refusing to remove it."), False)))
         return
     if not os.path.exists(MANAGED_RULE):
         _log("SetAuto: no managed rule; already auto")
         invocation.return_value(
-            GLib.Variant("(bs)",
+            GLib.Variant("(bsb)",
                          (True,
-                          tr("No managed rule (auto selection already in effect)."))))
+                          tr("No managed rule (auto selection already in effect)."), False)))
         return
     backup = _backup_rule()
     if backup == "":
         _log("SetAuto: backup of the existing rule failed")
         invocation.return_value(
-            GLib.Variant("(bs)",
+            GLib.Variant("(bsb)",
                          (False,
-                          tr("Backup of the existing rule failed; nothing removed."))))
+                          tr("Backup of the existing rule failed; nothing removed."), False)))
         return
     try:
         os.unlink(MANAGED_RULE)
     except OSError:
         _log("SetAuto: failed to remove the managed rule")
         invocation.return_value(
-            GLib.Variant("(bs)",
+            GLib.Variant("(bsb)",
                          (False,
-                          tr("Failed to remove the managed rule; nothing changed."))))
+                          tr("Failed to remove the managed rule; nothing changed."), False)))
         return
     _log(f"SetAuto: rule removed (backup: {backup})")
-    message = tr("Managed rule removed. A backup was saved to %s. "
-                 "Auto selection applies after a reboot.") % backup
-    if not _reload_rules():
-        message += " " + tr("Note: udev rule reload failed; "
-                            "the change will take effect on reboot.")
-    invocation.return_value(GLib.Variant("(bs)", (True, message)))
+    refresh_ok = _refresh_udev()
+    if refresh_ok:
+        message = tr("Managed rule removed. A backup was saved to %s. "
+                     "Udev rules reloaded; auto selection applies after "
+                     "the next login (or after a reboot).") % backup
+    else:
+        message = tr("Managed rule removed. A backup was saved to %s. "
+                     "The udev refresh failed; a reboot is required.") % backup
+    invocation.return_value(GLib.Variant("(bsb)", (True, message, refresh_ok)))
+
+
+# A D-Bus-activated helper stays alive as the name owner between calls; if it
+# never exits, it keeps serving stale code after a package upgrade. Quit
+# shortly after the last call: the broker re-activates a fresh process from
+# the on-disk code on the next call.
+IDLE_TIMEOUT_MS = 60000
+_IDLE_SOURCE = None
+
+
+def _reset_idle_timer():
+    global _IDLE_SOURCE
+    if _IDLE_SOURCE is not None:
+        GLib.source_remove(_IDLE_SOURCE)
+
+    def on_idle():
+        _log("idle timeout; exiting so the next call re-activates fresh code")
+        if _LOOP is not None:
+            _LOOP.quit()
+        return False
+
+    _IDLE_SOURCE = GLib.timeout_add(IDLE_TIMEOUT_MS, on_idle)
 
 
 def handle_method_call(connection, sender, object_path, interface_name,
@@ -540,8 +596,6 @@ def handle_method_call(connection, sender, object_path, interface_name,
             handle_set_primary(connection, sender, params, invocation)
         elif method_name == "SetAuto":
             handle_set_auto(connection, sender, params, invocation)
-        elif method_name == "RefreshUdev":
-            handle_refresh_udev(connection, sender, params, invocation)
         else:
             invocation.return_gerror(GLib.Error.new_literal(
                 GLib.quark_from_string("gpu-switcher-error"),
@@ -550,42 +604,10 @@ def handle_method_call(connection, sender, object_path, interface_name,
         _internal_error(
             invocation,
             f"unhandled exception in {method_name}:\n{traceback.format_exc()}")
+    _reset_idle_timer()
 
 
 _LOOP = None
-
-
-def handle_refresh_udev(connection, sender, params, invocation):
-    locale = params[0]
-    tr = _translator(locale)
-    _log(f"RefreshUdev: locale={locale} sender={sender}")
-    if not _authorized(invocation, connection, locale):
-        _log("RefreshUdev: authorization denied or failed; nothing changed")
-        invocation.return_value(
-            GLib.Variant("(bs)",
-                         (False, tr("Authorization was denied. Nothing changed."))))
-        return
-    _log("RefreshUdev: authorized")
-    if not _reload_rules():
-        _log("RefreshUdev: udevadm control --reload-rules failed")
-        invocation.return_value(
-            GLib.Variant("(bs)",
-                         (False, tr("udev rules could not be reloaded; "
-                                     "a reboot is required."))))
-        return
-    if not _trigger_drm():
-        _log("RefreshUdev: udevadm trigger --subsystem-match=drm failed")
-        invocation.return_value(
-            GLib.Variant("(bs)",
-                         (False, tr("The udev trigger for DRM devices failed; "
-                                     "a reboot is required."))))
-        return
-    _log("RefreshUdev: reload-rules and DRM trigger succeeded")
-    invocation.return_value(
-        GLib.Variant("(bs)",
-                     (True, tr("udev rules reloaded; DRM devices re-triggered. "
-                               "The configured GPU takes effect on the next "
-                               "login."))))
 
 
 def on_bus_acquired(connection, name):

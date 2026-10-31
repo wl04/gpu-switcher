@@ -7,7 +7,7 @@ Standards-Version: 4.7.0
 Homepage: https://github.com/wl04/gpu-switcher
 
 Package: gpu-switcher
-Version: 0.1.0-17
+Version: 0.1.0-20
 Architecture: all
 Maintainer: wl04 <wl04@users.noreply.github.com>
 Depends: python3 (>= 3.12), python3-gi, libgtk-4-1, polkitd, dbus, udev, systemd, pciutils

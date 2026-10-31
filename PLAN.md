@@ -137,10 +137,21 @@ switch is cheap.
 - Interface methods (all async from the app's point of view):
   - `Status(locale: s) → (rule_on_disk: s, message: s)` — implemented (M0): read-only
     view of the managed rule
-  - `SetPrimary(pci: s, locale: s) → (ok: b, message: s, backup_path: s)` — M2
-  - `SetAuto(locale: s) → (ok: b, message: s)` — M2 (removes only the managed rule)
-  - `RefreshUdev(locale: s) → (ok: b, message: s)` — M3 (reload-rules + scoped
-    trigger; used by the fast path; also run after every SetPrimary/SetAuto)
+  - `SetPrimary(pci: s, locale: s) → (ok: b, message: s, backup_path: s, refresh_ok: b)`
+    — writes the rule (or confirms it is already in place) and then refreshes
+    udev (reload-rules + scoped trigger) under the same authorization
+  - `SetAuto(locale: s) → (ok: b, message: s, refresh_ok: b)` — removes only
+    the managed rule and refreshes udev under the same authorization
+
+The udev refresh lives inside SetPrimary/SetAuto rather than in a standalone
+method: one polkit prompt covers both the rule change and its activation,
+and a failed refresh is reported per call (`refresh_ok` is false), leaving
+reboot as the fallback.
+
+The helper quits ~60 s after the last call (a D-Bus-activated service stays
+alive as the name owner between calls); the broker then re-activates a fresh
+process from the on-disk code, so a package upgrade cannot leave a stale
+helper serving old method signatures.
 
 `locale` is passed explicitly because a root-activated helper has **no user locale in its
 environment** — the localized polkit dialog message must come from the caller.
@@ -240,8 +251,9 @@ One window (~560×430, Adwaita, no custom CSS):
   - **Apply** → confirmation dialog (shows what will be written + that a restart of the
     session is needed) → polkit dialog → helper `SetPrimary` (+ backup notice)
   - **Reboot now** → confirmation → `login1 Manager.Reboot`
-  - **Log out** (fast path, secondary style) → `RefreshUdev` then `login1 Session.Logout`;
-    disabled if trigger is unavailable/failed
+  - **Log out** (fast path, secondary style) → `login1` session terminate;
+    enabled only after an Apply/Reset whose udev refresh succeeded (no polkit
+    prompt of its own)
   - **Reset to auto** → `SetAuto` (polkit) + note that auto-selection applies after restart
 - **Status banner** (contextual):
   - after apply: "Change saved. It takes effect after reboot." / fast path: "…after next login."
@@ -315,7 +327,8 @@ Interaction rules:
 | **M0 skeleton — done** | git repo, project layout, `.desktop`, icon, app window, `debian/` boilerplate, `.deb` build | `dpkg -i` works, app launches from menu, first commits in |
 | **M1 detection — done** | GPU enumeration + naming, running primary (journal), configured preference (rule+TAGS), session guard | both GPUs listed with correct names; "In use now" = card2 (iGPU) today; "Preferred" = card2 |
 | **M2 polkit + apply — done** | `.policy`, helper service, `SetPrimary`/`SetAuto`, confirmation dialogs, Apply button, Reboot button | verified in 0.1.0-11: localized polkit dialog, rule + backup written correctly, denial/cancel safe, card1↔card2 switch effective after reboot |
-| **M3 fast path + activation — done** | `RefreshUdev`, Log-out button, status banners, verification hint | verified in 0.1.0-17: Apply → Log out → log in switches the primary in both directions (journal shows the new card as primary); one polkit prompt per privileged step; reboot path verified end-to-end |
+| **M3 fast path + activation — done** | Log-out button, status banners, verification hint | verified in 0.1.0-17: Apply → Log out → log in switches the primary in both directions (journal shows the new card as primary); one polkit prompt per privileged step; reboot path verified end-to-end |
+| **M3.1 refresh in Apply — done** | udev refresh (reload-rules + scoped DRM trigger) folded into SetPrimary/SetAuto under the same polkit authorization; standalone RefreshUdev removed; Log out = session terminate only | verified in 0.1.0-20: one polkit prompt per switch; Apply → Log out → log in switches the primary in both directions without a second prompt; post-reboot rule mode works |
 | **M4 packaging polish** | lintian clean, changelog, icon, locale catalogs, install/remove scripts | full test matrix below passes |
 
 **Test matrix (on this machine):**

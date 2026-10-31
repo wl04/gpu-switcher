@@ -11,13 +11,14 @@ plus the CPU's integrated graphics.
 
 ## Status
 
-**0.1.0-17 (M3)** — GPU detection: card list with "in use now" /
+**0.1.0-20 (M3.1)** — GPU detection: card list with "in use now" /
 "preferred (configured)" badges, polkit-gated **Apply** / **Reset to auto**
 (a root D-Bus-activated helper writes or removes the managed udev rule with
 backup and conflict checks), confirmation dialogs, **Reboot now**, the
-**Log out** fast path (the helper reloads the udev rules and re-triggers the
-DRM devices, then logs the session out — no reboot needed; the button stays
-disabled while there is nothing to refresh or after a failed trigger),
+**Log out** fast path (the udev refresh — rule reload plus a scoped DRM
+re-trigger — runs inside Apply / Reset to auto under the same authorization,
+so logging out needs no extra prompt; the button is enabled only after an
+apply whose refresh succeeded),
 contextual status banners, a collapsible verification hint, i18n (English
 + Russian), `.deb` packaging.
 
@@ -34,8 +35,9 @@ Mutter chooses the primary GPU when the session starts, reading the udev tag
    (with backup and conflict checks) under **polkit** authorization — a
    root D-Bus-activated helper does the privileged work, the GUI app never
    touches polkit directly;
-2. activates the change via **Reboot** (always works) or a **Log out** fast
-   path (`udevadm` rules reload + scoped trigger), after which gnome-shell
+2. activates the change: Apply already ran the udev refresh (`udevadm`
+   rules reload + scoped trigger) under the same authorization, then
+   **Reboot** (always works) or **Log out** (no extra prompt) — gnome-shell
    re-reads the fresh tag at login.
 
 Verification after restart (straight from Mutter's own docs):
@@ -49,7 +51,7 @@ journalctl -b0 /usr/bin/gnome-shell | grep 'selected primary'
 ### `.deb`
 
 ```sh
-sudo dpkg -i gpu-switcher_0.1.0-17_all.deb
+sudo dpkg -i gpu-switcher_0.1.0-20_all.deb
 ```
 
 ### From source
@@ -57,8 +59,8 @@ sudo dpkg -i gpu-switcher_0.1.0-17_all.deb
 ```sh
 git clone https://github.com/wl04/gpu-switcher
 cd gpu-switcher
-./tools/build-deb.sh    # builds ../gpu-switcher_0.1.0-17_all.deb
-sudo dpkg -i ../gpu-switcher_0.1.0-17_all.deb
+./tools/build-deb.sh    # builds ../gpu-switcher_0.1.0-20_all.deb
+sudo dpkg -i ../gpu-switcher_0.1.0-20_all.deb
 ```
 
 Requires: `python3 (>= 3.12)`, `python3-gi`, `libgtk-4-1`, `polkitd`, `dbus`,

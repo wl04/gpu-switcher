@@ -4,10 +4,10 @@ M1: GPU list with "In use now" / "Preferred (configured)" badges and the
 GNOME Wayland session guard.
 M2: polkit-gated Apply / Reset to auto, Reboot now, confirmation dialogs
 and a contextual status banner (see PLAN.md).
-M3: Log out fast path (helper RefreshUdev, then login1 Session.Terminate),
-kept disabled while there is nothing to refresh or after a failed udev
-trigger, plus a collapsible verification hint with the journalctl
-command from Mutter's docs.
+M3: Log out fast path (login1 Session.Terminate; the udev refresh already
+ran inside Apply/Reset under the same polkit authorization), kept
+disabled until an apply whose udev refresh succeeded, plus a collapsible
+verification hint with the journalctl command from Mutter's docs.
 """
 from __future__ import annotations
 
@@ -21,16 +21,6 @@ from . import bus, detect, i18n
 
 APP_ID = "com.github.wl04.gpu-switcher"
 SELECTION_AUTO = "auto"
-
-# Helper RefreshUdev failure messages (both shipped locales) end with this
-# phrase when the reload or trigger failed; a polkit denial does not. A
-# denial keeps the fast path available for a retry, a real failure disables
-# it (only the reboot path is left).
-_TRIGGER_FAILED_MARKERS = ("reboot is required.", "требуется перезагрузка.")
-
-
-def _trigger_failed(message: str) -> bool:
-    return any(marker in message for marker in _TRIGGER_FAILED_MARKERS)
 
 
 def _badge(text: str) -> Gtk.Label:
@@ -53,8 +43,7 @@ class GpuSwitcherApp(Gtk.Application):
         self.reset_btn = None
         self.reboot_btn = None
         self.logout_btn = None
-        self.fast_path_pending = False  # a change was just applied
-        self.fast_path_ok = True        # not blocked by a failed trigger
+        self.fast_path_pending = False  # last apply/reset refreshed udev successfully
 
     # ------------------------------------------------------------------ UI
 
@@ -230,11 +219,11 @@ class GpuSwitcherApp(Gtk.Application):
             button.set_sensitive(not busy)
 
     def _fast_path_enabled(self) -> bool:
-        """Log out is useful only when there is something to refresh: a
-        managed rule on disk, or a change applied just now. A failed udev
-        trigger keeps it disabled (reboot is the only path left)."""
-        rule_present = self.detection.preferred_pci is not None
-        return self.fast_path_ok and (rule_present or self.fast_path_pending)
+        """Log out is only useful after an apply/reset whose udev refresh
+        succeeded: the tags are then fresh, so a logout/login switches the
+        primary without another prompt. A failed refresh keeps it disabled
+        (reboot is the only path left)."""
+        return self.fast_path_pending
 
     def _confirm(self, text: str, confirm_label: str, on_result) -> None:
         """Modal confirmation via Gtk.AlertDialog (GTK >= 4.10).
@@ -316,20 +305,20 @@ class GpuSwitcherApp(Gtk.Application):
         else:
             bus.set_primary(target, locale, self._on_set_primary_done)
 
-    def _on_set_primary_done(self, ok, message, _backup) -> None:
+    def _on_set_primary_done(self, ok, message, _backup, refresh_ok) -> None:
         self._set_busy(False)
         if ok:
-            self.fast_path_pending = True
+            self.fast_path_pending = bool(refresh_ok)
             self._banner_show(message, "success")
             self._refresh()
         else:
             self._banner_show(message, "error")
             self._revert_selection()
 
-    def _on_set_auto_done(self, ok, message) -> None:
+    def _on_set_auto_done(self, ok, message, refresh_ok) -> None:
         self._set_busy(False)
         if ok:
-            self.fast_path_pending = True
+            self.fast_path_pending = bool(refresh_ok)
             self._banner_show(message, "success")
             self._refresh()
         else:
@@ -380,17 +369,6 @@ class GpuSwitcherApp(Gtk.Application):
         if not ok:
             return
         self._set_busy(True)
-        bus.refresh_udev(i18n._requested_language(), self._on_refresh_done)
-
-    def _on_refresh_done(self, ok, message) -> None:
-        if not ok:
-            self._set_busy(False)
-            if _trigger_failed(message):
-                # Trigger unavailable or failed: only the reboot path works.
-                self.fast_path_ok = False
-                self.logout_btn.set_sensitive(False)
-            self._banner_show(message or i18n._("Log out failed."), "error")
-            return
         self._banner_show(i18n._("Logging out."), "info")
         bus.logout(self._on_logout_done)
 
