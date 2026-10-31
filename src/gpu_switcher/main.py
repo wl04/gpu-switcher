@@ -209,14 +209,14 @@ class GpuSwitcherApp(Gtk.Application):
                 self.selected_card = SELECTION_AUTO
                 self.auto_radio.set_active(True)
         if self.selected_card == SELECTION_AUTO:
-            kind = SELECTION_AUTO
+            target = SELECTION_AUTO
             text = i18n._(
                 "Apply removes the managed udev rule, returning to automatic "
                 "GPU selection.\n\n"
                 "If a rule is present, a backup is saved. The change takes "
                 "effect after a reboot, or after logging out and back in.")
         else:
-            kind = gpu.card
+            target = gpu.pci
             text = i18n._(
                 "Apply sets %s (PCI %s) as the primary display adapter.\n\n"
                 "The managed udev rule is written; if a rule is present, a "
@@ -224,17 +224,35 @@ class GpuSwitcherApp(Gtk.Application):
                 "after logging out and back in.") % (gpu.name, gpu.pci)
 
         self._confirm(text, i18n._("Apply"),
-                      lambda ok: self._do_apply(ok, kind))
+                      lambda ok: self._do_apply(ok, target))
 
-    def _do_apply(self, ok, kind) -> None:
+    def _revert_selection(self) -> None:
+        """Reset the radio selection to the currently configured GPU.
+
+        Used when a pending action is cancelled or fails: nothing on disk
+        changed, so the UI must show the real configured state, not the
+        un-applied choice.
+        """
+        preferred = self.detection.preferred_pci
+        card = next((g.card for g in self.detection.gpus
+                     if g.pci == preferred), None)
+        if card is None:
+            self.selected_card = SELECTION_AUTO
+            self.auto_radio.set_active(True)
+        else:
+            self.selected_card = card
+            self.radios_by_gpu[card].set_active(True)
+
+    def _do_apply(self, ok, target) -> None:
         if not ok:
+            self._revert_selection()
             return
         self._set_busy(True)
         locale = i18n._requested_language()
-        if kind == SELECTION_AUTO:
+        if target == SELECTION_AUTO:
             bus.set_auto(locale, self._on_set_auto_done)
         else:
-            bus.set_primary(kind, locale, self._on_set_primary_done)
+            bus.set_primary(target, locale, self._on_set_primary_done)
 
     def _on_set_primary_done(self, ok, message, _backup) -> None:
         self._set_busy(False)
@@ -243,6 +261,7 @@ class GpuSwitcherApp(Gtk.Application):
             self._refresh()
         else:
             self._banner_show(message, "error")
+            self._revert_selection()
 
     def _on_set_auto_done(self, ok, message) -> None:
         self._set_busy(False)
@@ -251,6 +270,7 @@ class GpuSwitcherApp(Gtk.Application):
             self._refresh()
         else:
             self._banner_show(message, "error")
+            self._revert_selection()
 
     def _on_reset(self, _button) -> None:
         self.selected_card = SELECTION_AUTO

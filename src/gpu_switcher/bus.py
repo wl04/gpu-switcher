@@ -81,12 +81,13 @@ def set_auto(locale: str, callback) -> None:
 
 
 def reboot(callback) -> None:
-    """login1 Manager.Reboot() — standard polkit action, no custom policy.
+    """login1 Manager.Reboot(interactive) — standard polkit action, no
+    custom policy. interactive=False: no interactive logind prompt.
 
     callback(ok: bool, message: str)
     """
     connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
-    params = GLib.Variant("()", ())
+    params = GLib.Variant("(b)", (False,))
 
     def on_call(c, task):
         try:
@@ -101,7 +102,8 @@ def reboot(callback) -> None:
 
 
 def logout(callback) -> None:
-    """login1 Session.Logout() for our own session (M3 fast path).
+    """login1 Session.Logout(interactive) for our own session (M3 fast
+    path). interactive=False: no interactive logind prompt.
 
     callback(ok: bool, message: str)
     """
@@ -111,7 +113,7 @@ def logout(callback) -> None:
         return
     session_path = "/org/freedesktop/login1/session%d" % int(session_id)
     connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
-    params = GLib.Variant("()", ())
+    params = GLib.Variant("(b)", (False,))
 
     def on_call(c, task):
         try:

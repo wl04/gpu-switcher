@@ -314,7 +314,7 @@ Interaction rules:
 |---|---|---|
 | **M0 skeleton — done** | git repo, project layout, `.desktop`, icon, app window, `debian/` boilerplate, `.deb` build | `dpkg -i` works, app launches from menu, first commits in |
 | **M1 detection — done** | GPU enumeration + naming, running primary (journal), configured preference (rule+TAGS), session guard | both GPUs listed with correct names; "In use now" = card2 (iGPU) today; "Preferred" = card2 |
-| **M2 polkit + apply** | `.policy`, helper service, `SetPrimary`/`SetAuto`, confirmation dialogs, Apply button, Reboot button | polkit dialog with localized message; rule file + backup written correctly; denial path safe |
+| **M2 polkit + apply — done** | `.policy`, helper service, `SetPrimary`/`SetAuto`, confirmation dialogs, Apply button, Reboot button | verified in 0.1.0-11: localized polkit dialog, rule + backup written correctly, denial/cancel safe, card1↔card2 switch effective after reboot |
 | **M3 fast path + activation** | `RefreshUdev`, Log-out button, status banners, verification hint | logout/login path actually switches primary (journal shows new GPU); reboot path verified end-to-end |
 | **M4 packaging polish** | lintian clean, changelog, icon, locale catalogs, install/remove scripts | full test matrix below passes |
 
