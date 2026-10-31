@@ -8,6 +8,7 @@ Methods:
   Status(locale)            -> (rule_on_disk, message)
   SetPrimary(pci, locale)   -> (ok, message, backup_path)
   SetAuto(locale)           -> (ok, message)
+  RefreshUdev(locale)       -> (ok, message)
 
 Authorization: polkit CheckAuthorization over raw D-Bus with the INTERACTIVE
 flag, so the standard agent dialog authenticates the caller. The dialog
@@ -87,6 +88,11 @@ INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
       <arg type="s" name="backup_path" direction="out"/>
     </method>
     <method name="SetAuto">
+      <arg type="s" name="locale" direction="in"/>
+      <arg type="b" name="ok" direction="out"/>
+      <arg type="s" name="message" direction="out"/>
+    </method>
+    <method name="RefreshUdev">
       <arg type="s" name="locale" direction="in"/>
       <arg type="b" name="ok" direction="out"/>
       <arg type="s" name="message" direction="out"/>
@@ -323,6 +329,23 @@ def _reload_rules():
         return False
 
 
+def _trigger_drm():
+    """Re-emit DRM kernel events so udev re-runs the rules and refreshes
+    the persistent device database with the new tags.
+
+    Scoped to the DRM subsystem: only display devices are touched, nothing
+    else is re-probed. Returns True when the trigger ran cleanly.
+    """
+    try:
+        out = subprocess.run(["udevadm", "trigger", "--subsystem-match=drm"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    _log(f"udevadm trigger --subsystem-match=drm rc={out.returncode} "
+         f"output={out.stdout.strip() or out.stderr.strip() or '-'}")
+    return out.returncode == 0
+
+
 def _backup_rule():
     """Copy the existing managed rule to <RULE>.bak.<UTC-ts>.<suffix>; '' on failure."""
     suffix = os.urandom(3).hex()
@@ -517,6 +540,8 @@ def handle_method_call(connection, sender, object_path, interface_name,
             handle_set_primary(connection, sender, params, invocation)
         elif method_name == "SetAuto":
             handle_set_auto(connection, sender, params, invocation)
+        elif method_name == "RefreshUdev":
+            handle_refresh_udev(connection, sender, params, invocation)
         else:
             invocation.return_gerror(GLib.Error.new_literal(
                 GLib.quark_from_string("gpu-switcher-error"),
@@ -528,6 +553,39 @@ def handle_method_call(connection, sender, object_path, interface_name,
 
 
 _LOOP = None
+
+
+def handle_refresh_udev(connection, sender, params, invocation):
+    locale = params[0]
+    tr = _translator(locale)
+    _log(f"RefreshUdev: locale={locale} sender={sender}")
+    if not _authorized(invocation, connection, locale):
+        _log("RefreshUdev: authorization denied or failed; nothing changed")
+        invocation.return_value(
+            GLib.Variant("(bs)",
+                         (False, tr("Authorization was denied. Nothing changed."))))
+        return
+    _log("RefreshUdev: authorized")
+    if not _reload_rules():
+        _log("RefreshUdev: udevadm control --reload-rules failed")
+        invocation.return_value(
+            GLib.Variant("(bs)",
+                         (False, tr("udev rules could not be reloaded; "
+                                     "a reboot is required."))))
+        return
+    if not _trigger_drm():
+        _log("RefreshUdev: udevadm trigger --subsystem-match=drm failed")
+        invocation.return_value(
+            GLib.Variant("(bs)",
+                         (False, tr("The udev trigger for DRM devices failed; "
+                                     "a reboot is required."))))
+        return
+    _log("RefreshUdev: reload-rules and DRM trigger succeeded")
+    invocation.return_value(
+        GLib.Variant("(bs)",
+                     (True, tr("udev rules reloaded; DRM devices re-triggered. "
+                               "The configured GPU takes effect on the next "
+                               "login."))))
 
 
 def on_bus_acquired(connection, name):

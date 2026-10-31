@@ -3,8 +3,11 @@
 M1: GPU list with "In use now" / "Preferred (configured)" badges and the
 GNOME Wayland session guard.
 M2: polkit-gated Apply / Reset to auto, Reboot now, confirmation dialogs
-and a contextual status banner (see PLAN.md). The Log out fast path lands
-in M3.
+and a contextual status banner (see PLAN.md).
+M3: Log out fast path (helper RefreshUdev, then login1 Session.Terminate),
+kept disabled while there is nothing to refresh or after a failed udev
+trigger, plus a collapsible verification hint with the journalctl
+command from Mutter's docs.
 """
 from __future__ import annotations
 
@@ -18,6 +21,16 @@ from . import bus, detect, i18n
 
 APP_ID = "com.github.wl04.gpu-switcher"
 SELECTION_AUTO = "auto"
+
+# Helper RefreshUdev failure messages (both shipped locales) end with this
+# phrase when the reload or trigger failed; a polkit denial does not. A
+# denial keeps the fast path available for a retry, a real failure disables
+# it (only the reboot path is left).
+_TRIGGER_FAILED_MARKERS = ("reboot is required.", "требуется перезагрузка.")
+
+
+def _trigger_failed(message: str) -> bool:
+    return any(marker in message for marker in _TRIGGER_FAILED_MARKERS)
 
 
 def _badge(text: str) -> Gtk.Label:
@@ -39,6 +52,9 @@ class GpuSwitcherApp(Gtk.Application):
         self.apply_btn = None
         self.reset_btn = None
         self.reboot_btn = None
+        self.logout_btn = None
+        self.fast_path_pending = False  # a change was just applied
+        self.fast_path_ok = True        # not blocked by a failed trigger
 
     # ------------------------------------------------------------------ UI
 
@@ -46,7 +62,12 @@ class GpuSwitcherApp(Gtk.Application):
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         row.append(radio)
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        text.append(Gtk.Label(label=name))
+        name_label = Gtk.Label(label=name)
+        # A bare GtkLabel centers its text inside the box (default
+        # xalign is 0.5); the name must sit at the left edge like the
+        # PCI line below it.
+        name_label.set_xalign(0.0)
+        text.append(name_label)
         lower = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         if sub:
             sub_label = Gtk.Label(label=sub)
@@ -150,7 +171,40 @@ class GpuSwitcherApp(Gtk.Application):
         self.reboot_btn.add_css_class("destructive-action")
         self.reboot_btn.connect("clicked", self._on_reboot)
         buttons.append(self.reboot_btn)
+        self.logout_btn = Gtk.Button(label=i18n._("Log out"))
+        self.logout_btn.connect("clicked", self._on_logout)
+        self.logout_btn.set_sensitive(self._fast_path_enabled())
+        buttons.append(self.logout_btn)
         box.append(buttons)
+
+        # Verification hint (footer, collapsible): the exact command from
+        # Mutter's multi-GPU docs. Prose lines use the regular font; only
+        # the command and the expected journal line are monospace.
+        hint = Gtk.Expander()
+        hint.set_label(i18n._("How to verify the switch after restart"))
+        hint_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        hint_box.set_margin_top(8)
+        # Left-align the block: the expander centers its child otherwise,
+        # and a bare GtkLabel centers its text inside the box (default
+        # xalign is 0.5), so each line needs an explicit xalign of 0.
+        lead = Gtk.Label(label=i18n._("Run in a terminal after reboot or login:"))
+        lead.set_wrap(True)
+        command = Gtk.Label(label="journalctl -b0 /usr/bin/gnome-shell "
+                                  "| grep 'selected primary'")
+        command.set_wrap(True)
+        command.add_css_class("monospace")
+        command.add_css_class("dim-label")
+        mid = Gtk.Label(label=i18n._("and look for a line like:"))
+        example = Gtk.Label(
+            label="GPU /dev/dri/cardN selected primary given udev rule")
+        example.add_css_class("monospace")
+        example.add_css_class("dim-label")
+        example.set_wrap(True)
+        for label in (lead, command, mid, example):
+            label.set_xalign(0.0)
+            hint_box.append(label)
+        hint.set_child(hint_box)
+        box.append(hint)
 
         self.window.set_child(box)
 
@@ -171,8 +225,16 @@ class GpuSwitcherApp(Gtk.Application):
         self.banner.set_reveal_child(True)
 
     def _set_busy(self, busy: bool) -> None:
-        for button in (self.apply_btn, self.reset_btn, self.reboot_btn):
+        for button in (self.apply_btn, self.reset_btn, self.reboot_btn,
+                       self.logout_btn):
             button.set_sensitive(not busy)
+
+    def _fast_path_enabled(self) -> bool:
+        """Log out is useful only when there is something to refresh: a
+        managed rule on disk, or a change applied just now. A failed udev
+        trigger keeps it disabled (reboot is the only path left)."""
+        rule_present = self.detection.preferred_pci is not None
+        return self.fast_path_ok and (rule_present or self.fast_path_pending)
 
     def _confirm(self, text: str, confirm_label: str, on_result) -> None:
         """Modal confirmation via Gtk.AlertDialog (GTK >= 4.10).
@@ -257,6 +319,7 @@ class GpuSwitcherApp(Gtk.Application):
     def _on_set_primary_done(self, ok, message, _backup) -> None:
         self._set_busy(False)
         if ok:
+            self.fast_path_pending = True
             self._banner_show(message, "success")
             self._refresh()
         else:
@@ -266,6 +329,7 @@ class GpuSwitcherApp(Gtk.Application):
     def _on_set_auto_done(self, ok, message) -> None:
         self._set_busy(False)
         if ok:
+            self.fast_path_pending = True
             self._banner_show(message, "success")
             self._refresh()
         else:
@@ -303,6 +367,39 @@ class GpuSwitcherApp(Gtk.Application):
                 self._banner_show(message or i18n._("Reboot failed."), "error")
 
         bus.reboot(done)
+
+    # ------------------------------------------------------------- fast path
+
+    def _on_logout(self, _button) -> None:
+        self._confirm(i18n._(
+            "Log out now? The session will end, and the configured GPU "
+            "takes effect on the next login."),
+            i18n._("Log out"), self._do_logout)
+
+    def _do_logout(self, ok) -> None:
+        if not ok:
+            return
+        self._set_busy(True)
+        bus.refresh_udev(i18n._requested_language(), self._on_refresh_done)
+
+    def _on_refresh_done(self, ok, message) -> None:
+        if not ok:
+            self._set_busy(False)
+            if _trigger_failed(message):
+                # Trigger unavailable or failed: only the reboot path works.
+                self.fast_path_ok = False
+                self.logout_btn.set_sensitive(False)
+            self._banner_show(message or i18n._("Log out failed."), "error")
+            return
+        self._banner_show(i18n._("Logging out."), "info")
+        bus.logout(self._on_logout_done)
+
+    def _on_logout_done(self, ok, message) -> None:
+        if ok:
+            # The session is ending; the app dies with it.
+            return
+        self._set_busy(False)
+        self._banner_show(message or i18n._("Log out failed."), "error")
 
     def _refresh(self) -> None:
         """Re-detect (read-only) and rebuild the window after a change."""

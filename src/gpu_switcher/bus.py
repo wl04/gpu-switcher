@@ -4,7 +4,7 @@ The GUI talks to two system-bus services:
 
 * the gpu-switcher helper — a root, D-Bus-activated service that performs
   the polkit-gated privileged work (writing / removing the managed udev
-  rule);
+  rule, reloading and re-triggering udev rules);
 * login1 (systemd-logind) — for Reboot (M2) and Log out (M3 fast path).
 
 All calls are asynchronous: the callback is delivered on the GLib main
@@ -22,6 +22,8 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
+from . import i18n
+
 HELPER_NAME = "com.github.wl04.gpu_switcher.Helper"
 HELPER_PATH = "/com/github/wl04/gpu_switcher/Helper"
 HELPER_IFACE = "com.github.wl04.gpu_switcher.Helper"
@@ -36,6 +38,29 @@ LOGIN1_SESSION_IFACE = "org.freedesktop.login1.Session"
 # first.
 HELPER_TIMEOUT_MS = 180000
 LOGIN1_TIMEOUT_MS = 15000
+
+
+def refresh_udev(locale: str, callback) -> None:
+    """Ask the helper to reload the udev rules and re-trigger the DRM
+    devices (fast path: makes the configured rule take effect without a
+    reboot).
+
+    callback(ok: bool, message: str)
+    """
+    connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    params = GLib.Variant("(s)", (locale,))
+
+    def on_call(c, task):
+        try:
+            ok, message = c.call_finish(task)
+        except GLib.Error as error:
+            callback(False, error.message)
+            return
+        callback(bool(ok), message)
+
+    connection.call(HELPER_NAME, HELPER_PATH, HELPER_IFACE, "RefreshUdev",
+                    params, GLib.VariantType("(bs)"), 0, HELPER_TIMEOUT_MS,
+                    None, on_call)
 
 
 def set_primary(pci: str, locale: str, callback) -> None:
@@ -101,19 +126,48 @@ def reboot(callback) -> None:
                     None, on_call)
 
 
+def _our_session_path() -> str:
+    """Our logind session object path, or '' if it cannot be determined.
+
+    XDG_SESSION_ID names the session, but the object path uses a
+    separate internal id (/org/freedesktop/login1/session/_N), so the
+    path must be resolved from logind's session list: the session of
+    our uid that has a seat, or the one named by XDG_SESSION_ID when
+    it is set.
+    """
+    wanted = os.environ.get("XDG_SESSION_ID", "")
+    try:
+        connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        result = connection.call_sync(
+            LOGIN1_NAME, LOGIN1_PATH, LOGIN1_MANAGER_IFACE, "ListSessions",
+            None, GLib.VariantType("(a(susso))"), 0, LOGIN1_TIMEOUT_MS, None)
+    except GLib.Error:
+        return ""
+    uid = os.getuid()
+    # Row: (session_id, uid, user, seat, object_path).
+    rows = [(sid, seat, path) for sid, session_uid, _user, seat, path
+            in result[0] if session_uid == uid]
+    if wanted.isdigit():
+        return next((path for sid, _seat, path in rows if sid == wanted), "")
+    seated = [path for _sid, seat, path in rows if seat]
+    return seated[0] if len(seated) == 1 else ""
+
+
 def logout(callback) -> None:
-    """login1 Session.Logout(interactive) for our own session (M3 fast
-    path). interactive=False: no interactive logind prompt.
+    """login1 Session.Terminate for our own session (M3 fast path).
+
+    Terminate is the unprivileged logout path: the system-bus policy
+    allows it for any sender, and this systemd defines no polkit action
+    for it, so no prompt appears.
 
     callback(ok: bool, message: str)
     """
-    session_id = os.environ.get("XDG_SESSION_ID", "")
-    if not session_id.isdigit():
-        callback(False, "XDG_SESSION_ID is not set; cannot log out.")
+    session_path = _our_session_path()
+    if not session_path:
+        callback(False, i18n._(
+            "Could not determine the logind session to log out."))
         return
-    session_path = "/org/freedesktop/login1/session%d" % int(session_id)
     connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
-    params = GLib.Variant("(b)", (False,))
 
     def on_call(c, task):
         try:
@@ -122,6 +176,6 @@ def logout(callback) -> None:
         except GLib.Error as error:
             callback(False, error.message)
 
-    connection.call(LOGIN1_NAME, session_path, LOGIN1_SESSION_IFACE, "Logout",
-                    params, GLib.VariantType("()"), 0, LOGIN1_TIMEOUT_MS,
+    connection.call(LOGIN1_NAME, session_path, LOGIN1_SESSION_IFACE, "Terminate",
+                    None, GLib.VariantType("()"), 0, LOGIN1_TIMEOUT_MS,
                     None, on_call)
