@@ -11,8 +11,9 @@ plus the CPU's integrated graphics.
 
 ## Status
 
-**0.1.0-20 (M3.1)** — GPU detection: card list with "in use now" /
-"preferred (configured)" badges, polkit-gated **Apply** / **Reset to auto**
+**0.1.0-21 (M3.2)** — GPU detection: card list with "in use now" /
+"preferred (configured)" badges (running primary read from gnome-shell's
+journal in both rule and auto selection modes), polkit-gated **Apply** / **Reset to auto**
 (a root D-Bus-activated helper writes or removes the managed udev rule with
 backup and conflict checks), confirmation dialogs, **Reboot now**, the
 **Log out** fast path (the udev refresh — rule reload plus a scoped DRM
@@ -43,7 +44,7 @@ Mutter chooses the primary GPU when the session starts, reading the udev tag
 Verification after restart (straight from Mutter's own docs):
 
 ```sh
-journalctl -b0 /usr/bin/gnome-shell | grep 'selected primary'
+journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
 ```
 
 ## Install
@@ -51,7 +52,7 @@ journalctl -b0 /usr/bin/gnome-shell | grep 'selected primary'
 ### `.deb`
 
 ```sh
-sudo dpkg -i gpu-switcher_0.1.0-20_all.deb
+sudo dpkg -i gpu-switcher_0.1.0-21_all.deb
 ```
 
 ### From source
@@ -59,8 +60,8 @@ sudo dpkg -i gpu-switcher_0.1.0-20_all.deb
 ```sh
 git clone https://github.com/wl04/gpu-switcher
 cd gpu-switcher
-./tools/build-deb.sh    # builds ../gpu-switcher_0.1.0-20_all.deb
-sudo dpkg -i ../gpu-switcher_0.1.0-20_all.deb
+./tools/build-deb.sh    # builds ../gpu-switcher_0.1.0-21_all.deb
+sudo dpkg -i ../gpu-switcher_0.1.0-21_all.deb
 ```
 
 Requires: `python3 (>= 3.12)`, `python3-gi`, `libgtk-4-1`, `polkitd`, `dbus`,

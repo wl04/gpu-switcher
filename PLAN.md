@@ -200,7 +200,9 @@ fighting over state.
 2. **Name**: `lspci -nn` parse (present on this box); fallback: built-in vendor:device
    table; last resort: `PCI v00001002 d00007550`.
 3. **Running primary**: latest `journalctl -b -q /usr/bin/gnome-shell` line matching
-   `selected primary` → `cardN` → PCI. Fallback: "unknown (verify in journal after restart)".
+   `selected (as )?primary` → `cardN` → PCI. Mutter logs `GPU /dev/dri/cardN
+   selected primary given udev rule` in rule mode and `Boot VGA GPU /dev/dri/cardN
+   selected as primary` in auto mode. Fallback: "unknown (verify in journal after restart)".
 4. **Configured preference**: managed rule file's `KERNELS` + each card's `TAGS`
    (`udevadm info --query=property`), plus the conflict scan.
 5. **Session guard**: if not a GNOME Wayland session (`XDG_SESSION_TYPE=wayland` and
@@ -329,6 +331,7 @@ Interaction rules:
 | **M2 polkit + apply — done** | `.policy`, helper service, `SetPrimary`/`SetAuto`, confirmation dialogs, Apply button, Reboot button | verified in 0.1.0-11: localized polkit dialog, rule + backup written correctly, denial/cancel safe, card1↔card2 switch effective after reboot |
 | **M3 fast path + activation — done** | Log-out button, status banners, verification hint | verified in 0.1.0-17: Apply → Log out → log in switches the primary in both directions (journal shows the new card as primary); one polkit prompt per privileged step; reboot path verified end-to-end |
 | **M3.1 refresh in Apply — done** | udev refresh (reload-rules + scoped DRM trigger) folded into SetPrimary/SetAuto under the same polkit authorization; standalone RefreshUdev removed; Log out = session terminate only | verified in 0.1.0-20: one polkit prompt per switch; Apply → Log out → log in switches the primary in both directions without a second prompt; post-reboot rule mode works |
+| **M3.2 auto-mode detection — done** | running-primary journal match covers both mutter line forms: `selected primary given udev rule` (rule mode) and `Boot VGA GPU … selected as primary` (auto mode); verification hint grep and example line updated | verified in 0.1.0-21: after a reboot in auto mode the app shows the "In use now" badge on the running (boot-VGA) card with no "unknown" status |
 | **M4 packaging polish** | lintian clean, changelog, icon, locale catalogs, install/remove scripts | full test matrix below passes |
 
 **Test matrix (on this machine):**

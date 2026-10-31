@@ -179,7 +179,7 @@ class GpuSwitcherApp(Gtk.Application):
         lead = Gtk.Label(label=i18n._("Run in a terminal after reboot or login:"))
         lead.set_wrap(True)
         command = Gtk.Label(label="journalctl -b0 /usr/bin/gnome-shell "
-                                  "| grep 'selected primary'")
+                                  "| grep -E 'selected (as )?primary'")
         command.set_wrap(True)
         command.add_css_class("monospace")
         command.add_css_class("dim-label")
@@ -189,7 +189,12 @@ class GpuSwitcherApp(Gtk.Application):
         example.add_css_class("monospace")
         example.add_css_class("dim-label")
         example.set_wrap(True)
-        for label in (lead, command, mid, example):
+        auto_example = Gtk.Label(
+            label="Boot VGA GPU /dev/dri/cardN selected as primary")
+        auto_example.add_css_class("monospace")
+        auto_example.add_css_class("dim-label")
+        auto_example.set_wrap(True)
+        for label in (lead, command, mid, example, auto_example):
             label.set_xalign(0.0)
             hint_box.append(label)
         hint.set_child(hint_box)

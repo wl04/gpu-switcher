@@ -101,6 +101,19 @@ def fallback_name(vendor: str, device: str) -> str:
     return f"PCI v0x{vendor} d0x{device}"
 
 
+# gnome-shell logs the primary selection once per session start, in two
+# forms:
+#   rule mode:  GPU /dev/dri/cardN selected primary given udev rule
+#   auto mode:  Boot VGA GPU /dev/dri/cardN selected as primary
+PRIMARY_LINE_RE = re.compile(r"GPU /dev/dri/(card[0-9]+) selected (?:as )?primary")
+
+
+def primary_card_from_line(line: str) -> str | None:
+    """Card name ('cardN') from a gnome-shell primary-selection journal line."""
+    m = PRIMARY_LINE_RE.search(line)
+    return m.group(1) if m else None
+
+
 def running_primary() -> str | None:
     """Card picked by gnome-shell this boot (e.g. 'card2'), or None."""
     try:
@@ -112,9 +125,7 @@ def running_primary() -> str | None:
         return None
     card = None
     for line in out.stdout.splitlines():
-        m = re.search(r"GPU /dev/dri/(card[0-9]+) selected primary", line)
-        if m:
-            card = m.group(1)
+        card = primary_card_from_line(line) or card
     return card
 
 

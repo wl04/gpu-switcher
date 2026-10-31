@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PKG="gpu-switcher"
-VERSION="0.1.0-20"
+VERSION="0.1.0-21"
 OUT="${1:-../${PKG}_${VERSION}_all.deb}"
 
 STAGE="$(mktemp -d)"
