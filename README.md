@@ -81,9 +81,19 @@ Remove the rule manually if you no longer need it.
 - `.deb`: `tools/build-deb.sh` (plain `dpkg-deb`); `debian/` is kept for a
   future `dpkg-buildpackage` flow.
 - gettext catalogs (`po/`) compile with the pure-Python `tools/po2mo.py`.
-- Unit tests: `PYTHONPATH=src python3 tests/test_detect.py -v`.
 - Design notes (architecture, polkit, detection, packaging):
   [PLAN.md](PLAN.md).
+
+### Checks
+
+- `make test` — unit tests. Plain stdlib `unittest` (no test-framework
+  dependencies); test names follow `Operation_Behavior_Context`.
+- `make locale` — compile the gettext catalogs into the source tree.
+- `make package` — build the `.deb`.
+- End-to-end verification (no CI; on a real GNOME/Wayland machine): run
+  the app, apply a switch through the polkit prompt, then confirm after
+  restart with
+  `journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'`.
 
 ## Roadmap
 
