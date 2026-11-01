@@ -215,13 +215,26 @@ def _authorized(invocation, connection, locale):
     return _authorize(connection, pid, uid, locale)
 
 
+_PCI_ADDRESS_RE = re.compile(
+    r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9]")
+
+
+def is_valid_pci_format(pci: str) -> bool:
+    """Full `DDDD:BB:DD.D` PCI address (domain included, lowercase hex).
+
+    The exact form the managed rule and udev KERNELS== matching use;
+    domain-omitted or non-hex addresses are rejected before any /sys read.
+    """
+    return _PCI_ADDRESS_RE.fullmatch(pci) is not None
+
+
 def _resolve_gpu(pci):
     """(card, vendor, device) for a valid display controller, else None.
 
     Mirrors the reference script: class 0x030000, a bound driver, and exactly
     one /dev/dri/card* device bound to this PCI device.
     """
-    if not re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9]", pci):
+    if not is_valid_pci_format(pci):
         return None
     pdir = f"/sys/bus/pci/devices/{pci}"
     if not os.path.isdir(pdir):
