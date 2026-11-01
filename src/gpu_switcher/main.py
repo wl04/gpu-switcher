@@ -120,9 +120,17 @@ class GpuSwitcherApp(Gtk.Application):
                 self.radios_by_gpu[self.selected_card].set_active(True)
         box.append(self.rows_box)
 
-        if result.running_card is None:
-            unknown = Gtk.Label(label=i18n._(
-                "Running primary: unknown (verify in the journal after restart)."))
+        if result.running_card_error is not None:
+            text = i18n._(
+                "Running primary: could not read the session journal (%s).") \
+                % result.running_card_error
+        elif result.running_card is None:
+            text = i18n._(
+                "Running primary: unknown (verify in the journal after restart).")
+        else:
+            text = None
+        if text is not None:
+            unknown = Gtk.Label(label=text)
             unknown.set_wrap(True)
             unknown.add_css_class("dim-label")
             box.append(unknown)

@@ -22,6 +22,9 @@ msgstr "Not running in a GNOME Wayland session - this build only supports GNOME.
 msgid "Running primary: unknown (verify in the journal after restart)."
 msgstr "Running primary: unknown (verify in the journal after restart)."
 
+msgid "Running primary: could not read the session journal (%s)."
+msgstr "Running primary: could not read the session journal (%s)."
+
 # App UI: actions and dialogs
 
 msgid "Apply"

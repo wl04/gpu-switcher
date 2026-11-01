@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 
-from udev_rules import MANAGED_RULE, MUTTER_TAG, read_text, rule_conflicts
+from udev_rules import MANAGED_RULE, read_text, rule_conflicts
 
 JOURNAL_UNIT = "/usr/bin/gnome-shell"
 
@@ -29,40 +29,34 @@ class Gpu:
     pci: str        # "0000:12:00.0"
     vendor: str     # "1002"
     device: str     # "13c0"
-    driver: str     # "amdgpu"; "" when unreadable
     name: str       # human-readable name (lspci or fallback)
     in_use: bool    # running primary of this boot (journal)
     preferred: bool # configured preferred (managed rule on disk)
-    tagged: bool    # carries the mutter tag in the current udev database
 
 
 @dataclasses.dataclass
 class Detection:
     gpus: list
     running_card: str | None  # card picked by gnome-shell this boot
+    running_card_error: str | None  # set when the journal could not be read
     preferred_pci: str | None  # PCI from the managed rule on disk
     conflicts: list[str]       # other udev rules setting the tag
     gnome_wayland: bool
 
 
-def lspci_names() -> dict:
-    """Map PCI address -> display name, parsed from `lspci -nn`.
+_LSPCI_LINE_RE = re.compile(
+    r"^\s*([0-9a-f]{4}:)?([0-9a-f]{2}:[0-9a-f]{2}\.[0-9])\s+.*?\]:\s+(.*)$")
+
+
+def parse_lspci_names(output: str) -> dict:
+    """Map PCI address -> display name from `lspci -nn` text.
 
     Handles both `0000:03:00.0` and domain-omitted `03:00.0` address
     forms, and strips the trailing `[1002:7550]` ID / `(rev ..)` parts.
     """
-    try:
-        out = subprocess.run(["lspci", "-nn"], capture_output=True, text=True,
-                             timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return {}
-    if out.returncode != 0:
-        return {}
     names: dict = {}
-    for line in out.stdout.splitlines():
-        m = re.match(
-            r"^\s*([0-9a-f]{4}:)?([0-9a-f]{2}:[0-9a-f]{2}\.[0-9])\s+.*?\]:\s+(.*)$",
-            line)
+    for line in output.splitlines():
+        m = _LSPCI_LINE_RE.match(line)
         if not m:
             continue
         pci = (m.group(1) or "0000:") + m.group(2)
@@ -72,6 +66,19 @@ def lspci_names() -> dict:
         name = re.sub(r"\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]\s*$", "", name)
         names[pci] = name.strip()
     return names
+
+
+def lspci_names() -> dict:
+    """Map PCI address -> display name via `lspci -nn`; {} when lspci is
+    missing or fails (names then fall back to vendor:device)."""
+    try:
+        out = subprocess.run(["lspci", "-nn"], capture_output=True, text=True,
+                             timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if out.returncode != 0:
+        return {}
+    return parse_lspci_names(out.stdout)
 
 
 def fallback_name(vendor: str, device: str) -> str:
@@ -94,46 +101,47 @@ def primary_card_from_line(line: str) -> str | None:
     return m.group(1) if m else None
 
 
-def running_primary() -> str | None:
-    """Card picked by gnome-shell this boot (e.g. 'card2'), or None."""
-    try:
-        out = subprocess.run(["journalctl", "-b", "-q", JOURNAL_UNIT],
-                             capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if out.returncode != 0:
-        return None
+def last_primary_card(lines: list[str]) -> str | None:
+    """Card from the last primary-selection journal line, or None."""
     card = None
-    for line in out.stdout.splitlines():
+    for line in lines:
         card = primary_card_from_line(line) or card
     return card
 
 
-def managed_rule_pci() -> str | None:
-    """PCI address from the managed rule file, or None (auto selection)."""
-    m = re.search(r'KERNELS=="([^"]+)"', read_text(MANAGED_RULE))
+def running_primary() -> tuple[str | None, str | None]:
+    """Card picked by gnome-shell this boot (e.g. 'card2'), and the error
+    text when the journal could not be read (None on success)."""
+    try:
+        out = subprocess.run(["journalctl", "-b", "-q", JOURNAL_UNIT],
+                             capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError) as error:
+        return None, f"journalctl could not be run ({error})"
+    if out.returncode != 0:
+        return None, f"journalctl exited with code {out.returncode}"
+    return last_primary_card(out.stdout.splitlines()), None
+
+
+def managed_rule_pci_from_text(text: str) -> str | None:
+    """PCI address from a managed udev rule's text, or None (auto selection)."""
+    m = re.search(r'KERNELS=="([^"]+)"', text)
     return m.group(1) if m else None
 
 
-def card_tags(node: str) -> str:
-    """The udev TAGS property of a /dev/dri node ('' when unavailable)."""
-    try:
-        out = subprocess.run(
-            ["udevadm", "info", "--query=property", "--name", node],
-            capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    if out.returncode != 0:
-        return ""
-    for line in out.stdout.splitlines():
-        if line.startswith("TAGS="):
-            return line[len("TAGS="):]
-    return ""
+def managed_rule_pci() -> str | None:
+    """PCI address from the managed rule file, or None (auto selection)."""
+    return managed_rule_pci_from_text(read_text(MANAGED_RULE))
+
+
+def is_gnome_wayland(session_type: str, gnome_shell_present: bool) -> bool:
+    """True when the session is Wayland and gnome-shell is installed."""
+    return session_type.lower() == "wayland" and gnome_shell_present
 
 
 def gnome_wayland_session() -> bool:
-    return (os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
-            and shutil.which("gnome-shell") is not None)
+    """Whether the current desktop session is GNOME on Wayland."""
+    return is_gnome_wayland(os.environ.get("XDG_SESSION_TYPE", ""),
+                            shutil.which("gnome-shell") is not None)
 
 
 def detect() -> Detection:
@@ -157,26 +165,23 @@ def detect() -> Detection:
             continue
         vendor = read_text(f"{pdir}/vendor").removeprefix("0x").lower()
         device = read_text(f"{pdir}/device").removeprefix("0x").lower()
-        driver_link = f"{pdir}/driver"
-        driver = os.path.basename(os.readlink(driver_link)) \
-            if os.path.islink(driver_link) else ""
         gpus.append(Gpu(
             card=entry,
             node=node,
             pci=pci,
             vendor=vendor,
             device=device,
-            driver=driver,
             name=names.get(pci) or fallback_name(vendor, device),
             in_use=False,
             preferred=False,
-            tagged=MUTTER_TAG in card_tags(node),
         ))
-    running = running_primary()
+    running_card, running_card_error = running_primary()
     preferred = managed_rule_pci()
     for g in gpus:
-        g.in_use = g.card == running
+        g.in_use = g.card == running_card
         g.preferred = g.pci == preferred
-    return Detection(gpus=gpus, running_card=running, preferred_pci=preferred,
+    return Detection(gpus=gpus, running_card=running_card,
+                     running_card_error=running_card_error,
+                     preferred_pci=preferred,
                      conflicts=rule_conflicts(on_unreadable="skip"),
                      gnome_wayland=gnome_wayland_session())
