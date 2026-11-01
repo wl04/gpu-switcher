@@ -39,6 +39,7 @@ install -D -m 0644 src/gpu_switcher/i18n.py "$ROOT/usr/lib/gpu-switcher/gpu_swit
 install -D -m 0644 src/gpu_switcher/main.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/main.py"
 install -D -m 0644 src/gpu_switcher/detect.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/detect.py"
 install -D -m 0644 src/gpu_switcher/bus.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/bus.py"
+install -D -m 0644 src/udev_rules.py "$ROOT/usr/lib/gpu-switcher/udev_rules.py"
 install -D -m 0755 src/helper/gpu_switcher_helper.py "$ROOT/usr/lib/gpu-switcher/helper/gpu_switcher_helper.py"
 install -D -m 0644 data/gpu-switcher.desktop "$ROOT/usr/share/applications/com.github.wl04.gpu-switcher.desktop"
 install -D -m 0644 data/icons/gpu-switcher.svg "$ROOT/usr/share/icons/hicolor/scalable/apps/com.github.wl04.gpu-switcher.svg"

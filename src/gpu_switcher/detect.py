@@ -11,21 +11,9 @@ import re
 import shutil
 import subprocess
 
-MUTTER_TAG = "mutter-device-preferred-primary"
-MUTTER_ENV = "MUTTER_DEVICE_PREFERRED_PRIMARY"
-MANAGED_RULE = "/etc/udev/rules.d/61-mutter-primary-gpu.rules"
-JOURNAL_UNIT = "/usr/bin/gnome-shell"
+from udev_rules import MANAGED_RULE, MUTTER_TAG, read_text, rule_conflicts
 
-# udev rule directories, in load order; mirrors the reference script
-# mutter-primary-gpu.sh. A base name appearing in a later directory
-# shadows the earlier one.
-RULE_DIRS = (
-    "/etc/udev/rules.d",
-    "/run/udev/rules.d",
-    "/usr/local/lib/udev/rules.d",
-    "/usr/lib/udev/rules.d",
-    "/lib/udev/rules.d",
-)
+JOURNAL_UNIT = "/usr/bin/gnome-shell"
 
 # Display names for when lspci is unavailable.
 _KNOWN_GPUS = {
@@ -55,14 +43,6 @@ class Detection:
     preferred_pci: str | None  # PCI from the managed rule on disk
     conflicts: list[str]       # other udev rules setting the tag
     gnome_wayland: bool
-
-
-def _read(path: str) -> str:
-    try:
-        with open(path, encoding="utf-8") as f:
-            return f.read().strip()
-    except OSError:
-        return ""
 
 
 def lspci_names() -> dict:
@@ -131,42 +111,8 @@ def running_primary() -> str | None:
 
 def managed_rule_pci() -> str | None:
     """PCI address from the managed rule file, or None (auto selection)."""
-    m = re.search(r'KERNELS=="([^"]+)"', _read(MANAGED_RULE))
+    m = re.search(r'KERNELS=="([^"]+)"', read_text(MANAGED_RULE))
     return m.group(1) if m else None
-
-
-def rule_conflicts() -> list:
-    """Readable udev rules that set the primary-GPU tag.
-
-    Mirrors the conflict check of the reference script (scans the standard
-    rule directories, skips comments, matches either the udev tag or the
-    legacy ENV variable), but runs unprivileged: files that cannot be read
-    are skipped here, because the authoritative check happens in the root
-    helper at apply time (M2).
-    """
-    conflicts = []
-    seen = set()
-    for d in RULE_DIRS:
-        try:
-            entries = sorted(os.listdir(d))
-        except OSError:
-            continue
-        for entry in entries:
-            if not entry.endswith(".rules") or entry in seen:
-                continue
-            seen.add(entry)
-            path = os.path.join(d, entry)
-            if path == MANAGED_RULE:
-                continue
-            try:
-                with open(path, encoding="utf-8", errors="replace") as f:
-                    text = f.read()
-            except OSError:
-                continue
-            lines = [l for l in text.splitlines() if not l.strip().startswith("#")]
-            if any(MUTTER_TAG in l or MUTTER_ENV in l for l in lines):
-                conflicts.append(path)
-    return conflicts
 
 
 def card_tags(node: str) -> str:
@@ -204,13 +150,13 @@ def detect() -> Detection:
             continue
         pci = os.path.basename(os.path.realpath(f"/sys/class/drm/{entry}/device"))
         pdir = f"/sys/bus/pci/devices/{pci}"
-        if not os.path.isdir(pdir) or _read(f"{pdir}/class") != "0x030000":
+        if not os.path.isdir(pdir) or read_text(f"{pdir}/class") != "0x030000":
             continue
         node = f"/dev/dri/{entry}"
         if not os.path.exists(node):
             continue
-        vendor = _read(f"{pdir}/vendor").removeprefix("0x").lower()
-        device = _read(f"{pdir}/device").removeprefix("0x").lower()
+        vendor = read_text(f"{pdir}/vendor").removeprefix("0x").lower()
+        device = read_text(f"{pdir}/device").removeprefix("0x").lower()
         driver_link = f"{pdir}/driver"
         driver = os.path.basename(os.readlink(driver_link)) \
             if os.path.islink(driver_link) else ""
@@ -232,5 +178,5 @@ def detect() -> Detection:
         g.in_use = g.card == running
         g.preferred = g.pci == preferred
     return Detection(gpus=gpus, running_card=running, preferred_pci=preferred,
-                     conflicts=rule_conflicts(),
+                     conflicts=rule_conflicts(on_unreadable="skip"),
                      gnome_wayland=gnome_wayland_session())

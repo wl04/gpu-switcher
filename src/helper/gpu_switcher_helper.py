@@ -55,6 +55,13 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
+# The shared udev rule module (src/udev_rules.py in the source tree,
+# /usr/lib/gpu-switcher/udev_rules.py installed) lives next to this
+# package; add the parent directory to sys.path so it can be imported
+# without pulling in the GUI package.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from udev_rules import MANAGED_RULE, MUTTER_ENV, MUTTER_TAG, read_text, rule_conflicts
+
 SERVICE_NAME = "com.github.wl04.gpu_switcher.Helper"
 OBJECT_PATH = "/com/github/wl04/gpu_switcher/Helper"
 INTERFACE = "com.github.wl04.gpu_switcher.Helper"
@@ -64,19 +71,8 @@ POLKIT_IFACE = "org.freedesktop.PolicyKit1.Authority"
 POLKIT_PATH = "/org/freedesktop/PolicyKit1/Authority"
 POLKIT_INTERACTIVE = 1  # CheckAuthorizationFlags: AllowUserInteraction
 
-MANAGED_RULE = "/etc/udev/rules.d/61-mutter-primary-gpu.rules"
-MUTTER_TAG = "mutter-device-preferred-primary"
-MUTTER_ENV = "MUTTER_DEVICE_PREFERRED_PRIMARY"
 LOCALE_BASE = "/usr/share/gpu-switcher/locale"
 LOG_PATH = "/var/log/gpu-switcher-helper.log"
-
-RULE_DIRS = (
-    "/etc/udev/rules.d",
-    "/run/udev/rules.d",
-    "/usr/local/lib/udev/rules.d",
-    "/usr/lib/udev/rules.d",
-    "/lib/udev/rules.d",
-)
 
 INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
   <interface name="{INTERFACE}">
@@ -128,14 +124,6 @@ def _internal_error(invocation, detail):
     invocation.return_gerror(GLib.Error.new_literal(
         GLib.quark_from_string("gpu-switcher-error"),
         "Internal error; see /var/log/gpu-switcher-helper.log", 1))
-
-
-def _read(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return f.read().strip()
-    except OSError:
-        return ""
 
 
 def _translator(locale):
@@ -238,9 +226,9 @@ def _resolve_gpu(pci):
     pdir = f"/sys/bus/pci/devices/{pci}"
     if not os.path.isdir(pdir):
         return None
-    vendor = _read(f"{pdir}/vendor")
-    device = _read(f"{pdir}/device")
-    if _read(f"{pdir}/class") != "0x030000":
+    vendor = read_text(f"{pdir}/vendor")
+    device = read_text(f"{pdir}/device")
+    if read_text(f"{pdir}/class") != "0x030000":
         return None
     driver_link = f"{pdir}/driver"
     if not os.path.islink(driver_link):
@@ -264,38 +252,6 @@ def _resolve_gpu(pci):
     return card, vendor, device
 
 
-def _rule_conflicts():
-    """Other udev rules that set the primary-GPU tag.
-
-    Root can read every rule file, so this is the authoritative scan (the
-    app-side scan only flags readable files).
-    """
-    conflicts = []
-    seen = set()
-    for d in RULE_DIRS:
-        try:
-            entries = sorted(os.listdir(d))
-        except OSError:
-            continue
-        for entry in entries:
-            if not entry.endswith(".rules") or entry in seen:
-                continue
-            seen.add(entry)
-            path = os.path.join(d, entry)
-            if path == MANAGED_RULE:
-                continue
-            try:
-                with open(path, encoding="utf-8", errors="replace") as f:
-                    text = f.read()
-            except OSError:
-                conflicts.append(path)
-                continue
-            lines = [l for l in text.splitlines() if not l.strip().startswith("#")]
-            if any(MUTTER_TAG in l or MUTTER_ENV in l for l in lines):
-                conflicts.append(path)
-    return conflicts
-
-
 def _rule_text(pci, vendor, device):
     # Same rule line format as the reference script mutter-primary-gpu.sh.
     return (
@@ -305,8 +261,8 @@ def _rule_text(pci, vendor, device):
         'KERNEL!="card*-*", SUBSYSTEMS=="pci", KERNELS=="' + pci + '",'
         ' ATTRS{vendor}=="' + vendor + '",'
         ' ATTRS{device}=="' + device + '",'
-        ' ENV{MUTTER_DEVICE_PREFERRED_PRIMARY}="1",'
-        ' TAG+="mutter-device-preferred-primary"\n'
+        f' ENV{{{MUTTER_ENV}}}="1",'
+        f' TAG+="{MUTTER_TAG}"\n'
     )
 
 
@@ -382,7 +338,7 @@ def _backup_rule():
 def handle_status(connection, sender, params, invocation):
     locale = params[0]
     tr = _translator(locale)
-    rule = _read(MANAGED_RULE)
+    rule = read_text(MANAGED_RULE)
     if rule:
         message = tr("Managed rule present.")
     else:
@@ -401,7 +357,8 @@ def handle_set_primary(connection, sender, params, invocation):
                          (False, tr("Authorization was denied. Nothing changed."), "", False)))
         return
     _log("SetPrimary: authorized")
-    conflicts = _rule_conflicts()
+    # Root cannot skip unreadable rules: they may set the tag.
+    conflicts = rule_conflicts(on_unreadable="flag")
     if conflicts:
         _log(f"SetPrimary: conflicts found: {conflicts}")
         invocation.return_value(
