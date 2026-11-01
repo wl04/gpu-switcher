@@ -86,6 +86,9 @@ Remove the rule manually if you no longer need it.
 - Plain Python 3 + PyGObject (GTK 4); no compilation.
 - `.deb`: `tools/build-deb.sh` (plain `dpkg-deb`); `debian/` supports the
   `dpkg-buildpackage -us -uc` flow — both paths build the same package.
+- Release: `tools/release.sh <version> <changelog-bullets>` — bumps
+  `debian/control`, prepends the changelog entry, runs the checks, builds
+  and lints the `.deb`, commits, and creates the GitHub release.
 - gettext catalogs (`po/`) compile with the pure-Python `tools/po2mo.py`.
 - Design notes (architecture, polkit, detection, packaging):
   [PLAN.md](PLAN.md).

@@ -185,6 +185,9 @@ gpu-switcher/
 │   └── test_i18n.py
 ├── tools/
 │   ├── build-deb.sh                   # .deb builder (plain dpkg-deb)
+│   ├── release.sh                     # release: bump version, changelog,
+│   │                                  #   checks, build, lintian, commit,
+│   │                                  #   GitHub release
 │   └── po2mo.py                       # pure-Python .po → .mo compiler
 ├── docs/screenshot.png
 ├── Makefile
