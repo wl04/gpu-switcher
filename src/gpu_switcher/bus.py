@@ -1,11 +1,11 @@
-"""App-side D-Bus clients (M2).
+"""App-side D-Bus clients.
 
 The GUI talks to two system-bus services:
 
 * the gpu-switcher helper — a root, D-Bus-activated service that performs
   the polkit-gated privileged work (writing / removing the managed udev
   rule, reloading and re-triggering udev rules);
-* login1 (systemd-logind) — for Reboot (M2) and Log out (M3 fast path).
+* login1 (systemd-logind) — for Reboot and Log out.
 
 All calls are asynchronous: the callback is delivered on the GLib main
 loop, so the UI never blocks while the interactive polkit dialog is open.
@@ -135,7 +135,7 @@ def _our_session_path() -> str:
 
 
 def logout(callback) -> None:
-    """login1 Session.Terminate for our own session (M3 fast path).
+    """login1 Session.Terminate for our own session (the fast path).
 
     Terminate is the unprivileged logout path: the system-bus policy
     allows it for any sender, and this systemd defines no polkit action

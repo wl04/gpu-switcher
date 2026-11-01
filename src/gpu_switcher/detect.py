@@ -1,7 +1,9 @@
-"""Unprivileged primary-GPU detection (M1).
+"""Unprivileged primary-GPU detection.
 
 Everything here only reads /sys, the gnome-shell journal, udev properties
-and the managed udev rule file; no privileged operation is required.
+and the managed udev rule file; no privileged operation is required. The
+parsing steps are pure (text in, data out) so they are unit-testable
+without the real binaries; the thin wrappers are the I/O boundary.
 """
 from __future__ import annotations
 
@@ -145,7 +147,7 @@ def gnome_wayland_session() -> bool:
 
 
 def detect() -> Detection:
-    """Full detection snapshot used by the UI (and later by M2)."""
+    """Full detection snapshot used by the UI."""
     gpus = []
     try:
         entries = sorted(os.listdir("/sys/class/drm"))
