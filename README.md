@@ -106,6 +106,19 @@ Remove the rule manually if you no longer need it.
 
 ## Roadmap
 
+- Clear state: explicit banner — "running now" vs "configured for next
+  login" vs "reboot required", derived from the existing detection data
+  (running primary, rule on disk, last udev-refresh result).
+- Verification at app startup: confirm after login whether GNOME actually
+  picked the configured GPU (no session autostart).
+- Per-GPU monitor display: connected DRM connectors from /sys, so the
+  choice is made with context.
+- Recovery: documented terminal steps to restore auto selection if the
+  graphical session fails (README + man page).
+- Tested configurations: verified distro/GNOME/GPU combinations with
+  whether logout alone is sufficient; start with the maintainer's machine
+  (Ubuntu 26.10, GNOME 51, AMD RX 9070 + iGPU), extend with real-world
+  reports.
 - KDE Plasma and X11 support
 - More languages
 
