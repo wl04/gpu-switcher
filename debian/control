@@ -7,7 +7,7 @@ Standards-Version: 4.7.0
 Homepage: https://github.com/wl04/gpu-switcher
 
 Package: gpu-switcher
-Version: 0.1.0-22
+Version: 0.1.0-23
 Architecture: all
 Priority: optional
 Section: utils

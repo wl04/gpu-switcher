@@ -1,3 +1,16 @@
+gpu-switcher (0.1.0-23) unstable; urgency=low
+
+  * Selection now mirrors the configured state: the radio selection is the
+    configured card when known, otherwise auto; "Reset to auto" works when
+    no GPUs are detected.
+  * Journal read failures are reported separately from an unknown running
+    primary.
+  * Packaging: ship gpu_switcher/selection.py (was missing from the .deb);
+    both build paths install the same file list; the .deb version is read
+    from debian/control.
+
+ -- wl04 <wl04@users.noreply.github.com>  Sun, 01 Nov 2026 15:29:34 +0100
+
 gpu-switcher (0.1.0-22) unstable; urgency=low
 
   * Initial public release: GUI to switch the primary display adapter
