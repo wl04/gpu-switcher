@@ -46,11 +46,20 @@ journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
 
 ## Install
 
+Requires: `python3 (>= 3.12)`, `python3-gi`, `libgtk-4-1`, `polkitd`, `dbus`,
+`udev`, `systemd`, `pciutils` — all standard on Ubuntu/Debian.
+
 ### `.deb`
+
+Download the latest `.deb` from the
+[releases page](https://github.com/wl04/gpu-switcher/releases), then:
 
 ```sh
 sudo dpkg -i gpu-switcher_*_all.deb
 ```
+
+After installing, launch the app from the GNOME app grid
+(**gpu-switcher**); `man gpu-switcher` is also installed.
 
 When upgrading from an older version, stop a still-running helper first so
 the fresh code takes over the D-Bus name:
@@ -68,9 +77,6 @@ cd gpu-switcher
 sudo dpkg -i ../gpu-switcher_<version>_all.deb
 ```
 
-Requires: `python3 (>= 3.12)`, `python3-gi`, `libgtk-4-1`, `polkitd`, `dbus`,
-`udev`, `systemd`, `pciutils` — all standard on Ubuntu/Debian.
-
 Uninstalling (`sudo dpkg -r gpu-switcher`) leaves the managed udev rule and
 its backups in place: they are your primary-GPU choice, not package data.
 Remove the rule manually if you no longer need it.
@@ -78,8 +84,8 @@ Remove the rule manually if you no longer need it.
 ## Development
 
 - Plain Python 3 + PyGObject (GTK 4); no compilation.
-- `.deb`: `tools/build-deb.sh` (plain `dpkg-deb`); `debian/` is kept for a
-  future `dpkg-buildpackage` flow.
+- `.deb`: `tools/build-deb.sh` (plain `dpkg-deb`); `debian/` supports the
+  `dpkg-buildpackage -us -uc` flow — both paths build the same package.
 - gettext catalogs (`po/`) compile with the pure-Python `tools/po2mo.py`.
 - Design notes (architecture, polkit, detection, packaging):
   [PLAN.md](PLAN.md).
