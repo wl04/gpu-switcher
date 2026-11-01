@@ -164,15 +164,25 @@ gpu-switcher/
 ├── po/                 # gpu-switcher-en.po  gpu-switcher-ru.po
 ├── src/
 │   ├── wrapper/gpu-switcher           # installed as /usr/bin/gpu-switcher
+│   ├── udev_rules.py                  # shared udev-rule constants and the
+│   │                                  #   conflict scan (app + helper; stdlib
+│   │                                  #   only, no gi import)
 │   ├── gpu_switcher/
 │   │   ├── __init__.py                # package entry point
 │   │   ├── main.py                    # GTK4 UI
 │   │   ├── detect.py                  # GPU enumeration, names, running/configured
 │   │   │                               #   primary, conflicts, session guard
+│   │   ├── selection.py               # pure radio-selection logic
 │   │   ├── bus.py                     # D-Bus clients: helper + login1
 │   │   └── i18n.py                    # gettext setup
 │   └── helper/gpu_switcher_helper.py  # root D-Bus service + raw-D-Bus polkit
-├── tests/test_detect.py
+├── tests/                             # unit tests (stdlib unittest)
+│   ├── test_detect.py
+│   ├── test_udev_rules.py
+│   ├── test_helper.py
+│   ├── test_selection.py
+│   ├── test_po2mo.py
+│   └── test_i18n.py
 ├── tools/
 │   ├── build-deb.sh                   # .deb builder (plain dpkg-deb)
 │   └── po2mo.py                       # pure-Python .po → .mo compiler
@@ -191,7 +201,9 @@ gpu-switcher/
 - `tools/build-deb.sh` (plain `dpkg-deb`, no debhelper required) is the
   canonical build; `debian/` (control, rules, compat, changelog, copyright,
   postrm) is kept for a `dpkg-buildpackage -us -uc` flow once debhelper is
-  available. Both paths compile the catalogs with `tools/po2mo.py`.
+  available. Both paths compile the catalogs with `tools/po2mo.py` and
+  install the same file list; the `.deb` version is read from the `Version:`
+  line in `debian/control` (single source of truth).
 - Installed docs: `changelog.Debian.gz` (gzip-compressed per Debian policy),
   plain `copyright`, gzipped man page.
 - `postrm` leaves the managed rule and its `.bak.*` backups in place on

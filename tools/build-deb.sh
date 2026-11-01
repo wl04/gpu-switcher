@@ -6,7 +6,9 @@ umask 022
 cd "$(dirname "$0")/.."
 
 PKG="gpu-switcher"
-VERSION="0.1.0-22"
+# Single source of truth for the version: the Version: line in debian/control.
+VERSION="$(awk '/^Version: /{print $2; exit}' debian/control)"
+[ -n "$VERSION" ] || { echo "Version: line not found in debian/control" >&2; exit 1; }
 OUT="${1:-../${PKG}_${VERSION}_all.deb}"
 
 STAGE="$(mktemp -d)"
@@ -38,6 +40,7 @@ install -D -m 0644 src/gpu_switcher/__init__.py "$ROOT/usr/lib/gpu-switcher/gpu_
 install -D -m 0644 src/gpu_switcher/i18n.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/i18n.py"
 install -D -m 0644 src/gpu_switcher/main.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/main.py"
 install -D -m 0644 src/gpu_switcher/detect.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/detect.py"
+install -D -m 0644 src/gpu_switcher/selection.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/selection.py"
 install -D -m 0644 src/gpu_switcher/bus.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/bus.py"
 install -D -m 0644 src/udev_rules.py "$ROOT/usr/lib/gpu-switcher/udev_rules.py"
 install -D -m 0755 src/helper/gpu_switcher_helper.py "$ROOT/usr/lib/gpu-switcher/helper/gpu_switcher_helper.py"

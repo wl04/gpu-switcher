@@ -49,7 +49,7 @@ journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
 ### `.deb`
 
 ```sh
-sudo dpkg -i gpu-switcher_0.1.0-22_all.deb
+sudo dpkg -i gpu-switcher_*_all.deb
 ```
 
 When upgrading from an older version, stop a still-running helper first so
@@ -64,8 +64,8 @@ sudo pkill -f gpu_switcher_helper
 ```sh
 git clone https://github.com/wl04/gpu-switcher
 cd gpu-switcher
-./tools/build-deb.sh    # builds ../gpu-switcher_0.1.0-22_all.deb
-sudo dpkg -i ../gpu-switcher_0.1.0-22_all.deb
+./tools/build-deb.sh    # builds ../gpu-switcher_<version>_all.deb (version from debian/control)
+sudo dpkg -i ../gpu-switcher_<version>_all.deb
 ```
 
 Requires: `python3 (>= 3.12)`, `python3-gi`, `libgtk-4-1`, `polkitd`, `dbus`,
