@@ -60,6 +60,9 @@ msgstr "Logging out."
 msgid "Log out failed."
 msgstr "Log out failed."
 
+msgid "Could not log out: %s."
+msgstr "Could not log out: %s."
+
 msgid "How to verify the switch after restart"
 msgstr "How to verify the switch after restart"
 

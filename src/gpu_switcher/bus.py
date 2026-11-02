@@ -1,11 +1,14 @@
 """App-side D-Bus clients.
 
-The GUI talks to two system-bus services:
+The GUI talks to two services:
 
-* the gpu-switcher helper — a root, D-Bus-activated service that performs
-  the polkit-gated privileged work (writing / removing the managed udev
-  rule, reloading and re-triggering udev rules);
-* login1 (systemd-logind) — for Reboot and Log out.
+* the gpu-switcher helper on the system bus — a root, D-Bus-activated
+  service that performs the polkit-gated privileged work (writing /
+  removing the managed udev rule, reloading and re-triggering udev
+  rules);
+* login1 (systemd-logind) on the system bus — for Reboot; and the GNOME
+  session manager on the session bus — for Log out (the session manager
+  performs the logout with its own handling; inhibitors are honored).
 
 All calls are asynchronous: the callback is delivered on the GLib main
 loop, so the UI never blocks while the interactive polkit dialog is open.
@@ -32,6 +35,13 @@ LOGIN1_NAME = "org.freedesktop.login1"
 LOGIN1_PATH = "/org/freedesktop/login1"
 LOGIN1_MANAGER_IFACE = "org.freedesktop.login1.Manager"
 LOGIN1_SESSION_IFACE = "org.freedesktop.login1.Session"
+
+SESSION_MANAGER_NAME = "org.gnome.SessionManager"
+SESSION_MANAGER_PATH = "/org/gnome/SessionManager"
+SESSION_MANAGER_IFACE = "org.gnome.SessionManager"
+# Logout mode: 1 = no confirmation interface. The app has already
+# confirmed; mode 0 would show GNOME's own dialog again.
+SESSION_MANAGER_LOGOUT_MODE = 1
 
 # The helper waits on an interactive polkit dialog, which may stay open for
 # a while; allow longer than that so the app-side call cannot time out
@@ -135,28 +145,32 @@ def _our_session_path() -> str:
 
 
 def logout(callback) -> None:
-    """login1 Session.Terminate for our own session (the fast path).
+    """GNOME session manager Logout for our own session (the fast path).
 
-    Terminate is the unprivileged logout path: the system-bus policy
-    allows it for any sender, and this systemd defines no polkit action
-    for it, so no prompt appears.
+    Calls org.gnome.SessionManager.Logout(mode) on the session bus: the
+    session manager performs the logout with its own handling (inhibitors
+    are honored) instead of the forceful logind Session.Terminate. Mode 1:
+    no confirmation dialog — the app already confirms. The session manager
+    only exists inside a running GNOME session, so a failed call doubles
+    as the non-GNOME guard.
 
     callback(ok: bool, message: str)
     """
-    session_path = _our_session_path()
-    if not session_path:
-        callback(False, i18n._(
-            "Could not determine the logind session to log out."))
+    try:
+        connection = Gio.bus_get_sync(Gio.BusType.SESSION)
+    except GLib.Error as error:
+        callback(False, i18n._("Could not log out: %s.") % error.message)
         return
-    connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    params = GLib.Variant("(u)", (SESSION_MANAGER_LOGOUT_MODE,))
 
     def on_call(c, task):
         try:
             c.call_finish(task)
             callback(True, "")
         except GLib.Error as error:
-            callback(False, error.message)
+            callback(False, i18n._("Could not log out: %s.") % error.message)
 
-    connection.call(LOGIN1_NAME, session_path, LOGIN1_SESSION_IFACE, "Terminate",
-                    None, GLib.VariantType("()"), 0, LOGIN1_TIMEOUT_MS,
+    connection.call(SESSION_MANAGER_NAME, SESSION_MANAGER_PATH,
+                    SESSION_MANAGER_IFACE, "Logout",
+                    params, GLib.VariantType("()"), 0, LOGIN1_TIMEOUT_MS,
                     None, on_call)

@@ -133,8 +133,9 @@ One window (Adwaita, no custom CSS):
 - **Reset to auto** — `SetAuto` (+ note that auto-selection applies after
   restart).
 - **Reboot now** — confirmation → login1 `Manager.Reboot`.
-- **Log out** — fast path, session terminate only; enabled only after an
-  Apply/Reset whose udev refresh succeeded (no polkit prompt of its own).
+- **Log out** — fast path via the GNOME session manager `Logout` on the
+  session bus; enabled only after an Apply/Reset whose udev refresh
+  succeeded (no polkit prompt of its own).
 - Contextual status banners: applied / denied / conflict.
 - Collapsible verification hint: the exact `journalctl` command to confirm
   after restart.

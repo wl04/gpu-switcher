@@ -60,6 +60,9 @@ msgstr "Идёт выход из сессии."
 msgid "Log out failed."
 msgstr "Не удалось выйти из сессии."
 
+msgid "Could not log out: %s."
+msgstr "Не удалось завершить сессию: %s."
+
 msgid "How to verify the switch after restart"
 msgstr "Как проверить смену после перезапуска"
 

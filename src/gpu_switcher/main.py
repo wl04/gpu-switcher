@@ -4,8 +4,8 @@ Unprivileged GUI over the root D-Bus helper: lists the DRM cards with
 "In use now" / "Preferred (configured)" badges, guards non-GNOME-Wayland
 sessions with a warning, and gates the privileged changes behind polkit
 (Apply / Reset to auto) with a contextual status banner. Reboot uses
-login1; Log out is the fast path (login1 Session.Terminate, no polkit
-prompt) and stays disabled until an Apply/Reset whose udev refresh
+login1; Log out is the fast path (GNOME session manager Logout, no
+polkit prompt) and stays disabled until an Apply/Reset whose udev refresh
 succeeded. A collapsible hint gives the journalctl command to verify the
 switch after restart.
 """
