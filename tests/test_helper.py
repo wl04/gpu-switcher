@@ -188,55 +188,71 @@ class TriggerDrm(unittest.TestCase):
             self.assertFalse(h._trigger_drm())
 
 
-class ParseUdevTags(unittest.TestCase):
-    def test_ParseUdevTags_ExtractsTagList_FromPropertyOutput(self):
-        # udevadm info prints KEY=VALUE lines; TAGS is comma-separated.
+class ParseUdevCurrentTags(unittest.TestCase):
+    def test_ParseUdevCurrentTags_ExtractsCurrentTagList_FromPropertyOutput(self):
+        # udev prints CURRENT_TAGS colon-separated with a leading and
+        # trailing colon, alongside the cumulative TAGS line.
         output = ("DEVPATH=/devices/pci/0000:12:00.0\n"
-                  "TAGS=mutter-device-preferred-primary,seat,uaccess\n"
+                  "TAGS=:mutter-device-preferred-primary:seat:uaccess:\n"
+                  "CURRENT_TAGS=:mutter-device-preferred-primary:seat:uaccess:\n"
                   "ID_PATH=pci-0000:12:00.0\n")
         self.assertEqual(
-            h.parse_udev_tags(output),
+            h.parse_udev_current_tags(output),
             ["mutter-device-preferred-primary", "seat", "uaccess"])
 
-    def test_ParseUdevTags_ReturnsEmptyList_ForEmptyTagsLine(self):
-        self.assertEqual(h.parse_udev_tags("DEVPATH=/x\nTAGS=\n"), [])
-        self.assertEqual(h.parse_udev_tags("DEVPATH=/x\n"), [])
+    def test_ParseUdevCurrentTags_ReturnsEmptyList_ForEmptyCurrentTagsLine(self):
+        self.assertEqual(
+            h.parse_udev_current_tags("DEVPATH=/x\nCURRENT_TAGS=\n"), [])
+        self.assertEqual(h.parse_udev_current_tags("DEVPATH=/x\n"), [])
+
+    def test_ParseUdevCurrentTags_IgnoresStaleTagInCumulativeTagsLine(self):
+        # The cumulative TAGS line still carries the tag from a previous
+        # rule, but the last uevent (rule no longer matching) set none.
+        output = ("DEVPATH=/x\n"
+                  "TAGS=:mutter-device-preferred-primary:seat:\n"
+                  "CURRENT_TAGS=:seat:\n")
+        self.assertEqual(
+            h.parse_udev_current_tags(output), ["seat"])
 
 
 class CardHasTag(unittest.TestCase):
-    def test_CardHasTag_ReturnsTrue_WhenMutterTagInTags(self):
+    def test_CardHasTag_ReturnsTrue_WhenMutterTagInCurrentTags(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run") as run:
             run.return_value = mock.Mock(
                 returncode=0, stderr="",
-                stdout="DEVPATH=/x\nTAGS=mutter-device-preferred-primary\n")
+                stdout="DEVPATH=/x\n"
+                       "TAGS=:mutter-device-preferred-primary:\n"
+                       "CURRENT_TAGS=:mutter-device-preferred-primary:\n")
             self.assertTrue(h._card_has_tag("card1"))
         argv = run.call_args[0][0]
         self.assertIn("--path=/sys/class/drm/card1", argv)
 
-    def test_CardHasTag_ReturnsFalse_WhenTagMissing(self):
+    def test_CardHasTag_ReturnsFalse_WhenTagOnlyInStaleCumulativeTags(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run") as run:
             run.return_value = mock.Mock(
                 returncode=0, stderr="",
-                stdout="DEVPATH=/x\nTAGS=seat\n")
+                stdout="DEVPATH=/x\n"
+                       "TAGS=:mutter-device-preferred-primary:\n"
+                       "CURRENT_TAGS=:seat:\n")
             self.assertFalse(h._card_has_tag("card1"))
 
 
 class SetPrimaryRefresh(unittest.TestCase):
-    """SetPrimary verifies the tag is present in the card's udev tags
-    after the settled refresh."""
+    """SetPrimary verifies the tag is present in the card's current udev
+    tags (what mutter reads at session start) after the settled refresh."""
 
     def test_SetPrimary_ReturnsRefreshFailed_WhenTagMissingAfterRefresh(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp5-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
 
         def run(argv, **kwargs):
-            # udevadm info (the tag query) reports no tag; everything
+            # udevadm info (the tag query) reports no current tag; everything
             # else (verify, reload-rules, settled trigger) succeeds.
             if argv[:2] == ["udevadm", "info"]:
                 return mock.Mock(returncode=0, stderr="",
-                                 stdout="DEVPATH=/x\nTAGS=\n")
+                                 stdout="DEVPATH=/x\nCURRENT_TAGS=\n")
             return mock.Mock(returncode=0, stdout="", stderr="")
 
         invocation = mock.Mock()
@@ -373,11 +389,11 @@ class SetPrimaryTransaction(unittest.TestCase):
 
         def run(argv, **kwargs):
             # reload-rules and the settled trigger succeed; the tag query
-            # reports the mutter tag in the card's tags.
+            # reports the mutter tag in the card's current tags.
             if argv[:2] == ["udevadm", "info"]:
                 return mock.Mock(returncode=0, stderr="",
                                  stdout="DEVPATH=/x\n"
-                                        "TAGS=mutter-device-preferred-primary\n")
+                                        "CURRENT_TAGS=:mutter-device-preferred-primary:\n")
             return mock.Mock(returncode=0, stdout="", stderr="")
 
         invocation = mock.Mock()

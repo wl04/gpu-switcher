@@ -27,17 +27,21 @@ adding one `.po` file.
 
 ## How activation works (why a reboot is not strictly required)
 
-Mutter reads the udev tag `mutter-device-preferred-primary` from the
-persistent udev database when the DRM backend initializes at **session
-start**; it does not re-read tags mid-session. Consequences:
+Mutter reads the udev tag `mutter-device-preferred-primary` from the card's
+**current tags** when the DRM backend initializes at **session start**; it
+does not re-read tags mid-session. udev keeps two tag lists per device: the
+cumulative `TAGS` (kept until the device's udev entry is replaced — in
+practice, a reboot) and `CURRENT_TAGS` (recomputed on every uevent).
+Consequences:
 
-- After the rule file changes, the tag in the database is stale until udev
+- After the rule file changes, the current tags are stale until udev
   re-runs its rules:
   - **reboot** — udev re-evaluates everything at boot; always works, or
   - `udevadm control --reload-rules` + scoped
     `udevadm trigger --subsystem-match=drm --settle` — udev re-emits the DRM
-    events and the database gets the new tag; a **logout/login** is then
-    enough (gnome-shell restarts and reads the fresh tag).
+    events and every card's current tags are recomputed under the new rule
+    (only the configured card carries the tag); a **logout/login** is then
+    enough (gnome-shell restarts and reads the fresh current tags).
 - The app therefore offers both paths: **Reboot** (default, safe) and
   **Log out** (fast path; enabled only when the refresh ran successfully).
   The refresh runs inside Apply / Reset under the same polkit authorization,

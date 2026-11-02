@@ -27,8 +27,9 @@ GPU plus the CPU's integrated graphics.
 
 ## How it works
 
-Mutter reads the udev tag `mutter-device-preferred-primary` from the udev
-database when the session starts and does not re-read tags mid-session.
+Mutter reads the udev tag `mutter-device-preferred-primary` from the card's
+current udev tags when the session starts and does not re-read tags
+mid-session.
 `gpu-switcher` therefore:
 
 1. writes the managed rule `/etc/udev/rules.d/61-mutter-primary-gpu.rules`

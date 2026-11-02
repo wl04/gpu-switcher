@@ -14,7 +14,8 @@ plus a settled, scoped udevadm trigger for the DRM subsystem) under the
 SAME authorization, so activating the rule needs no second prompt; a
 failed refresh is reported per call (refresh_ok is false) and leaves
 reboot as the fallback. SetPrimary additionally verifies that the tag is
-present in the chosen card's udev tags after the settled refresh.
+present in the chosen card's current udev tags (the tags its last uevent
+computed - what mutter reads when the session starts).
 
 Authorization: polkit CheckAuthorization over raw D-Bus with the INTERACTIVE
 flag, so the standard agent dialog authenticates the caller. The subject
@@ -337,27 +338,32 @@ def _trigger_drm():
     return out.returncode == 0
 
 
-def parse_udev_tags(output):
-    """The TAGS of a udevadm info --query=property dump as a list.
+def parse_udev_current_tags(output):
+    """The CURRENT_TAGS of a udevadm info --query=property dump as a list.
 
-    The dump is KEY=VALUE lines; TAGS is comma-separated
-    (e.g. TAGS=mutter-device-preferred-primary,seat). Lines other than
-    TAGS are ignored.
+    The dump is KEY=VALUE lines; CURRENT_TAGS is colon-separated with a
+    leading and trailing colon (e.g. CURRENT_TAGS=:seat:uaccess:) and empty
+    when the device's last uevent set no tags. These are the tags mutter
+    reads when the session starts; the cumulative TAGS line may still carry
+    a tag no rule currently matches and is ignored here. Lines other than
+    CURRENT_TAGS are ignored.
     """
     tags = []
     for line in output.splitlines():
-        if line.startswith("TAGS="):
-            tags = [t for t in line[len("TAGS="):].split(",") if t]
+        if line.startswith("CURRENT_TAGS="):
+            tags = [t for t in line[len("CURRENT_TAGS="):].split(":") if t]
             break
     return tags
 
 
 def _card_has_tag(card):
-    """Whether the card's udev tags carry the mutter tag.
+    """Whether the card's current udev tags carry the mutter tag.
 
     Runs udevadm info --query=property on /sys/class/drm/<card> and checks
-    TAGS - the tag list of the card's udev entry. This is the check that
-    makes "refresh ok" true: without the tag, mutter will
+    CURRENT_TAGS - the tags the last uevent computed, which is what mutter
+    reads when the session starts. (The cumulative TAGS line may still show
+    a stale tag from a previous rule; it is irrelevant to mutter.) This is
+    the check that makes "refresh ok" true: without the tag, mutter will
     not select the primary even after a relogin. Skipped (True) when udevadm
     is unavailable, matching the _verify_rule skip.
     """
@@ -374,15 +380,16 @@ def _card_has_tag(card):
     if out.returncode != 0:
         _log(f"tag check: udevadm info rc={out.returncode} on {card}")
         return False
-    tags = parse_udev_tags(out.stdout)
+    tags = parse_udev_current_tags(out.stdout)
     has = MUTTER_TAG in tags
-    _log(f"tag check: {card} tags={tags} has={has}")
+    _log(f"tag check: {card} current_tags={tags} has={has}")
     return has
 
 
 def _refresh_udev(card=None):
     """Reload the udev rules, re-trigger (settled) the DRM devices, and
-    verify the new rule's tag is present in the card's udev tags.
+    verify the new rule's tag is present in the card's current udev tags
+    (what mutter reads after a re-login).
 
     Scoped to the DRM subsystem: only display devices are touched, nothing
     else is re-probed. When `card` is given (SetPrimary), the tag is checked
