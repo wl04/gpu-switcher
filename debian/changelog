@@ -1,3 +1,23 @@
+gpu-switcher (0.1.0-24) unstable; urgency=low
+
+  * "Log out" now ends the session via the GNOME SessionManager.
+  * GNOME detection uses XDG_CURRENT_DESKTOP.
+  * The "selected primary" journal lookup is scoped to the current session.
+  * Operation outcome (success, no change, timed out) is tracked explicitly.
+  * D-Bus client timeout is 280 s and bus acquisition is guarded.
+  * GPU detection runs in a worker thread while the UI shows "Detecting…".
+  * Polkit authorization is bound to the caller's bus name.
+  * The DRM udev trigger is settled before the mutter tag is checked.
+  * Success now requires the mutter tag in the card's current udev tags.
+  * Write failures (verify, backup, rename, unlink) are reported distinctly.
+  * GTK 4.10 / gir1.2-gtk-4.0 is now a required dependency.
+  * Both .deb build paths converge (same files, man page, msgfmt catalogs).
+  * The .deb version is read from the top changelog entry.
+  * release.sh generates the orig tarball and cross-checks both builds.
+  * Source format is 3.0 (quilt).
+
+ -- wl04 <wl04@users.noreply.github.com>  Mon, 02 Nov 2026 02:52:27 +0100
+
 gpu-switcher (0.1.0-23) unstable; urgency=low
 
   * Selection now mirrors the configured state: the radio selection is the
