@@ -144,6 +144,32 @@ def _our_session_path() -> str:
     return seated[0] if len(seated) == 1 else ""
 
 
+def session_leader():
+    """The pid of the session leader of our logind session, or None when
+    it cannot be determined.
+
+    Resolves our session object path (see _our_session_path) and reads
+    the session's Leader property (org.freedesktop.login1.Session.Leader,
+    u) via Properties.Get. detect.py uses this to scope the gnome-shell
+    journal attribution to our session.
+    """
+    path = _our_session_path()
+    if not path:
+        return None
+    try:
+        connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        result = connection.call_sync(
+            LOGIN1_NAME, path, "org.freedesktop.DBus.Properties", "Get",
+            GLib.Variant("(ss)", (LOGIN1_SESSION_IFACE, "Leader")),
+            GLib.VariantType("(v)"), 0, LOGIN1_TIMEOUT_MS, None)
+    except GLib.Error:
+        return None
+    try:
+        return int(result[0])
+    except (TypeError, ValueError):
+        return None
+
+
 def logout(callback) -> None:
     """GNOME session manager Logout for our own session (the fast path).
 

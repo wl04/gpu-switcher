@@ -4,6 +4,12 @@ Everything here only reads /sys, the gnome-shell journal, udev properties
 and the managed udev rule file; no privileged operation is required. The
 parsing steps are pure (text in, data out) so they are unit-testable
 without the real binaries; the thin wrappers are the I/O boundary.
+
+The running primary is attributed to a single gnome-shell pid scoped to
+our session: a descendant of our session leader (from logind) when it is
+known, else the single gnome-shell pid system-wide. Without exactly one
+in-scope pid, the attribution is ambiguous and the running primary is
+unknown.
 """
 from __future__ import annotations
 
@@ -111,11 +117,74 @@ def last_primary_card(lines: list[str]) -> str | None:
     return card
 
 
-def running_primary() -> tuple[str | None, str | None]:
-    """Card picked by gnome-shell this boot (e.g. 'card2'), and the error
-    text when the journal could not be read (None on success)."""
+def gnome_shell_pids_in_tree(tree, leader):
+    """gnome-shell pids in a process tree of {pid: (ppid, comm)}.
+
+    With a leader, only its descendants are collected (session-scoped
+    scan: shells of other sessions/users never count). With leader None,
+    the whole tree is scanned. Result is sorted and deduplicated.
+    """
+    children = {}
+    for pid, (ppid, _comm) in tree.items():
+        children.setdefault(ppid, []).append(pid)
+    if leader is not None and leader not in tree:
+        return []
+    found = set()
+    stack = [leader] if leader is not None else list(tree)
+    while stack:
+        pid = stack.pop()
+        _ppid, comm = tree[pid]
+        if comm == "gnome-shell":
+            found.add(pid)
+        stack.extend(children.get(pid, ()))
+    return sorted(found)
+
+
+def _process_tree() -> dict:
+    """{pid: (ppid, comm)} for the live process table.
+
+    /proc/<pid>/stat is `pid (comm) state ppid ...`; comm may contain
+    spaces and parentheses, so the line is split at the last ')'.
+    Unreadable entries are skipped (processes vanish mid-scan normally).
+    """
+    tree = {}
     try:
-        out = subprocess.run(["journalctl", "-b", "-q", JOURNAL_UNIT],
+        entries = os.listdir("/proc")
+    except OSError:
+        return tree
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        stat = read_text(f"/proc/{entry}/stat")
+        if not stat:
+            continue
+        try:
+            head, rest = stat.rsplit(")", 1)
+            comm = head.split("(", 1)[1]
+            ppid = int(rest.split()[1])
+        except (ValueError, IndexError):
+            continue
+        tree[int(entry)] = (ppid, comm)
+    return tree
+
+
+def running_primary(leader_pid=None) -> tuple[str | None, str | None]:
+    """Card picked by gnome-shell in our session (e.g. 'card2'), and the
+    error text when the journal could not be read (None on success).
+
+    The journal is scoped to a single gnome-shell pid: a descendant of
+    our session leader when it is known (leader_pid), else the single
+    gnome-shell pid system-wide. With zero or multiple in-scope pids the
+    attribution is ambiguous and (None, None) is returned — the existing
+    "unknown" note covers it in the UI.
+    """
+    pids = gnome_shell_pids_in_tree(_process_tree(), leader_pid)
+    if len(pids) != 1:
+        return None, None
+    pid = pids[0]
+    try:
+        out = subprocess.run(["journalctl", "-b", "-q", f"_PID={pid}",
+                              JOURNAL_UNIT],
                              capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.SubprocessError) as error:
         return None, f"journalctl could not be run ({error})"
@@ -135,19 +204,37 @@ def managed_rule_pci() -> str | None:
     return managed_rule_pci_from_text(read_text(MANAGED_RULE))
 
 
-def is_gnome_wayland(session_type: str, gnome_shell_present: bool) -> bool:
-    """True when the session is Wayland and gnome-shell is installed."""
-    return session_type.lower() == "wayland" and gnome_shell_present
+def is_gnome_wayland(session_type: str, xdg_current_desktop: str,
+                     gnome_shell_present: bool) -> bool:
+    """True when the session is Wayland and the desktop is GNOME.
+
+    The desktop is XDG_CURRENT_DESKTOP normalized (last colon-separated
+    component, casefolded, == "gnome"); when it is unset, gnome-shell
+    presence is the fallback (a GNOME Wayland session always runs
+    gnome-shell, and its absence is the only signal without the
+    variable).
+    """
+    if session_type.lower() != "wayland":
+        return False
+    if not xdg_current_desktop:
+        return gnome_shell_present
+    return xdg_current_desktop.split(":")[-1].casefold() == "gnome"
 
 
 def gnome_wayland_session() -> bool:
     """Whether the current desktop session is GNOME on Wayland."""
-    return is_gnome_wayland(os.environ.get("XDG_SESSION_TYPE", ""),
-                            shutil.which("gnome-shell") is not None)
+    return is_gnome_wayland(
+        os.environ.get("XDG_SESSION_TYPE", ""),
+        os.environ.get("XDG_CURRENT_DESKTOP", ""),
+        shutil.which("gnome-shell") is not None)
 
 
-def detect() -> Detection:
-    """Full detection snapshot used by the UI."""
+def detect(leader_pid=None) -> Detection:
+    """Full detection snapshot used by the UI.
+
+    leader_pid scopes the running-primary attribution to our session
+    (see running_primary); None scans system-wide.
+    """
     gpus = []
     try:
         entries = sorted(os.listdir("/sys/class/drm"))
@@ -177,7 +264,7 @@ def detect() -> Detection:
             in_use=False,
             preferred=False,
         ))
-    running_card, running_card_error = running_primary()
+    running_card, running_card_error = running_primary(leader_pid)
     preferred = managed_rule_pci()
     for g in gpus:
         g.in_use = g.card == running_card
