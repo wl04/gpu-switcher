@@ -46,8 +46,9 @@ journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
 
 ## Install
 
-Requires: `python3 (>= 3.12)`, `python3-gi`, `libgtk-4-1`, `polkitd`, `dbus`,
-`udev`, `systemd`, `pciutils` — all standard on Ubuntu/Debian.
+Requires: `python3 (>= 3.12)`, `python3-gi`, `gir1.2-gtk-4.0 (>= 4.10)`,
+`libgtk-4-1 (>= 4.10)`, `polkitd`, `dbus`, `udev`, `systemd`, `pciutils` — all
+standard on Ubuntu/Debian.
 
 ### `.deb`
 

@@ -112,8 +112,8 @@ fi
   echo "Upgrading from an older version: stop a still-running helper first —"
   echo '`sudo pkill -f gpu_switcher_helper`.'
   echo
-  echo "Requires: python3 (>= 3.12), python3-gi, libgtk-4-1, polkitd, dbus,"
-  echo "udev, systemd, pciutils."
+  echo "Requires: python3 (>= 3.12), python3-gi, gir1.2-gtk-4.0 (>= 4.10),"
+  echo "libgtk-4-1 (>= 4.10), polkitd, dbus, udev, systemd, pciutils."
   echo
   echo "## Checksum"
   echo
