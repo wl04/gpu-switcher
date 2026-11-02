@@ -1,6 +1,8 @@
 *.deb
 debian/gpu-switcher/
 debian/.debhelper/
+debian/debhelper-build-stamp
+debian/gpu-switcher.substvars
 debian/files
 debian/changelog.tmp
 __pycache__/
