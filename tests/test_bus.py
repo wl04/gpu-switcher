@@ -51,5 +51,43 @@ class Logout(unittest.TestCase):
                          [(False, "Could not log out: no session bus.")])
 
 
+class BusGuard(unittest.TestCase):
+    """bus_get_sync failures must be forwarded to the completion callback
+    as a localized error, not escape the action callback."""
+
+    def _bus_error(self):
+        return GLib.Error.new_literal(
+            GLib.quark_from_string("g-io-error-quark"), "no system bus", 8)
+
+    def test_SetPrimary_ForwardsBusError_WhenSystemBusUnavailable(self):
+        results = []
+        with mock.patch.object(Gio, "bus_get_sync",
+                              side_effect=self._bus_error()):
+            bus.set_primary("0000:12:00.0", "en",
+                            lambda *args: results.append(args))
+        self.assertEqual(results, [(False,
+                                    "Could not reach the GPU helper: "
+                                    "no system bus.",
+                                    "", False, False)])
+
+    def test_SetAuto_ForwardsBusError_WhenSystemBusUnavailable(self):
+        results = []
+        with mock.patch.object(Gio, "bus_get_sync",
+                              side_effect=self._bus_error()):
+            bus.set_auto("en", lambda *args: results.append(args))
+        self.assertEqual(results, [(False,
+                                    "Could not reach the GPU helper: "
+                                    "no system bus.",
+                                    False, False)])
+
+    def test_Reboot_ForwardsBusError_WhenSystemBusUnavailable(self):
+        results = []
+        with mock.patch.object(Gio, "bus_get_sync",
+                              side_effect=self._bus_error()):
+            bus.reboot(lambda *args: results.append(args))
+        self.assertEqual(results, [(False,
+                                    "Could not reach logind: no system bus.")])
+
+
 if __name__ == "__main__":
     unittest.main()

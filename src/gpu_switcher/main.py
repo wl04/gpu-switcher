@@ -5,11 +5,15 @@ Unprivileged GUI over the root D-Bus helper: lists the DRM cards with
 sessions with a warning, and gates the privileged changes behind polkit
 (Apply / Reset to auto) with a contextual status banner. Reboot uses
 login1; Log out is the fast path (GNOME session manager Logout, no
-polkit prompt) and stays disabled until an Apply/Reset whose udev refresh
-succeeded. A collapsible hint gives the journalctl command to verify the
-switch after restart.
+polkit prompt). The app tracks the explicit outcome of the last
+Apply/Reset (state.Outcome); Log out stays enabled only while not busy
+and after a successful, refreshed operation. A collapsible hint gives
+the journalctl command to verify the switch after restart. Detection runs
+on a worker thread, so the main loop never blocks on it.
 """
 from __future__ import annotations
+
+import threading
 
 import gi
 
@@ -17,8 +21,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gtk, GLib
 
-from . import bus, detect, i18n
+from . import bus, detect, i18n, state
 from .selection import SELECTION_AUTO, initial_selection, selection_after_failure
+from .state import Outcome, banner_kind, logout_enabled, outcome_from_result
 
 APP_ID = "com.github.wl04.gpu-switcher"
 
@@ -43,9 +48,25 @@ class GpuSwitcherApp(Gtk.Application):
         self.reset_btn = None
         self.reboot_btn = None
         self.logout_btn = None
-        self.fast_path_pending = False  # last apply/reset refreshed udev successfully
+        self.outcome = Outcome.idle  # explicit state of the last operation
+        self._detect_generation = 0  # discards stale detection results
+        self._pending_banner = None  # (text, kind) shown after a rebuild
 
     # ------------------------------------------------------------------ UI
+
+    def _build_loading(self) -> None:
+        """Minimal content while the first detection runs: a dim
+        'Detecting…' label; the full content replaces it when detection
+        finishes."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        label = Gtk.Label(label=i18n._("Detecting…"))
+        label.add_css_class("dim-label")
+        box.append(label)
+        self.window.set_child(box)
 
     def _gpu_row(self, radio, name: str, sub: str, badges: list) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -197,7 +218,7 @@ class GpuSwitcherApp(Gtk.Application):
         buttons.append(self.reboot_btn)
         self.logout_btn = Gtk.Button(label=i18n._("Log out"))
         self.logout_btn.connect("clicked", self._on_logout)
-        self.logout_btn.set_sensitive(self._fast_path_enabled())
+        self.logout_btn.set_sensitive(logout_enabled(False, self.outcome))
         buttons.append(self.logout_btn)
         return buttons
 
@@ -253,16 +274,12 @@ class GpuSwitcherApp(Gtk.Application):
         self.banner.set_reveal_child(True)
 
     def _set_busy(self, busy: bool) -> None:
-        for button in (self.apply_btn, self.reset_btn, self.reboot_btn,
-                       self.logout_btn):
+        """Busy state for the action buttons; Log out goes through the
+        sensitivity rule (state.logout_enabled), so it is never
+        re-enabled by un-busy alone."""
+        for button in (self.apply_btn, self.reset_btn, self.reboot_btn):
             button.set_sensitive(not busy)
-
-    def _fast_path_enabled(self) -> bool:
-        """Log out is only useful after an apply/reset whose udev refresh
-        succeeded: the tags are then fresh, so a logout/login switches the
-        primary without another prompt. A failed refresh keeps it disabled
-        (reboot is the only path left)."""
-        return self.fast_path_pending
+        self.logout_btn.set_sensitive(logout_enabled(busy, self.outcome))
 
     def _confirm(self, text: str, confirm_label: str, on_result) -> None:
         """Modal confirmation via Gtk.AlertDialog (GTK >= 4.10).
@@ -341,25 +358,47 @@ class GpuSwitcherApp(Gtk.Application):
         else:
             bus.set_primary(target, locale, self._on_set_primary_done)
 
-    def _on_set_primary_done(self, ok, message, _backup, refresh_ok) -> None:
+    def _on_set_primary_done(self, ok, message, _backup, refresh_ok,
+                             timed_out) -> None:
+        if timed_out:
+            self._on_helper_timeout()
+            return
+        self.outcome = outcome_from_result(ok, refresh_ok, False)
         self._set_busy(False)
         if ok:
-            self.fast_path_pending = bool(refresh_ok)
-            self._banner_show(message, "success")
-            self._refresh()
+            # The rebuild replaces the banner widget, so the result is
+            # shown only after the rebuild (see _start_detection).
+            self._refresh(banner=(message, banner_kind(self.outcome)))
         else:
             self._banner_show(message, "error")
             self._revert_selection()
 
-    def _on_set_auto_done(self, ok, message, refresh_ok) -> None:
+    def _on_set_auto_done(self, ok, message, refresh_ok, timed_out) -> None:
+        if timed_out:
+            self._on_helper_timeout()
+            return
+        self.outcome = outcome_from_result(ok, refresh_ok, False)
         self._set_busy(False)
         if ok:
-            self.fast_path_pending = bool(refresh_ok)
-            self._banner_show(message, "success")
-            self._refresh()
+            # The rebuild replaces the banner widget, so the result is
+            # shown only after the rebuild (see _start_detection).
+            self._refresh(banner=(message, banner_kind(self.outcome)))
         else:
             self._banner_show(message, "error")
             self._revert_selection()
+
+    def _on_helper_timeout(self) -> None:
+        """The client call timed out: the helper's outcome is unknown.
+
+        Set the outcome, re-detect and reconcile with the rule on disk
+        (the helper's Status method would read the same world-readable
+        file), then report the unknown outcome.
+        """
+        self.outcome = Outcome.unknown
+        self._set_busy(False)
+        self._refresh(banner=(
+            i18n._("The operation timed out; the outcome is unknown. "
+                    "The current state was rechecked."), "warning"))
 
     def _on_reset(self, _button) -> None:
         self.selected_card = SELECTION_AUTO
@@ -415,14 +454,50 @@ class GpuSwitcherApp(Gtk.Application):
         self._set_busy(False)
         self._banner_show(message or i18n._("Log out failed."), "error")
 
-    def _refresh(self) -> None:
+    def _refresh(self, banner=None) -> None:
         """Re-detect (read-only) and rebuild the window after a change.
 
-        The rebuilt selection always mirrors the on-disk configured state
-        (see _build_rows), so no manual restore is needed here.
+        Detection runs on a worker thread (see _start_detection); the
+        rebuilt selection always mirrors the on-disk configured state (see
+        _build_rows), so no manual restore is needed here. `banner` is a
+        (text, kind) pair shown only after the rebuild completes, because
+        the rebuild replaces the banner widget.
         """
-        self.detection = detect.detect()
-        self._build_content()
+        self._pending_banner = banner
+        self._start_detection()
+
+    def _start_detection(self) -> None:
+        """Run detect.detect() and the session-leader lookup on a worker
+        thread and rebuild the UI on the main loop.
+
+        A generation token discards stale results when a newer detection
+        has already superseded this one (rapid Apply/Reset cycles). While
+        the detection runs, the existing banner (if any) shows a dim
+        'Detecting…'; the pending banner is shown after the rebuild.
+        """
+        self._detect_generation += 1
+        generation = self._detect_generation
+        if self.banner is not None:
+            self._banner_show(i18n._("Detecting…"), "info")
+
+        def apply(result):
+            if generation != self._detect_generation:
+                return  # stale: a newer detection superseded this one
+            self.detection = result
+            self._build_content()
+            banner = self._pending_banner
+            self._pending_banner = None
+            if banner is not None:
+                self._banner_show(*banner)
+
+        def worker():
+            try:
+                leader = bus.session_leader()
+            except Exception:
+                leader = None
+            GLib.idle_add(apply, detect.detect(leader))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ------------------------------------------------------------- lifecycle
 
@@ -430,9 +505,9 @@ class GpuSwitcherApp(Gtk.Application):
         self.window = Gtk.ApplicationWindow(application=self)
         self.window.set_title("gpu-switcher")
         self.window.set_default_size(560, 430)
-        self.detection = detect.detect()
-        self._build_content()
+        self._build_loading()
         self.window.present()
+        self._start_detection()
 
 
 def run(argv) -> int:

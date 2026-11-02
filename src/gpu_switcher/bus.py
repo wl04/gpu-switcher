@@ -25,7 +25,7 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
-from . import i18n
+from . import i18n, state
 
 HELPER_NAME = "com.github.wl04.gpu_switcher.Helper"
 HELPER_PATH = "/com/github/wl04/gpu_switcher/Helper"
@@ -44,9 +44,10 @@ SESSION_MANAGER_IFACE = "org.gnome.SessionManager"
 SESSION_MANAGER_LOGOUT_MODE = 1
 
 # The helper waits on an interactive polkit dialog, which may stay open for
-# a while; allow longer than that so the app-side call cannot time out
-# first.
-HELPER_TIMEOUT_MS = 180000
+# a while; its worst case is ~260 s (170 s dialog + 3 x 30 s subprocesses).
+# The client timeout must exceed that, so the helper's result is never lost
+# to a client-side timeout.
+HELPER_TIMEOUT_MS = 280000
 LOGIN1_TIMEOUT_MS = 15000
 
 
@@ -55,18 +56,26 @@ def set_primary(pci: str, locale: str, callback) -> None:
 
     The helper also refreshes udev (reload-rules + scoped DRM trigger)
     under the same authorization, so the rule takes effect without a
-    second prompt. callback(ok, message, backup_path, refresh_ok).
+    second prompt. callback(ok, message, backup_path, refresh_ok,
+    timed_out) — timed_out is True when the client call timed out, in
+    which case the helper's outcome is unknown.
     """
-    connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    try:
+        connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    except GLib.Error as error:
+        callback(False, i18n._("Could not reach the GPU helper: %s.") % error.message,
+                 "", False, False)
+        return
     params = GLib.Variant("(ss)", (pci, locale))
 
     def on_call(c, task):
         try:
             ok, message, backup, refresh_ok = c.call_finish(task)
         except GLib.Error as error:
-            callback(False, error.message, "", False)
+            callback(False, error.message, "", False,
+                     state.is_gio_timeout(error))
             return
-        callback(bool(ok), message, backup, bool(refresh_ok))
+        callback(bool(ok), message, backup, bool(refresh_ok), False)
 
     connection.call(HELPER_NAME, HELPER_PATH, HELPER_IFACE, "SetPrimary",
                     params, GLib.VariantType("(bssb)"), 0, HELPER_TIMEOUT_MS,
@@ -78,18 +87,25 @@ def set_auto(locale: str, callback) -> None:
 
     The helper also refreshes udev under the same authorization, so the
     auto selection takes effect without a second prompt.
-    callback(ok, message, refresh_ok).
+    callback(ok, message, refresh_ok, timed_out) — timed_out is True when
+    the client call timed out, in which case the helper's outcome is
+    unknown.
     """
-    connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    try:
+        connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    except GLib.Error as error:
+        callback(False, i18n._("Could not reach the GPU helper: %s.") % error.message,
+                 False, False)
+        return
     params = GLib.Variant("(s)", (locale,))
 
     def on_call(c, task):
         try:
             ok, message, refresh_ok = c.call_finish(task)
         except GLib.Error as error:
-            callback(False, error.message, False)
+            callback(False, error.message, False, state.is_gio_timeout(error))
             return
-        callback(bool(ok), message, bool(refresh_ok))
+        callback(bool(ok), message, bool(refresh_ok), False)
 
     connection.call(HELPER_NAME, HELPER_PATH, HELPER_IFACE, "SetAuto",
                     params, GLib.VariantType("(bsb)"), 0, HELPER_TIMEOUT_MS,
@@ -102,7 +118,11 @@ def reboot(callback) -> None:
 
     callback(ok: bool, message: str)
     """
-    connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    try:
+        connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    except GLib.Error as error:
+        callback(False, i18n._("Could not reach logind: %s.") % error.message)
+        return
     params = GLib.Variant("(b)", (False,))
 
     def on_call(c, task):

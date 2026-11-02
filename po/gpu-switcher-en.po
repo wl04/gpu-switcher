@@ -60,8 +60,20 @@ msgstr "Logging out."
 msgid "Log out failed."
 msgstr "Log out failed."
 
+msgid "Detecting…"
+msgstr "Detecting…"
+
 msgid "Could not log out: %s."
 msgstr "Could not log out: %s."
+
+msgid "Could not reach the GPU helper: %s."
+msgstr "Could not reach the GPU helper: %s."
+
+msgid "Could not reach logind: %s."
+msgstr "Could not reach logind: %s."
+
+msgid "The operation timed out; the outcome is unknown. The current state was rechecked."
+msgstr "The operation timed out; the outcome is unknown. The current state was rechecked."
 
 msgid "How to verify the switch after restart"
 msgstr "How to verify the switch after restart"
