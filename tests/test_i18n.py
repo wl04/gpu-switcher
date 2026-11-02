@@ -1,11 +1,23 @@
 """Unit tests for the gettext setup in i18n.py.
 
-Pins the locale variable precedence (LC_ALL > LC_MESSAGES > LANG > en)
-and the catalog search order (installed location before the source tree).
+Pins the locale variable precedence (LC_ALL > LC_MESSAGES > LANG > en),
+the catalog search order (installed location before the source tree), and
+the reference-compiler guards: catalog consistency (`msgfmt -c`) and
+readability of a msgfmt-built catalog by CPython's gettext.
 """
+import gettext
 import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 from contextlib import contextmanager
+
+# gpu_switcher.i18n binds its gettext function at import time, so the
+# locale must be pinned before the app import: the assertions below
+# compare English catalog strings and must hold under any developer
+# locale.
+os.environ["LC_ALL"] = "en"
 
 from gpu_switcher import i18n
 
@@ -59,6 +71,45 @@ class Localedirs(unittest.TestCase):
             self.assertEqual(dirs, [installed, src])
         else:
             self.assertEqual(len(dirs), 1)
+
+
+class MsgfmtBuild(unittest.TestCase):
+    """Catalog build guard: the tracked catalogs must pass the reference
+    compiler's consistency check, and a msgfmt-built catalog must be
+    readable by CPython's gettext."""
+
+    def setUp(self):
+        self._msgfmt = shutil.which("msgfmt")
+        if self._msgfmt is None:
+            self.skipTest("msgfmt (gettext-tools) is not installed")
+
+    def _po(self, name: str) -> str:
+        return os.path.join(os.path.dirname(i18n.__file__), "..", "..",
+                            "po", name)
+
+    def test_Msgfmt_ChecksCatalogs_AreConsistent(self):
+        # One msgfmt invocation per catalog: multiple .po files would be
+        # parsed as one merged catalog and every msgid would duplicate.
+        # -o /dev/null: GNU msgfmt's -c still writes the default
+        # messages.mo to the CWD without an explicit output file.
+        for name in ("gpu-switcher-en.po", "gpu-switcher-ru.po"):
+            out = subprocess.run([self._msgfmt, "-c", "-o", "/dev/null",
+                                 self._po(name)], capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+
+    def test_Msgfmt_BuiltCatalog_IsReadableByGettext(self):
+        ru_po = self._po("gpu-switcher-ru.po")
+        with tempfile.TemporaryDirectory() as tmp:
+            mo_path = os.path.join(tmp, "LC_MESSAGES", "gpu-switcher.mo")
+            os.makedirs(os.path.dirname(mo_path))
+            out = subprocess.run([self._msgfmt, "-o", mo_path, ru_po],
+                                 capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            with open(mo_path, "rb") as f:
+                catalog = gettext.GNUTranslations(f)
+            self.assertEqual(catalog.gettext("In use now"),
+                             "Используется сейчас")
+            self.assertEqual(catalog.gettext("Log out"), "Выйти")
 
 
 if __name__ == "__main__":

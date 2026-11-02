@@ -21,8 +21,8 @@ Python 3 + GTK 4 (PyGObject); no compilation step.
   choice later if a standalone static binary is ever wanted.
 
 i18n: all strings go through gettext — `po/gpu-switcher-{en,ru}.po` compiled
-with the pure-Python `tools/po2mo.py` (no gettext tools needed) and installed
-to `/usr/share/gpu-switcher/locale/{lang}/LC_MESSAGES/`. Adding a language =
+with `msgfmt` (build-time `gettext` dependency) and installed to
+`/usr/share/gpu-switcher/locale/{lang}/LC_MESSAGES/`. Adding a language =
 adding one `.po` file.
 
 ## How activation works (why a reboot is not strictly required)
@@ -181,14 +181,12 @@ gpu-switcher/
 │   ├── test_udev_rules.py
 │   ├── test_helper.py
 │   ├── test_selection.py
-│   ├── test_po2mo.py
 │   └── test_i18n.py
 ├── tools/
 │   ├── build-deb.sh                   # .deb builder (plain dpkg-deb)
-│   ├── release.sh                     # release: bump version, changelog,
-│   │                                  #   checks, build, lintian, commit,
-│   │                                  #   GitHub release
-│   └── po2mo.py                       # pure-Python .po → .mo compiler
+│   └── release.sh                     # release: bump version, changelog,
+│                                      #   checks, build, lintian, commit,
+│                                      #   GitHub release
 ├── docs/screenshot.png
 ├── Makefile
 ├── PLAN.md                           # this file
@@ -204,8 +202,8 @@ gpu-switcher/
 - `tools/build-deb.sh` (plain `dpkg-deb`, no debhelper required) is the
   canonical build; `debian/` (control, rules, compat, changelog, copyright,
   postrm) is kept for a `dpkg-buildpackage -us -uc` flow once debhelper is
-  available. Both paths compile the catalogs with `tools/po2mo.py` and
-  install the same file list; the `.deb` version is read from the `Version:`
+  available. Both paths compile the catalogs with `msgfmt` and install
+  the same file list; the `.deb` version is read from the `Version:`
   line in `debian/control` (single source of truth).
 - Installed docs: `changelog.Debian.gz` (gzip-compressed per Debian policy),
   plain `copyright`, gzipped man page.

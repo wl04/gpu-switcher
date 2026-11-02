@@ -30,10 +30,11 @@ mkdir -p \
   "$ROOT/usr/share/doc/gpu-switcher" \
   "$ROOT/usr/share/man/man1"
 
-# Compile the gettext catalogs (also leaves them in the source tree for dev runs).
+# Compile the gettext catalogs with msgfmt (also leaves them in the source
+# tree for dev runs).
 mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
-python3 tools/po2mo.py po/gpu-switcher-en.po -o data/locale/en/LC_MESSAGES/gpu-switcher.mo
-python3 tools/po2mo.py po/gpu-switcher-ru.po -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo
+msgfmt -o data/locale/en/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-en.po
+msgfmt -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-ru.po
 
 install -D -m 0755 src/wrapper/gpu-switcher "$ROOT/usr/bin/gpu-switcher"
 install -D -m 0644 src/gpu_switcher/__init__.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/__init__.py"

@@ -2,7 +2,7 @@ Source: gpu-switcher
 Section: utils
 Priority: optional
 Maintainer: wl04 <wl04@users.noreply.github.com>
-Build-Depends: debhelper
+Build-Depends: debhelper, gettext
 Standards-Version: 4.7.0
 Homepage: https://github.com/wl04/gpu-switcher
 

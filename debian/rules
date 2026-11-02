@@ -4,11 +4,11 @@
 	dh $@
 
 override_dh_auto_build:
-	# Same pure-Python compiler as tools/build-deb.sh (msgfmt is not a
-	# build dependency of this package).
+	# Same msgfmt invocation as tools/build-deb.sh, so both build paths
+	# produce identical catalogs.
 	mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
-	python3 tools/po2mo.py po/gpu-switcher-en.po -o data/locale/en/LC_MESSAGES/gpu-switcher.mo
-	python3 tools/po2mo.py po/gpu-switcher-ru.po -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo
+	msgfmt -o data/locale/en/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-en.po
+	msgfmt -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-ru.po
 
 override_dh_auto_install:
 	install -D -m 0755 src/wrapper/gpu-switcher debian/gpu-switcher/usr/bin/gpu-switcher

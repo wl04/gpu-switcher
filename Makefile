@@ -8,8 +8,8 @@ test:
 # Compile the gettext catalogs in the source tree (used by dev runs).
 locale:
 	mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
-	python3 tools/po2mo.py po/gpu-switcher-en.po -o data/locale/en/LC_MESSAGES/gpu-switcher.mo
-	python3 tools/po2mo.py po/gpu-switcher-ru.po -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo
+	msgfmt -o data/locale/en/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-en.po
+	msgfmt -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-ru.po
 
 # Build the .deb (lands in the parent directory).
 package:

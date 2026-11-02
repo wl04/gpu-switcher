@@ -85,6 +85,11 @@ mv "$CHANGELOG.new" "$CHANGELOG"
 
 # --- checks, build, verify ----------------------------------------------------
 make test
+# Catalog consistency gate (reference compiler), one invocation per
+# catalog. -o /dev/null: GNU msgfmt -c still writes the default
+# messages.mo to the CWD without an explicit output file.
+msgfmt -c -o /dev/null po/gpu-switcher-en.po
+msgfmt -c -o /dev/null po/gpu-switcher-ru.po
 make package
 DEB="../${PKG}_${NEW_VERSION}_all.deb"
 [ -f "$DEB" ] || { echo "error: build did not produce $DEB" >&2; exit 1; }
