@@ -4,9 +4,11 @@ Covers the pure PCI-format validation, the /sys resolution failure paths
 (stubbed filesystem), the managed rule line format (golden string matching
 the reference script mutter-primary-gpu.sh), the polkit authorization
 (subject binding, cancellation id, result statuses — mocked D-Bus), the
-distinct authorization-failure messages of SetPrimary, the missing-catalog
-translator fallback, and the IPC contract agreement between the app side
-(gpu_switcher/bus.py) and the helper side.
+distinct authorization-failure messages of SetPrimary, the SetPrimary/SetAuto
+transaction failure paths (verify, backup, rename, unlink) and the
+idempotent no-write path, the missing-catalog translator fallback, and the
+IPC contract agreement between the app side (gpu_switcher/bus.py), the
+helper side and the INTROSPECTION_XML method signatures.
 """
 import os
 import shutil
@@ -265,11 +267,213 @@ class RefreshUdev(unittest.TestCase):
         run.assert_not_called()
 
 
+class SetPrimaryTransaction(unittest.TestCase):
+    """SetPrimary write-transaction failure paths and the idempotent
+    no-write path."""
+
+    PCI = "0000:12:00.0"
+
+    def test_SetPrimary_ReturnsVerifyRejected_WhenUdevadmVerifyFails(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+
+        def run(argv, **kwargs):
+            # udevadm verify rejects the new rule; nothing else runs.
+            if argv[:2] == ["udevadm", "verify"]:
+                return mock.Mock(returncode=1, stdout="", stderr="bad rule")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "rule_conflicts", return_value=[]), \
+             mock.patch.object(h, "_resolve_gpu",
+                               return_value=("card1", "0x1002", "0x7550")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("os.chown"), \
+             mock.patch("subprocess.run", side_effect=run):
+            h.handle_set_primary(mock.Mock(), "sender",
+                                 (self.PCI, "en"), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertEqual(result, (False,
+                                 "udevadm verify rejected the rule; "
+                                 "nothing changed.",
+                                 "", False))
+        self.assertFalse(os.path.exists(managed))
+        shutil.rmtree(tmp)
+
+    def test_SetPrimary_ReturnsBackupFailure_WhenCopyFails(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+        old = 'SUBSYSTEMS=="pci", KERNELS=="0000:00:00.0"\n'
+        with open(managed, "w", encoding="utf-8") as f:
+            f.write(old)
+
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "rule_conflicts", return_value=[]), \
+             mock.patch.object(h, "_resolve_gpu",
+                               return_value=("card1", "0x1002", "0x7550")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("os.chown"), \
+             mock.patch("shutil.copy2", side_effect=OSError("no space")), \
+             mock.patch("subprocess.run") as run:
+            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            h.handle_set_primary(mock.Mock(), "sender",
+                                 (self.PCI, "en"), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertEqual(result, (False,
+                                 "Backup of the existing rule failed; "
+                                 "nothing changed.",
+                                 "", False))
+        with open(managed, encoding="utf-8") as f:
+            self.assertEqual(f.read(), old)
+        shutil.rmtree(tmp)
+
+    def test_SetPrimary_ReturnsNothingChanged_WhenRenameFails(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+        old = 'SUBSYSTEMS=="pci", KERNELS=="0000:00:00.0"\n'
+        with open(managed, "w", encoding="utf-8") as f:
+            f.write(old)
+
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "rule_conflicts", return_value=[]), \
+             mock.patch.object(h, "_resolve_gpu",
+                               return_value=("card1", "0x1002", "0x7550")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("os.chown"), \
+             mock.patch("subprocess.run") as run, \
+             mock.patch("os.rename",
+                        side_effect=OSError("read-only filesystem")):
+            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            h.handle_set_primary(mock.Mock(), "sender",
+                                 (self.PCI, "en"), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertEqual(result, (False,
+                                 "Failed to write the managed rule; "
+                                 "nothing changed.",
+                                 "", False))
+        with open(managed, encoding="utf-8") as f:
+            self.assertEqual(f.read(), old)
+        shutil.rmtree(tmp)
+
+    def test_SetPrimary_SkipsWrite_WhenRuleAlreadyCurrent(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+        content = h._rule_text(self.PCI, "0x1002", "0x7550")
+        with open(managed, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        def run(argv, **kwargs):
+            # reload-rules and the settled trigger succeed; the tag query
+            # reports the mutter tag in the card's tags.
+            if argv[:2] == ["udevadm", "info"]:
+                return mock.Mock(returncode=0, stderr="",
+                                 stdout="DEVPATH=/x\n"
+                                        "TAGS=mutter-device-preferred-primary\n")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "rule_conflicts", return_value=[]), \
+             mock.patch.object(h, "_resolve_gpu",
+                               return_value=("card1", "0x1002", "0x7550")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run", side_effect=run):
+            h.handle_set_primary(mock.Mock(), "sender",
+                                 (self.PCI, "en"), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertEqual(result, (True,
+                                 "The rule is already set for "
+                                 "0000:12:00.0. Udev rules reloaded.",
+                                 "", True))
+        with open(managed, encoding="utf-8") as f:
+            self.assertEqual(f.read(), content)
+        # The write path was skipped entirely: no backup, no temp file.
+        self.assertEqual(os.listdir(tmp), ["61-mutter-primary-gpu.rules"])
+        shutil.rmtree(tmp)
+
+
+class SetAutoTransaction(unittest.TestCase):
+    def test_SetAuto_ReturnsNothingRemoved_WhenUnlinkFails(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+        with open(managed, "w", encoding="utf-8") as f:
+            f.write("old rule\n")
+
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("os.chown"), \
+             mock.patch("os.unlink",
+                        side_effect=OSError("read-only filesystem")):
+            h.handle_set_auto(mock.Mock(), "sender", ("en",), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertEqual(result, (False,
+                                 "Failed to remove the managed rule; "
+                                 "nothing changed.",
+                                 False))
+        self.assertTrue(os.path.exists(managed))
+        shutil.rmtree(tmp)
+
+
 class BusContract(unittest.TestCase):
     def test_BusContract_MatchesHelperServiceNameAndPathAndInterface(self):
         self.assertEqual(bus.HELPER_NAME, h.SERVICE_NAME)
         self.assertEqual(bus.HELPER_PATH, h.OBJECT_PATH)
         self.assertEqual(bus.HELPER_IFACE, h.INTERFACE)
+
+    def test_BusContract_MatchesIntrospection_MethodsAndSignatures(self):
+        """INTROSPECTION_XML must declare the signatures the app side
+        (bus.py) actually sends and expects, method for method."""
+
+        def flat(sig: str) -> str:
+            # A variant's format string is parenthesized for tuples, while
+            # the introspection's per-arg concatenation is not.
+            if sig.startswith("(") and sig.endswith(")"):
+                return sig[1:-1]
+            return sig
+
+        expected = {"Status": ("s", "ss"),
+                    "SetPrimary": ("ss", "bssb"),
+                    "SetAuto": ("s", "bsb")}
+        node = Gio.DBusNodeInfo.new_for_xml(h.INTROSPECTION_XML)
+        iface = node.interfaces[0]
+        self.assertEqual(iface.name, h.INTERFACE)
+        self.assertEqual(iface.name, bus.HELPER_IFACE)
+        for name, signatures in expected.items():
+            method = iface.lookup_method(name)
+            declared = ("".join(a.signature for a in method.in_args),
+                        "".join(a.signature for a in method.out_args))
+            self.assertEqual(declared, signatures, name)
+
+        sent = []
+        connection = mock.Mock()
+        connection.call.side_effect = lambda *args: sent.append(args)
+        with mock.patch.object(Gio, "bus_get_sync",
+                              return_value=connection):
+            bus.set_primary("0000:12:00.0", "en", lambda *a: None)
+            bus.set_auto("en", lambda *a: None)
+        self.assertEqual(len(sent), 2)
+        for args, (method_name, signatures) in zip(
+                sent, (("SetPrimary", expected["SetPrimary"]),
+                       ("SetAuto", expected["SetAuto"]))):
+            bus_name, bus_path, iface_name, method, params, reply_type = args[:6]
+            self.assertEqual((bus_name, bus_path, iface_name, method),
+                             (bus.HELPER_NAME, bus.HELPER_PATH,
+                              bus.HELPER_IFACE, method_name))
+            self.assertEqual(flat(params.get_type_string()), signatures[0])
+            self.assertEqual(flat(reply_type.dup_string()), signatures[1])
 
 
 if __name__ == "__main__":

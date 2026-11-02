@@ -141,6 +141,9 @@ msgstr "udevadm verify rejected the rule; nothing changed."
 msgid "Backup of the existing rule failed; nothing changed."
 msgstr "Backup of the existing rule failed; nothing changed."
 
+msgid "Failed to write the managed rule; nothing changed."
+msgstr "Failed to write the managed rule; nothing changed."
+
 msgid "Rule written for %s. A backup was saved to %s. Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
 msgstr "Rule written for %s. A backup was saved to %s. Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
 

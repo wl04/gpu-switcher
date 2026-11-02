@@ -141,6 +141,9 @@ msgstr "udevadm verify отклонил правило; ничего не изм
 msgid "Backup of the existing rule failed; nothing changed."
 msgstr "Не удалось создать резервную копию текущего правила; ничего не изменено."
 
+msgid "Failed to write the managed rule; nothing changed."
+msgstr "Не удалось записать управляемое правило; ничего не изменено."
+
 msgid "Rule written for %s. A backup was saved to %s. Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
 msgstr "Правило записано для %s. Резервная копия сохранена: %s. udev-правила перезагружены; изменение вступит в силу после повторного входа (или после перезагрузки)."
 

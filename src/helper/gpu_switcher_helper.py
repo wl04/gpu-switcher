@@ -531,7 +531,19 @@ def handle_set_primary(connection, sender, params, invocation):
                 return
         else:
             backup = ""
-        os.rename(tmp_path, MANAGED_RULE)
+        try:
+            os.rename(tmp_path, MANAGED_RULE)
+        except OSError:
+            os.unlink(tmp_path)
+            tmp_path = ""
+            _log("SetPrimary: failed to move the rule into place")
+            invocation.return_value(
+                GLib.Variant("(bssb)",
+                             (False,
+                              tr("Failed to write the managed rule; "
+                                 "nothing changed."),
+                              "", False)))
+            return
         tmp_path = ""
         _log(f"SetPrimary: rule written for {pci} (backup: {backup or 'none'})")
     finally:
