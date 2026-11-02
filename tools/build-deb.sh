@@ -6,9 +6,10 @@ umask 022
 cd "$(dirname "$0")/.."
 
 PKG="gpu-switcher"
-# Single source of truth for the version: the Version: line in debian/control.
-VERSION="$(awk '/^Version: /{print $2; exit}' debian/control)"
-[ -n "$VERSION" ] || { echo "Version: line not found in debian/control" >&2; exit 1; }
+# Single source of truth for the version: the top entry of debian/changelog,
+# the same source dpkg-buildpackage/dpkg-parsechangelog read it from.
+VERSION="$(awk '/^'"$PKG"' \(/{print $2; exit}' debian/changelog | tr -d '()')"
+[ -n "$VERSION" ] || { echo "top changelog entry not found in debian/changelog" >&2; exit 1; }
 OUT="${1:-../${PKG}_${VERSION}_all.deb}"
 
 STAGE="$(mktemp -d)"
@@ -43,6 +44,7 @@ install -D -m 0644 src/gpu_switcher/main.py "$ROOT/usr/lib/gpu-switcher/gpu_swit
 install -D -m 0644 src/gpu_switcher/detect.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/detect.py"
 install -D -m 0644 src/gpu_switcher/selection.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/selection.py"
 install -D -m 0644 src/gpu_switcher/bus.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/bus.py"
+install -D -m 0644 src/gpu_switcher/state.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/state.py"
 install -D -m 0644 src/udev_rules.py "$ROOT/usr/lib/gpu-switcher/udev_rules.py"
 install -D -m 0755 src/helper/gpu_switcher_helper.py "$ROOT/usr/lib/gpu-switcher/helper/gpu_switcher_helper.py"
 install -D -m 0644 data/gpu-switcher.desktop "$ROOT/usr/share/applications/com.github.wl04.gpu-switcher.desktop"
@@ -68,9 +70,26 @@ chmod 0644 "$ROOT/usr/share/doc/gpu-switcher/"* "$ROOT/usr/share/man/man1/"*
 # The postrm maintainer script.
 install -D -m 0755 debian/postrm "$ROOT/DEBIAN/postrm"
 
-# control: the binary stanza of debian/control
+# control: the binary stanza of debian/control, with Version and Maintainer
+# injected (they live in the source stanza, where they belong).
+MAINTAINER="$(sed -n 's/^Maintainer: //p' debian/control | head -n 1)"
 mkdir -p "$ROOT/DEBIAN"
-awk '/^Package: /{found = 1} found {print}' debian/control > "$ROOT/DEBIAN/control"
+{
+  echo "Package: $PKG"
+  echo "Version: $VERSION"
+  echo "Maintainer: $MAINTAINER"
+  awk '/^Package: /{found = 1; next} found {print}' debian/control
+} > "$ROOT/DEBIAN/control"
+
+# Guard: every module under src/gpu_switcher must be installed above
+# (hand-maintained list; the both-builds cross-check in release.sh
+# converges the debhelper path).
+for f in src/gpu_switcher/*.py; do
+  [ -f "$ROOT/usr/lib/gpu-switcher/gpu_switcher/$(basename "$f")" ] || {
+    echo "error: $f is missing from the package file list" >&2
+    exit 1
+  }
+done
 
 # md5sums
 ( cd "$ROOT" && find usr -type f | sort | xargs -r md5sum > DEBIAN/md5sums )

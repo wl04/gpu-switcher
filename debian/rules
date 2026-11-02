@@ -18,6 +18,7 @@ override_dh_auto_install:
 	install -D -m 0644 src/gpu_switcher/detect.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/detect.py
 	install -D -m 0644 src/gpu_switcher/selection.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/selection.py
 	install -D -m 0644 src/gpu_switcher/bus.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/bus.py
+	install -D -m 0644 src/gpu_switcher/state.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/state.py
 	install -D -m 0644 src/udev_rules.py debian/gpu-switcher/usr/lib/gpu-switcher/udev_rules.py
 	install -D -m 0755 src/helper/gpu_switcher_helper.py debian/gpu-switcher/usr/lib/gpu-switcher/helper/gpu_switcher_helper.py
 	install -D -m 0644 data/gpu-switcher.desktop debian/gpu-switcher/usr/share/applications/com.github.wl04.gpu-switcher.desktop
@@ -26,14 +27,20 @@ override_dh_auto_install:
 	install -D -m 0644 data/locale/en/LC_MESSAGES/gpu-switcher.mo debian/gpu-switcher/usr/share/gpu-switcher/locale/en/LC_MESSAGES/gpu-switcher.mo
 	install -D -m 0644 data/locale/ru/LC_MESSAGES/gpu-switcher.mo debian/gpu-switcher/usr/share/gpu-switcher/locale/ru/LC_MESSAGES/gpu-switcher.mo
 	install -D -m 0644 data/polkit/gpu-switcher.policy debian/gpu-switcher/usr/share/polkit-1/actions/gpu-switcher.policy
-	# man/gpu-switcher.1 is installed and compressed by dh_installman;
-	# the changelog above is compressed and renamed by dh_compress,
-	# the copyright stays plain text.
 	# D-Bus activation: service file (name must be <service name>.service)
 	# plus the system-bus policy that lets root own the helper's name.
 	install -D -m 0644 data/dbus/com.github.wl04.gpu_switcher.Helper.service debian/gpu-switcher/usr/share/dbus-1/system-services/com.github.wl04.gpu_switcher.Helper.service
 	install -D -m 0644 data/dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf debian/gpu-switcher/usr/share/dbus-1/system.d/com.github.wl04.gpu_switcher.Helper.conf
-	# Debian docs (copyright + changelog); the postrm maintainer script is
-	# picked up from debian/ by dh_installdeb automatically.
+	# Guard: every module under src/gpu_switcher must be installed above
+	# (hand-maintained list; the both-builds cross-check in release.sh
+	# converges this path with tools/build-deb.sh).
+	for f in src/gpu_switcher/*.py; do \
+	  [ -f "debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/$$(basename $$f)" ] || { \
+	    echo "error: $$f is missing from the package file list" >&2; exit 1; \
+	  }; \
+	done
+	# Debian docs: copyright is installed manually (kept plain text); the
+	# changelog and man page are handled by dh_installdocs/dh_installman and
+	# compressed by dh_compress. The postrm maintainer script is picked up
+	# from debian/ by dh_installdeb automatically.
 	install -D -m 0644 debian/copyright debian/gpu-switcher/usr/share/doc/gpu-switcher/copyright
-	install -D -m 0644 debian/changelog debian/gpu-switcher/usr/share/doc/gpu-switcher/changelog

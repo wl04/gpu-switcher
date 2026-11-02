@@ -1,5 +1,6 @@
 *.deb
 debian/gpu-switcher/
+debian/.debhelper/
 debian/files
 debian/changelog.tmp
 __pycache__/

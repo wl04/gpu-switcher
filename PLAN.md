@@ -163,7 +163,7 @@ gpu-switcher/
 │   ├── icons/          # app icon + symbolic
 │   └── locale/         # compiled .mo (built from po/)
 ├── debian/
-│   ├── control  compat  source/format  rules
+│   ├── control  gpu-switcher.manpages  source/format  rules
 │   └── changelog  copyright  postrm
 ├── man/gpu-switcher.1
 ├── po/                 # gpu-switcher-en.po  gpu-switcher-ru.po
@@ -205,11 +205,13 @@ gpu-switcher/
   `com.github.wl04.gpu-switcher`; the D-Bus service name uses `gpu_switcher`
   (hyphens are not allowed in D-Bus names).
 - `tools/build-deb.sh` (plain `dpkg-deb`, no debhelper required) is the
-  canonical build; `debian/` (control, rules, compat, changelog, copyright,
-  postrm) is kept for a `dpkg-buildpackage -us -uc` flow once debhelper is
-  available. Both paths compile the catalogs with `msgfmt` and install
-  the same file list; the `.deb` version is read from the `Version:`
-  line in `debian/control` (single source of truth).
+  canonical build; `debian/` (control, rules, manpages, changelog,
+  copyright, postrm; source format `3.0 (quilt)`) supports the
+  `dpkg-buildpackage -us -uc` flow — `release.sh` generates the orig
+  tarball from git and cross-checks that both builds produce identical
+  contents. Both paths compile the catalogs with `msgfmt` and install
+  the same file list; the `.deb` version is read from the top entry of
+  `debian/changelog` (single source of truth).
 - Installed docs: `changelog.Debian.gz` (gzip-compressed per Debian policy),
   plain `copyright`, gzipped man page.
 - `postrm` leaves the managed rule and its `.bak.*` backups in place on

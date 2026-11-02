@@ -49,10 +49,13 @@ fi
 PKG="gpu-switcher"
 CONTROL=debian/control
 CHANGELOG=debian/changelog
-OLD_VERSION="$(awk '/^Version: /{print $2; exit}' "$CONTROL")"
+# The version's single source of truth is the top changelog entry
+# (debian/control carries no Version: field, per Debian policy).
+OLD_VERSION="$(awk '/^'"$PKG"' \(/{print $2; exit}' "$CHANGELOG" | tr -d '()')"
 MAINTAINER="$(sed -n 's/^Maintainer: //p' "$CONTROL" | head -n 1)"
 [ -n "$OLD_VERSION" ] && [ -n "$MAINTAINER" ] || {
-  echo "error: could not read Version:/Maintainer: from $CONTROL" >&2
+  echo "error: could not read the top changelog entry / Maintainer:" >&2
+  echo "       from $CHANGELOG and $CONTROL" >&2
   exit 1
 }
 [ "$OLD_VERSION" != "$NEW_VERSION" ] || {
@@ -69,8 +72,7 @@ if [ "$DRY" -eq 0 ]; then
   }
 fi
 
-# --- bump version, prepend the changelog entry ------------------------------
-sed -i "s/^Version: .*/Version: $NEW_VERSION/" "$CONTROL"
+# --- prepend the changelog entry (establishes the new version) --------------
 DATE="$(LC_ALL=C date '+%a, %d %b %Y %H:%M:%S %z')"
 {
   echo "$PKG ($NEW_VERSION) unstable; urgency=low"

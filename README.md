@@ -75,7 +75,7 @@ sudo pkill -f gpu_switcher_helper
 ```sh
 git clone https://github.com/wl04/gpu-switcher
 cd gpu-switcher
-./tools/build-deb.sh    # builds ../gpu-switcher_<version>_all.deb (version from debian/control)
+./tools/build-deb.sh    # builds ../gpu-switcher_<version>_all.deb (version from the top debian/changelog entry)
 sudo dpkg -i ../gpu-switcher_<version>_all.deb
 ```
 
@@ -91,7 +91,8 @@ Remove the rule manually if you no longer need it.
 - Release: `tools/release.sh <version> <changelog-bullets>` — bumps
   `debian/control`, prepends the changelog entry, runs the checks, builds
   and lints the `.deb`, commits, and creates the GitHub release.
-- gettext catalogs (`po/`) compile with the pure-Python `tools/po2mo.py`.
+- gettext catalogs (`po/`) compile with `msgfmt` (build-time `gettext`
+  dependency).
 - Design notes (architecture, polkit, detection, packaging):
   [PLAN.md](PLAN.md).
 
