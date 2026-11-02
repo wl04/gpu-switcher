@@ -10,15 +10,18 @@ Methods:
   SetAuto(locale)           -> (ok, message, refresh_ok)
 
 SetPrimary and SetAuto also refresh udev (udevadm control --reload-rules
-plus a scoped udevadm trigger for the DRM subsystem) under the SAME
-authorization, so activating the rule needs no second prompt; a failed
-refresh is reported per call (refresh_ok is false) and leaves reboot as
-the fallback.
+plus a settled, scoped udevadm trigger for the DRM subsystem) under the
+SAME authorization, so activating the rule needs no second prompt; a
+failed refresh is reported per call (refresh_ok is false) and leaves
+reboot as the fallback. SetPrimary additionally verifies that the tag is
+present in the chosen card's udev tags after the settled refresh.
 
 Authorization: polkit CheckAuthorization over raw D-Bus with the INTERACTIVE
-flag, so the standard agent dialog authenticates the caller. The dialog
-message is localized from the locale argument, because a root-activated
-process has no user locale of its own.
+flag, so the standard agent dialog authenticates the caller. The subject
+is the caller's unique bus name (polkitd maps it to the session and user);
+a per-invocation cancellation id lets a timed-out check be cancelled so
+no stale dialog lingers. The dialog message is localized from the policy
+file's <message> elements and the agent's session locale.
 
 Diagnostics: every significant step is written to stderr AND to
 /var/log/gpu-switcher-helper.log (created at runtime; the helper runs as
@@ -48,6 +51,7 @@ import sys
 import tempfile
 import time
 import traceback
+import uuid
 
 import gi
 
@@ -140,43 +144,27 @@ def _translator(locale):
         return lambda s: s
 
 
-def _sender_pid_uid(invocation, connection):
-    """(pid, uid) of the D-Bus caller, via org.freedesktop.DBus."""
-    unique = invocation.get_message().get_sender()
-    variant = GLib.Variant("(s)", (unique,))
+def _authorize(connection, sender, locale):
+    """polkit CheckAuthorization bound to the caller's bus connection.
 
-    # Both methods return unsigned int per the D-Bus spec; a mismatched
-    # reply type raises GLib.Error, which must not look like a denial.
-    def dbus_uint(method):
-        result = connection.call_sync(
-            "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
-            method, variant, GLib.VariantType("(u)"), 0, 5000, None)
-        return result[0]
+    The subject is ("system-bus-name", {"name": <unique bus name>}); polkitd
+    maps the connection to the session and user. The unique name is stable
+    for the life of the connection, so the identity checked is the one that
+    made the call (no pid-lookup race). The 5th in-arg is the
+    cancellation_id (per the current CheckAuthorization signature:
+    in (sa{sv})sa{ss}us), not a locale; the localized dialog text comes
+    from the policy file's <message> elements and the agent's session
+    locale. Out is one struct (bba{ss}) (authorized, whether_challenge,
+    details), so the reply body type is ((bba{ss})).
 
-    return dbus_uint("GetConnectionUnixProcessID"), dbus_uint("GetConnectionUnixUser")
-
-
-def _authorize(connection, pid, uid, locale):
-    """polkit CheckAuthorization with the AllowUserInteraction flag.
-
-    polkitd (current "js" backend, backend_version 127) uses the new
-    CheckAuthorization signature: in (sa{sv}) subject struct
-    (subject_kind, subject_details), s action_id, a{ss} options,
-    u flags, s locale; out is one struct (bba{ss})
-    (authorized, whether_challenge, details), so the reply body type is
-    ((bba{ss})). The local-process subject is
-    ("unix-process", {"pid": u, "start-time": t}); polkitd maps the pid to
-    the caller's session and user. The locale selects the localized policy
-    message shown in the agent dialog (the text lives in the .policy file);
-    the caller supplies it because a root-activated process has no user
-    locale of its own.
+    Returns (status, detail): status is "authorized", "denied", "cancelled"
+    (dialog dismissed), "timeout", or "error"; detail describes a failed
+    check and is empty otherwise.
     """
+    cancellation_id = uuid.uuid4().hex
     subject = GLib.Variant.new_tuple(
-        GLib.Variant("s", "unix-process"),
-        GLib.Variant("a{sv}", {
-            "pid": GLib.Variant("u", pid),
-            "start-time": GLib.Variant("t", 0),
-        }),
+        GLib.Variant("s", "system-bus-name"),
+        GLib.Variant("a{sv}", {"name": GLib.Variant("s", sender)}),
     )
     # pygobject's GLib.Variant cannot nest an a{sv} inside a tuple literal
     # (the creator iterates it as an array); build the tuple with
@@ -186,33 +174,61 @@ def _authorize(connection, pid, uid, locale):
         GLib.Variant("s", POLKIT_ACTION),
         GLib.Variant("a{ss}", []),
         GLib.Variant("u", POLKIT_INTERACTIVE),
-        GLib.Variant("s", locale),
+        GLib.Variant("s", cancellation_id),
     )
-    _log(f"polkit CheckAuthorization: pid={pid} uid={uid} action={POLKIT_ACTION}")
+    _log(f"polkit CheckAuthorization: sender={sender} action={POLKIT_ACTION}")
     try:
         result = connection.call_sync(
             "org.freedesktop.PolicyKit1", POLKIT_PATH, POLKIT_IFACE,
             "CheckAuthorization", params, GLib.VariantType("((bba{ss}))"),
             0, 170000, None)
     except GLib.Error as exc:
+        if exc.matches(GLib.quark_from_string("g-io-error-quark"), 5):
+            # G_IO_ERROR_TIMEOUT: the check is still pending in polkitd,
+            # cancel it so a stale dialog cannot linger.
+            _log(f"polkit CheckAuthorization timed out: {exc}")
+            _cancel_check_authorization(connection, cancellation_id)
+            return "timeout", ""
         _log(f"polkit CheckAuthorization failed: {exc}")
-        return False
+        return "error", str(exc)
     # Reply body is one struct (b b a{ss}):
     # (authorized, whether_challenge, details).
     authorized, whether_challenge, details = result[0]
     _log(f"polkit result: authorized={authorized} "
          f"whether_challenge={whether_challenge} details={details!r}")
-    return bool(authorized)
+    if not authorized:
+        if details.get("polkit.dismissed"):
+            return "cancelled", ""
+        return "denied", ""
+    return "authorized", ""
+
+
+def _cancel_check_authorization(connection, cancellation_id):
+    """Best-effort CancelCheckAuthorization after a timeout.
+
+    The result is logged and ignored: the check may already be finished
+    (denied/cancelled between our timeout and the call), and the reply
+    carries no data (in-arg s only).
+    """
+    try:
+        connection.call_sync(
+            "org.freedesktop.PolicyKit1", POLKIT_PATH, POLKIT_IFACE,
+            "CancelCheckAuthorization",
+            GLib.Variant("(s)", (cancellation_id,)),
+            GLib.VariantType("()"), 0, 5000, None)
+        _log(f"CancelCheckAuthorization: {cancellation_id}")
+    except GLib.Error as exc:
+        _log(f"CancelCheckAuthorization failed: {exc}")
 
 
 def _authorized(invocation, connection, locale):
-    """Full polkit check for the caller of this invocation."""
-    try:
-        pid, uid = _sender_pid_uid(invocation, connection)
-    except Exception as exc:
-        _log(f"could not determine caller pid/uid: {exc}")
-        return False
-    return _authorize(connection, pid, uid, locale)
+    """polkit authorization result for the caller of this invocation.
+
+    Returns (status, detail) from _authorize; status is "authorized",
+    "denied", "cancelled", "timeout", or "error".
+    """
+    sender = invocation.get_message().get_sender()
+    return _authorize(connection, sender, locale)
 
 
 _PCI_ADDRESS_RE = re.compile(
@@ -305,32 +321,90 @@ def _trigger_drm():
     the persistent device database with the new tags.
 
     Scoped to the DRM subsystem: only display devices are touched, nothing
-    else is re-probed. Returns True when the trigger ran cleanly.
+    else is re-probed. --settle waits for the triggered events to be
+    processed before returning (bounded by the 30 s subprocess timeout),
+    so the tag is queryable right after the trigger. Returns True when the
+    trigger ran cleanly.
     """
     try:
-        out = subprocess.run(["udevadm", "trigger", "--subsystem-match=drm"],
-                             capture_output=True, text=True, timeout=30)
+        out = subprocess.run(
+            ["udevadm", "trigger", "--subsystem-match=drm", "--settle"],
+            capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return False
-    _log(f"udevadm trigger --subsystem-match=drm rc={out.returncode} "
+    _log(f"udevadm trigger --subsystem-match=drm --settle rc={out.returncode} "
          f"output={out.stdout.strip() or out.stderr.strip() or '-'}")
     return out.returncode == 0
 
 
-def _refresh_udev():
-    """Reload the udev rules and re-trigger the DRM devices so the new
-    rule's tag lands in the persistent device database without a reboot.
+def parse_udev_tags(output):
+    """The TAGS of a udevadm info --query=property dump as a list.
+
+    The dump is KEY=VALUE lines; TAGS is comma-separated
+    (e.g. TAGS=mutter-device-preferred-primary,seat). Lines other than
+    TAGS are ignored.
+    """
+    tags = []
+    for line in output.splitlines():
+        if line.startswith("TAGS="):
+            tags = [t for t in line[len("TAGS="):].split(",") if t]
+            break
+    return tags
+
+
+def _card_has_tag(card):
+    """Whether the card's udev tags carry the mutter tag.
+
+    Runs udevadm info --query=property on /sys/class/drm/<card> and checks
+    TAGS - the tag list of the card's udev entry. This is the check that
+    makes "refresh ok" true: without the tag, mutter will
+    not select the primary even after a relogin. Skipped (True) when udevadm
+    is unavailable, matching the _verify_rule skip.
+    """
+    if shutil.which("udevadm") is None:
+        return True
+    try:
+        out = subprocess.run(
+            ["udevadm", "info", "--query=property",
+             f"--path=/sys/class/drm/{card}"],
+            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        _log(f"tag check: udevadm info failed on /sys/class/drm/{card}")
+        return False
+    if out.returncode != 0:
+        _log(f"tag check: udevadm info rc={out.returncode} on {card}")
+        return False
+    tags = parse_udev_tags(out.stdout)
+    has = MUTTER_TAG in tags
+    _log(f"tag check: {card} tags={tags} has={has}")
+    return has
+
+
+def _refresh_udev(card=None):
+    """Reload the udev rules, re-trigger (settled) the DRM devices, and
+    verify the new rule's tag is present in the card's udev tags.
 
     Scoped to the DRM subsystem: only display devices are touched, nothing
-    else is re-probed. Returns True only when both steps succeeded.
+    else is re-probed. When `card` is given (SetPrimary), the tag is checked
+    on that card after the settled trigger; SetAuto passes no card, since
+    other rules may legitimately set the tag. Returns True only when all
+    steps succeeded; when udevadm is unavailable the refresh is skipped
+    (True), matching the _verify_rule skip.
     """
+    if shutil.which("udevadm") is None:
+        _log("udev refresh: udevadm not available; skipping")
+        return True
     if not _reload_rules():
         _log("udev refresh: udevadm control --reload-rules failed")
         return False
     if not _trigger_drm():
-        _log("udev refresh: udevadm trigger --subsystem-match=drm failed")
+        _log("udev refresh: udevadm trigger --subsystem-match=drm --settle "
+             "failed")
         return False
-    _log("udev refresh: reload-rules and DRM trigger succeeded")
+    if card is not None and not _card_has_tag(card):
+        _log(f"udev refresh: tag not present on {card} after refresh")
+        return False
+    _log("udev refresh: reload-rules, DRM trigger and tag check succeeded")
     return True
 
 
@@ -363,11 +437,19 @@ def handle_set_primary(connection, sender, params, invocation):
     pci, locale = params
     tr = _translator(locale)
     _log(f"SetPrimary: pci={pci} locale={locale} sender={sender}")
-    if not _authorized(invocation, connection, locale):
-        _log("SetPrimary: authorization denied or failed; nothing changed")
+    status, detail = _authorized(invocation, connection, locale)
+    if status != "authorized":
+        if status == "denied":
+            message = tr("Authorization was denied. Nothing changed.")
+        elif status == "cancelled":
+            message = tr("Authorization was cancelled. Nothing changed.")
+        elif status == "timeout":
+            message = tr("The authorization check timed out. Nothing changed.")
+        else:
+            message = tr("Could not check authorization (%s). Nothing changed.") % detail
+        _log(f"SetPrimary: authorization {status}; nothing changed")
         invocation.return_value(
-            GLib.Variant("(bssb)",
-                         (False, tr("Authorization was denied. Nothing changed."), "", False)))
+            GLib.Variant("(bssb)", (False, message, "", False)))
         return
     _log("SetPrimary: authorized")
     # Root cannot skip unreadable rules: they may set the tag.
@@ -410,7 +492,7 @@ def handle_set_primary(connection, sender, params, invocation):
         existing = ""
     if existing == content:
         _log(f"SetPrimary: rule already set for {pci}; nothing to do")
-        refresh_ok = _refresh_udev()
+        refresh_ok = _refresh_udev(_card)
         if refresh_ok:
             message = tr("The rule is already set for %s. Udev rules reloaded.") % pci
         else:
@@ -459,7 +541,7 @@ def handle_set_primary(connection, sender, params, invocation):
             except OSError:
                 pass
 
-    refresh_ok = _refresh_udev()
+    refresh_ok = _refresh_udev(_card)
     if refresh_ok:
         if backup:
             message = tr("Rule written for %s. A backup was saved to %s. "
@@ -484,11 +566,19 @@ def handle_set_auto(connection, sender, params, invocation):
     locale = params[0]
     tr = _translator(locale)
     _log(f"SetAuto: locale={locale} sender={sender}")
-    if not _authorized(invocation, connection, locale):
-        _log("SetAuto: authorization denied or failed; nothing changed")
+    status, detail = _authorized(invocation, connection, locale)
+    if status != "authorized":
+        if status == "denied":
+            message = tr("Authorization was denied. Nothing changed.")
+        elif status == "cancelled":
+            message = tr("Authorization was cancelled. Nothing changed.")
+        elif status == "timeout":
+            message = tr("The authorization check timed out. Nothing changed.")
+        else:
+            message = tr("Could not check authorization (%s). Nothing changed.") % detail
+        _log(f"SetAuto: authorization {status}; nothing changed")
         invocation.return_value(
-            GLib.Variant("(bsb)",
-                         (False, tr("Authorization was denied. Nothing changed."), False)))
+            GLib.Variant("(bsb)", (False, message, False)))
         return
     _log("SetAuto: authorized")
     if os.path.islink(MANAGED_RULE):

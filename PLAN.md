@@ -35,9 +35,9 @@ start**; it does not re-read tags mid-session. Consequences:
   re-runs its rules:
   - **reboot** — udev re-evaluates everything at boot; always works, or
   - `udevadm control --reload-rules` + scoped
-    `udevadm trigger --subsystem-match=drm` — udev re-emits the DRM events and
-    the database gets the new tag; a **logout/login** is then enough
-    (gnome-shell restarts and reads the fresh tag).
+    `udevadm trigger --subsystem-match=drm --settle` — udev re-emits the DRM
+    events and the database gets the new tag; a **logout/login** is then
+    enough (gnome-shell restarts and reads the fresh tag).
 - The app therefore offers both paths: **Reboot** (default, safe) and
   **Log out** (fast path; enabled only when the refresh ran successfully).
   The refresh runs inside Apply / Reset under the same polkit authorization,

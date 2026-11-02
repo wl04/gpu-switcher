@@ -96,6 +96,15 @@ msgstr "Authentication is required to change the primary display adapter."
 msgid "Authorization was denied. Nothing changed."
 msgstr "Authorization was denied. Nothing changed."
 
+msgid "Authorization was cancelled. Nothing changed."
+msgstr "Authorization was cancelled. Nothing changed."
+
+msgid "The authorization check timed out. Nothing changed."
+msgstr "The authorization check timed out. Nothing changed."
+
+msgid "Could not check authorization (%s). Nothing changed."
+msgstr "Could not check authorization (%s). Nothing changed."
+
 msgid "Another udev rule sets the preferred GPU: %s. Resolve it manually first."
 msgstr "Another udev rule sets the preferred GPU: %s. Resolve it manually first."
 
