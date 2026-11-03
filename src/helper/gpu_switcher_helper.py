@@ -105,22 +105,89 @@ INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
 """
 
 
+# One log line is capped: caller-supplied strings (pci, locale) arrive
+# unauthenticated and may be arbitrarily long; the line is also flattened
+# so embedded newlines cannot forge separate entries.
+_LOG_MAX_CHARS = 2000
+# The log is bounded: when it outgrows the cap it is rotated once
+# (overwriting the previous rotation), so at most two files exist.
+_LOG_MAX_BYTES = 1024 * 1024
+# A D-Bus client can invoke the helper without authorization, so per-call
+# logging is rate-limited per (sender, method) window.
+_METHOD_CALL_WINDOW_S = 60.0
+_METHOD_CALL_LIMIT = 20
+_method_call_counts = {}  # (sender, method) -> [count, window_start, noted]
+
+
+def _sanitize_log_text(message):
+    """One log line, bounded and flattened.
+
+    Newlines and carriage returns are rendered literally (an embedded
+    newline could otherwise forge a separate entry), other control
+    characters are dropped, and the line is capped at _LOG_MAX_CHARS so a
+    single call cannot grow the log file without bound.
+    """
+    text = message.replace("\r", "\\r").replace("\n", "\\n")
+    text = "".join(ch for ch in text if ch.isprintable())
+    if len(text) > _LOG_MAX_CHARS:
+        text = text[:_LOG_MAX_CHARS] + "…[truncated]"
+    return text
+
+
+def _maybe_rotate_log():
+    """Rotate the log once when it outgrows _LOG_MAX_BYTES (best effort)."""
+    try:
+        if os.path.getsize(LOG_PATH) > _LOG_MAX_BYTES:
+            os.replace(LOG_PATH, LOG_PATH + ".1")
+    except OSError:
+        pass
+
+
 def _log(message):
     """Append one diagnostic line to stderr and /var/log/gpu-switcher-helper.log.
 
     Best-effort by design: logging must never crash the helper itself.
+    The message is bounded and flattened first (see _sanitize_log_text).
     """
     line = "gpu-switcher-helper %s %s" % (
-        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), message)
+        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        _sanitize_log_text(message))
     try:
         print(line, file=sys.stderr, flush=True)
     except Exception:
         pass
     try:
+        _maybe_rotate_log()
         with open(LOG_PATH, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError:
         pass
+
+
+def _method_call_allowed(sender, method):
+    """Rate-limit the per-call diagnostic line for this (sender, method).
+
+    A client may invoke the helper repeatedly without authorization, so
+    after _METHOD_CALL_LIMIT calls in the window the line is suppressed;
+    the suppression is noted in the log once per window.
+    """
+    key = (sender, method)
+    now = time.monotonic()
+    entry = _method_call_counts.get(key)
+    if entry is None or now - entry[1] > _METHOD_CALL_WINDOW_S:
+        entry = [0, now, False]
+        _method_call_counts[key] = entry
+        for stale in [k for k, e in _method_call_counts.items()
+                      if now - e[1] > _METHOD_CALL_WINDOW_S * 2]:
+            del _method_call_counts[k]
+    if entry[0] >= _METHOD_CALL_LIMIT:
+        if not entry[2]:
+            _log("rate limit: suppressing further %s call logs from %s "
+                 "for %ds" % (method, sender, int(_METHOD_CALL_WINDOW_S)))
+            entry[2] = True
+        return False
+    entry[0] += 1
+    return True
 
 
 def _internal_error(invocation, detail):
@@ -695,7 +762,8 @@ def _reset_idle_timer():
 
 def handle_method_call(connection, sender, object_path, interface_name,
                        method_name, params, invocation):
-    _log(f"method call: {method_name} from {sender}")
+    if _method_call_allowed(sender, method_name):
+        _log(f"method call: {method_name} from {sender}")
     try:
         if method_name == "Status":
             handle_status(connection, sender, params, invocation)

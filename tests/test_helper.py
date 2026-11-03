@@ -109,6 +109,66 @@ class TranslatorLocale(unittest.TestCase):
                 self.assertIn(lang, ("en", "ru"), lang)
 
 
+class LogBounded(unittest.TestCase):
+    """Every log line is bounded and flattened before it reaches the file:
+    caller-supplied strings (pci, locale) arrive unauthenticated, so a
+    single call must not grow the root-owned log without bound or forge
+    entries."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="gpu-switcher-log-")
+        self.log_path = os.path.join(self.tmp, "helper.log")
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def test_Log_TruncatesOverlongCallerText(self):
+        with mock.patch.object(h, "LOG_PATH", self.log_path):
+            h._log("pci=" + "a" * 5000 + " locale=x")
+        with open(self.log_path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(len(lines), 1)
+        # prefix "gpu-switcher-helper " + UTC timestamp + one space,
+        # then the capped message (cap plus the truncation marker).
+        self.assertLessEqual(
+            len(lines[0]),
+            len("gpu-switcher-helper ") + 20 + 1
+            + h._LOG_MAX_CHARS + len("…[truncated]"))
+        self.assertTrue(lines[0].endswith("…[truncated]"))
+
+    def test_Log_FlattensNewlinesAndDropsControlCharacters(self):
+        """An embedded newline must not forge a second log entry."""
+        with mock.patch.object(h, "LOG_PATH", self.log_path):
+            h._log("pci=x\nlocale=y\x01")
+        with open(self.log_path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertEqual(len(lines), 1)  # no forged second entry
+        self.assertIn("\\n", lines[0])
+        self.assertNotIn("\x01", lines[0])
+        self.assertTrue(lines[0].endswith("pci=x\\nlocale=y"))
+
+
+class MethodCallRateLimit(unittest.TestCase):
+    """A client can invoke the helper without authorization; per-call
+    logging is rate-limited per (sender, method) window."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="gpu-switcher-log-")
+        self.log_path = os.path.join(self.tmp, "helper.log")
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def test_MethodCallAllowed_SuppressesBeyondLimitOncePerWindow(self):
+        with mock.patch.object(h, "_method_call_counts", {}), \
+             mock.patch.object(h, "LOG_PATH", self.log_path):
+            for _ in range(h._METHOD_CALL_LIMIT):
+                self.assertTrue(h._method_call_allowed(":1.1", "Status"))
+            for _ in range(3):
+                self.assertFalse(h._method_call_allowed(":1.1", "Status"))
+            # A different sender keeps its own budget.
+            self.assertTrue(h._method_call_allowed(":1.2", "Status"))
+        with open(self.log_path, encoding="utf-8") as f:
+            content = f.read()
+        self.assertEqual(content.count("rate limit"), 1)
+
+
 class Authorize(unittest.TestCase):
     """polkit authorization: subject bound to the caller's bus name, a
     unique cancellation id, the result statuses, and timeout cancellation."""
