@@ -19,7 +19,8 @@ import re
 import shutil
 import subprocess
 
-from udev_rules import MANAGED_RULE, read_text, rule_conflicts
+from udev_rules import (DISPLAY_PCI_CLASSES, MANAGED_RULE, read_text,
+                        rule_conflicts)
 
 JOURNAL_UNIT = "/usr/bin/gnome-shell"
 
@@ -247,7 +248,8 @@ def detect(leader_pid=None) -> Detection:
             continue
         pci = os.path.basename(os.path.realpath(f"/sys/class/drm/{entry}/device"))
         pdir = f"/sys/bus/pci/devices/{pci}"
-        if not os.path.isdir(pdir) or read_text(f"{pdir}/class") != "0x030000":
+        if not os.path.isdir(pdir) or \
+                read_text(f"{pdir}/class") not in DISPLAY_PCI_CLASSES:
             continue
         node = f"/dev/dri/{entry}"
         if not os.path.exists(node):

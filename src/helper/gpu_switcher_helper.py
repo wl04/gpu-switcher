@@ -65,7 +65,8 @@ from gi.repository import Gio, GLib
 # package; add the parent directory to sys.path so it can be imported
 # without pulling in the GUI package.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from udev_rules import MANAGED_RULE, MUTTER_ENV, MUTTER_TAG, read_text, rule_conflicts
+from udev_rules import (DISPLAY_PCI_CLASSES, MANAGED_RULE, MUTTER_ENV,
+                        MUTTER_TAG, read_text, rule_conflicts)
 
 SERVICE_NAME = "com.github.wl04.gpu_switcher.Helper"
 OBJECT_PATH = "/com/github/wl04/gpu_switcher/Helper"
@@ -343,8 +344,9 @@ def is_valid_pci_format(pci: str) -> bool:
 def _resolve_gpu(pci):
     """(card, vendor, device) for a valid display controller, else None.
 
-    Mirrors the reference script: class 0x030000, a bound driver, and exactly
-    one /dev/dri/card* device bound to this PCI device.
+    Mirrors the reference script, extended to the 3D controller class:
+    class 0x030000 or 0x030200, a bound driver, and exactly one
+    /dev/dri/card* device bound to this PCI device.
     """
     if not is_valid_pci_format(pci):
         return None
@@ -353,7 +355,7 @@ def _resolve_gpu(pci):
         return None
     vendor = read_text(f"{pdir}/vendor")
     device = read_text(f"{pdir}/device")
-    if read_text(f"{pdir}/class") != "0x030000":
+    if read_text(f"{pdir}/class") not in DISPLAY_PCI_CLASSES:
         return None
     driver_link = f"{pdir}/driver"
     if not os.path.islink(driver_link):

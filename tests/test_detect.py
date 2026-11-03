@@ -219,6 +219,46 @@ class RunningPrimary(unittest.TestCase):
         run.assert_not_called()
 
 
+class DetectClassFilter(unittest.TestCase):
+    """detect() accepts both display-controller classes (VGA 0x030000 and
+    3D controller 0x030200) and skips every other PCI class; suitability
+    beyond the class is established by the DRM card with a /dev/dri
+    device."""
+
+    def _run_detect(self, pci_class):
+        with mock.patch("os.listdir",
+                        side_effect=lambda d: ["card1"]
+                        if d == "/sys/class/drm" else []), \
+             mock.patch("os.path.realpath", return_value="0000:12:00.0"), \
+             mock.patch("os.path.isdir", return_value=True), \
+             mock.patch("gpu_switcher.detect.read_text",
+                        side_effect=lambda p: pci_class
+                        if p.endswith("/class") else ""), \
+             mock.patch("os.path.exists", return_value=True), \
+             mock.patch("gpu_switcher.detect.lspci_names", return_value={}), \
+             mock.patch("gpu_switcher.detect.running_primary",
+                        return_value=(None, None)), \
+             mock.patch("gpu_switcher.detect.managed_rule_pci",
+                        return_value=None), \
+             mock.patch("gpu_switcher.detect.rule_conflicts",
+                        return_value=[]), \
+             mock.patch("gpu_switcher.detect.gnome_wayland_session",
+                        return_value=True):
+            return detect.detect()
+
+    def test_Detect_AcceptsVgaCompatibleClass(self):
+        result = self._run_detect("0x030000")
+        self.assertEqual([g.pci for g in result.gpus], ["0000:12:00.0"])
+
+    def test_Detect_Accepts3DControllerClass(self):
+        result = self._run_detect("0x030200")
+        self.assertEqual([g.pci for g in result.gpus], ["0000:12:00.0"])
+
+    def test_Detect_SkipsPciClass_OutsideDisplayControllers(self):
+        result = self._run_detect("0x080000")  # system peripheral
+        self.assertEqual(result.gpus, [])
+
+
 class SessionLeader(unittest.TestCase):
     def test_SessionLeader_ReturnsLeaderPid_FromLogind(self):
         conn = mock.Mock()

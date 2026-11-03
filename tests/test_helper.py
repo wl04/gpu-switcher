@@ -65,6 +65,22 @@ class ResolveGpu(unittest.TestCase):
                         return_value="0x080000"):
             self.assertIsNone(h._resolve_gpu("0000:12:00.0"))
 
+    def test_ResolveGpu_Accepts3DControllerClass(self):
+        with mock.patch("os.path.isdir", return_value=True), \
+             mock.patch("os.path.islink", return_value=True), \
+             mock.patch("os.path.realpath",
+                        return_value="/dev/pci/0000:12:00.0"), \
+             mock.patch("os.listdir", return_value=["card1"]), \
+             mock.patch("os.path.exists", return_value=True), \
+             mock.patch("helper.gpu_switcher_helper.read_text",
+                        side_effect=lambda path: (
+                            "0x030200" if path.endswith("/class") else
+                            "0x1002" if path.endswith("/vendor") else
+                            "0x7550" if path.endswith("/device") else "")):
+            self.assertEqual(
+                h._resolve_gpu("0000:12:00.0"),
+                ("card1", "0x1002", "0x7550"))
+
 
 class Translator(unittest.TestCase):
     def test_Translator_ReturnsIdentity_WhenCatalogMissing(self):

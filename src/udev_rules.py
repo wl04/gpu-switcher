@@ -21,6 +21,12 @@ MANAGED_RULE = "/etc/udev/rules.d/61-mutter-primary-gpu.rules"
 MUTTER_TAG = "mutter-device-preferred-primary"
 MUTTER_ENV = "MUTTER_DEVICE_PREFERRED_PRIMARY"
 
+# PCI classes that may act as a display primary: VGA compatible
+# (0x030000) and 3D controller (0x030200). The class alone is not
+# sufficient: both resolvers also require a bound driver and a DRM card
+# with a /dev/dri device, so render-only devices are still excluded.
+DISPLAY_PCI_CLASSES = ("0x030000", "0x030200")
+
 # udev rule directories in load order; a base name that appears in an
 # earlier directory shadows the later one (the later copy is ignored),
 # mirroring udev's rule loading.
