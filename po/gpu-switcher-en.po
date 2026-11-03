@@ -159,8 +159,11 @@ msgstr "Rule written for %s. The udev refresh failed; a reboot is required."
 msgid "The managed rule is a symlink; refusing to remove it."
 msgstr "The managed rule is a symlink; refusing to remove it."
 
-msgid "No managed rule (auto selection already in effect)."
-msgstr "No managed rule (auto selection already in effect)."
+msgid "No managed rule (auto selection already in effect). Udev rules reloaded."
+msgstr "No managed rule (auto selection already in effect). Udev rules reloaded."
+
+msgid "No managed rule (auto selection already in effect). The udev refresh failed; a reboot is required."
+msgstr "No managed rule (auto selection already in effect). The udev refresh failed; a reboot is required."
 
 msgid "Backup of the existing rule failed; nothing removed."
 msgstr "Backup of the existing rule failed; nothing removed."

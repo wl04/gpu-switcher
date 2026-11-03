@@ -554,6 +554,61 @@ class SetAutoTransaction(unittest.TestCase):
         shutil.rmtree(tmp)
 
 
+class SetAutoAlreadyAuto(unittest.TestCase):
+    """A previous Reset may have removed the rule while its udev refresh
+    failed, so the already-absent path must still refresh udev (as
+    SetPrimary does for an unchanged rule) instead of returning
+    unverified success."""
+
+    def _absent_rule(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp6-")
+        self.addCleanup(shutil.rmtree, tmp)
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+        self.assertFalse(os.path.exists(managed))
+        return managed
+
+    def test_SetAuto_RefreshesUdev_WhenRuleAlreadyAbsent(self):
+        managed = self._absent_rule()
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run") as run:
+            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            h.handle_set_auto(mock.Mock(), "sender", ("en",), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertEqual(
+            result,
+            (True, "No managed rule (auto selection already in effect). "
+                   "Udev rules reloaded.", True))
+        argvs = [c[0][0] for c in run.call_args_list]
+        self.assertIn(["udevadm", "control", "--reload-rules"], argvs)
+        self.assertIn(["udevadm", "trigger", "--subsystem-match=drm",
+                       "--settle"], argvs)
+
+    def test_SetAuto_ReturnsRefreshFailed_WhenTriggerFails_WithAbsentRule(self):
+        managed = self._absent_rule()
+
+        def run(argv, **kwargs):
+            if len(argv) > 1 and argv[1] == "trigger":
+                return mock.Mock(returncode=1, stdout="", stderr="boom")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run", side_effect=run):
+            h.handle_set_auto(mock.Mock(), "sender", ("en",), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertEqual(
+            result,
+            (True, "No managed rule (auto selection already in effect). "
+                   "The udev refresh failed; a reboot is required.", False))
+
+
 class BusContract(unittest.TestCase):
     def test_BusContract_MatchesHelperServiceNameAndPathAndInterface(self):
         self.assertEqual(bus.HELPER_NAME, h.SERVICE_NAME)

@@ -706,10 +706,18 @@ def handle_set_auto(connection, sender, params, invocation):
         return
     if not os.path.exists(MANAGED_RULE):
         _log("SetAuto: no managed rule; already auto")
+        # A previous Reset may have removed the rule while its udev refresh
+        # failed, so the stale tags persist; refresh udev on the
+        # already-absent path too (as SetPrimary does for an unchanged rule).
+        refresh_ok = _refresh_udev()
+        if refresh_ok:
+            message = tr("No managed rule (auto selection already in effect). "
+                         "Udev rules reloaded.")
+        else:
+            message = tr("No managed rule (auto selection already in effect). "
+                         "The udev refresh failed; a reboot is required.")
         invocation.return_value(
-            GLib.Variant("(bsb)",
-                         (True,
-                          tr("No managed rule (auto selection already in effect)."), False)))
+            GLib.Variant("(bsb)", (True, message, refresh_ok)))
         return
     backup = _backup_rule()
     if backup == "":

@@ -159,8 +159,11 @@ msgstr "Правило записано для %s. Обновление udev н�
 msgid "The managed rule is a symlink; refusing to remove it."
 msgstr "Управляемое правило — символьная ссылка; его удаление отклонено."
 
-msgid "No managed rule (auto selection already in effect)."
-msgstr "Управляемого правила нет (автовыбор уже действует)."
+msgid "No managed rule (auto selection already in effect). Udev rules reloaded."
+msgstr "Управляемого правила нет (автовыбор уже действует). udev-правила перезагружены."
+
+msgid "No managed rule (auto selection already in effect). The udev refresh failed; a reboot is required."
+msgstr "Управляемого правила нет (автовыбор уже действует). Обновление udev не удалось; требуется перезагрузка."
 
 msgid "Backup of the existing rule failed; nothing removed."
 msgstr "Не удалось создать резервную копию текущего правила; ничего не удалено."
