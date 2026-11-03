@@ -131,13 +131,41 @@ def _internal_error(invocation, detail):
         "Internal error; see /var/log/gpu-switcher-helper.log", 1))
 
 
+# The locale arguments arrive from an unauthenticated D-Bus caller. Only
+# the catalog languages shipped with the helper are accepted; anything else
+# (unknown language, path-shaped value, over-long value) falls back to
+# English, so catalog lookups can never leave LOCALE_BASE.
+SUPPORTED_LOCALES = ("en", "ru")
+_MAX_LOCALE_LEN = 32
+
+
+def _normalize_locale(locale):
+    """Map a caller-supplied locale to a supported catalog language.
+
+    Returns one of SUPPORTED_LOCALES: the language part of a plain
+    identifier ('ru_RU.UTF-8' -> 'ru') when it is supported, else 'en'.
+    Path-shaped values ('/', '\\', '..') and values over _MAX_LOCALE_LEN
+    are rejected: gettext would otherwise use them as path components and
+    could open (or block on) files outside LOCALE_BASE.
+    """
+    if not isinstance(locale, str) or not locale:
+        return "en"
+    if len(locale) > _MAX_LOCALE_LEN:
+        return "en"
+    if "/" in locale or "\\" in locale or ".." in locale:
+        return "en"
+    language = locale.split(".")[0].split("_")[0].split("-")[0]
+    return language if language in SUPPORTED_LOCALES else "en"
+
+
 def _translator(locale):
-    """gettext for this helper invocation (locale supplied by the caller)."""
-    langs = []
-    for part in (locale, locale.split(".")[0], locale.split("_")[0]):
-        if part and part not in langs:
-            langs.append(part)
-    langs.append("en")
+    """gettext for this helper invocation (locale supplied by the caller).
+
+    The locale is normalized to the allowlisted languages first (see
+    _normalize_locale), so catalog loading stays inside LOCALE_BASE.
+    """
+    language = _normalize_locale(locale)
+    langs = [language] if language == "en" else [language, "en"]
     try:
         return gettext.translation("gpu-switcher", LOCALE_BASE,
                                   languages=langs, fallback=True).gettext

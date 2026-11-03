@@ -74,6 +74,41 @@ class Translator(unittest.TestCase):
         self.assertEqual(tr("No catalog here"), "No catalog here")
 
 
+class NormalizeLocale(unittest.TestCase):
+    """The locale arrives from an unauthenticated D-Bus caller, so it is
+    mapped to the allowlisted catalog languages before gettext sees it.
+    Path-shaped values would let gettext open (or block on) files outside
+    LOCALE_BASE."""
+
+    def test_NormalizeLocale_KeepsSupportedLanguages(self):
+        self.assertEqual(h._normalize_locale("en"), "en")
+        self.assertEqual(h._normalize_locale("ru"), "ru")
+        self.assertEqual(h._normalize_locale("ru_RU.UTF-8"), "ru")
+        self.assertEqual(h._normalize_locale("en_US"), "en")
+
+    def test_NormalizeLocale_FallsBackToEnglish_ForUnsupportedOrPathLike(self):
+        for locale in ("fr", "", None, "ru/ru", "..",
+                       "/tmp/evil/LC_MESSAGES/gpu-switcher.mo",
+                       "C:\\evil", "x" * 33):
+            self.assertEqual(h._normalize_locale(locale), "en", locale)
+
+
+class TranslatorLocale(unittest.TestCase):
+    def test_Translator_PassesOnlyAllowlistedLanguages_ToGettext(self):
+        """Contract: only allowlisted language identifiers reach
+        gettext.translation, so catalog loading cannot leave LOCALE_BASE.
+        """
+        fake = mock.Mock(gettext=lambda s: s)
+        with mock.patch("helper.gpu_switcher_helper.gettext.translation",
+                        return_value=fake) as translation:
+            for locale in ("ru", "ru_RU.UTF-8", "fr",
+                           "/tmp/evil/LC_MESSAGES/gpu-switcher.mo", ".."):
+                h._translator(locale)
+        for call in translation.call_args_list:
+            for lang in call.kwargs["languages"]:
+                self.assertIn(lang, ("en", "ru"), lang)
+
+
 class Authorize(unittest.TestCase):
     """polkit authorization: subject bound to the caller's bus name, a
     unique cancellation id, the result statuses, and timeout cancellation."""
