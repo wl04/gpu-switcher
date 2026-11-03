@@ -37,6 +37,53 @@ mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
 msgfmt -o data/locale/en/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-en.po
 msgfmt -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-ru.po
 
+# Validation gate: the polkit policy must be well-formed XML and
+# structurally valid against the polkit policyconfig DTD, which allows
+# exactly one <defaults> per action containing (allow_any, allow_active)
+# or (allow_any, allow_active, allow_inactive) in that order. xmllint and
+# lxml are not available in the build environment, so the stdlib
+# ElementTree parse plus this explicit structural check is the guard.
+python3 - <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+path = "data/polkit/gpu-switcher.policy"
+try:
+    root = ET.parse(path)
+except ET.ParseError as exc:
+    sys.exit(f"error: {path} is not well-formed XML: {exc}")
+
+allowed_sequences = (
+    ("allow_any", "allow_active"),
+    ("allow_any", "allow_active", "allow_inactive"),
+)
+
+errors = []
+actions = root.findall("action")
+if not actions:
+    errors.append("no <action> elements found")
+for action in actions:
+    action_id = action.get("id", "?")
+    defaults = action.findall("defaults")
+    if len(defaults) != 1:
+        errors.append(
+            f"action {action_id}: exactly one <defaults> block is "
+            f"required (found {len(defaults)})")
+        continue
+    children = tuple(child.tag for child in defaults[0])
+    if children not in allowed_sequences:
+        errors.append(
+            f"action {action_id}: <defaults> children must be exactly "
+            "(allow_any, allow_active) or (allow_any, allow_active, "
+            f"allow_inactive) in that order (found {children})")
+
+if errors:
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    sys.exit(1)
+print(f"polkit policy OK: {len(actions)} action(s)")
+PY
+
 install -D -m 0755 src/wrapper/gpu-switcher "$ROOT/usr/bin/gpu-switcher"
 install -D -m 0644 src/gpu_switcher/__init__.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/__init__.py"
 install -D -m 0644 src/gpu_switcher/i18n.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/i18n.py"
