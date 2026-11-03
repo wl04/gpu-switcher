@@ -349,6 +349,14 @@ class CardHasTag(unittest.TestCase):
                        "CURRENT_TAGS=:seat:\n")
             self.assertFalse(h._card_has_tag("card1"))
 
+    def test_CardHasTag_ReturnsFalse_WhenUdevadmMissing(self):
+        # An unverifiable tag must be treated as absent: without the tag
+        # mutter will not select the primary even after a relogin.
+        with mock.patch("shutil.which", return_value=None), \
+             mock.patch("subprocess.run") as run:
+            self.assertFalse(h._card_has_tag("card1"))
+        run.assert_not_called()
+
 
 class SetPrimaryRefresh(unittest.TestCase):
     """SetPrimary verifies the tag is present in the card's current udev
@@ -386,12 +394,99 @@ class SetPrimaryRefresh(unittest.TestCase):
                    "a reboot is required.", "", False))
 
 
-class RefreshUdev(unittest.TestCase):
-    def test_Refresh_SkipsGracefully_WhenUdevadmMissing(self):
+class VerifyRule(unittest.TestCase):
+    """udevadm verify must distinguish verified / unsupported / failed:
+    an error or timeout is a failure, never an implicit verification."""
+
+    def test_VerifyRule_ReturnsVerified_WhenUdevadmVerifySucceeds(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run") as run:
+            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            self.assertEqual(h._verify_rule("/tmp/rule"),
+                            h.REFRESH_VERIFIED)
+
+    def test_VerifyRule_ReturnsUnsupported_WhenUdevadmMissing(self):
         with mock.patch("shutil.which", return_value=None), \
              mock.patch("subprocess.run") as run:
-            self.assertTrue(h._refresh_udev("card1"))
+            self.assertEqual(h._verify_rule("/tmp/rule"),
+                            h.REFRESH_UNSUPPORTED)
         run.assert_not_called()
+
+    def test_VerifyRule_ReturnsFailed_WhenUdevadmVerifyErrors(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run", side_effect=OSError("spawn failed")):
+            self.assertEqual(h._verify_rule("/tmp/rule"), h.REFRESH_FAILED)
+
+    def test_VerifyRule_ReturnsFailed_WhenUdevadmVerifyTimesOut(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run",
+                        side_effect=subprocess.TimeoutExpired("udevadm", 30)):
+            self.assertEqual(h._verify_rule("/tmp/rule"), h.REFRESH_FAILED)
+
+    def test_VerifyRule_ReturnsFailed_WhenUdevadmVerifyRejects(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run") as run:
+            run.return_value = mock.Mock(returncode=1, stdout="", stderr="bad")
+            self.assertEqual(h._verify_rule("/tmp/rule"), h.REFRESH_FAILED)
+
+
+class RefreshUdev(unittest.TestCase):
+    """The refresh returns the verified / unsupported / failed state,
+    never a bare success it cannot stand behind."""
+
+    def test_Refresh_SkipsGracefully_WhenUdevadmMissing(self):
+        # Missing udevadm is "unsupported": the refresh could not be
+        # verified, so it must not be reported as success.
+        with mock.patch("shutil.which", return_value=None), \
+             mock.patch("subprocess.run") as run:
+            self.assertEqual(h._refresh_udev("card1"), h.REFRESH_UNSUPPORTED)
+        run.assert_not_called()
+
+    def test_Refresh_ReturnsVerified_WhenAllStepsSucceed(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run") as run:
+            def run_side(argv, **kwargs):
+                if argv[:2] == ["udevadm", "info"]:
+                    return mock.Mock(returncode=0, stderr="",
+                                     stdout="DEVPATH=/x\n"
+                                            "CURRENT_TAGS=:mutter-device-preferred-primary:\n")
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            run.side_effect = run_side
+            self.assertEqual(h._refresh_udev("card1"), h.REFRESH_VERIFIED)
+
+    def test_Refresh_ReturnsFailed_WhenTagMissing(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run") as run:
+            def run_side(argv, **kwargs):
+                if argv[:2] == ["udevadm", "info"]:
+                    return mock.Mock(returncode=0, stderr="",
+                                     stdout="DEVPATH=/x\nCURRENT_TAGS=\n")
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            run.side_effect = run_side
+            self.assertEqual(h._refresh_udev("card1"), h.REFRESH_FAILED)
+
+    def test_Refresh_ReturnsFailed_WhenTagUnverifiable(self):
+        # udevadm info fails: the tag cannot be verified, so the refresh
+        # must not report success.
+        with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run") as run:
+            def run_side(argv, **kwargs):
+                if argv[:2] == ["udevadm", "info"]:
+                    return mock.Mock(returncode=1, stdout="",
+                                     stderr="no such device")
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            run.side_effect = run_side
+            self.assertEqual(h._refresh_udev("card1"), h.REFRESH_FAILED)
+
+    def test_Refresh_ReturnsFailed_WhenReloadFails(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
+             mock.patch("subprocess.run") as run:
+            def run_side(argv, **kwargs):
+                if argv[:2] == ["udevadm", "control"]:
+                    return mock.Mock(returncode=1, stdout="", stderr="boom")
+                return mock.Mock(returncode=0, stdout="", stderr="")
+            run.side_effect = run_side
+            self.assertEqual(h._refresh_udev("card1"), h.REFRESH_FAILED)
 
 
 class SetPrimaryTransaction(unittest.TestCase):
@@ -527,6 +622,121 @@ class SetPrimaryTransaction(unittest.TestCase):
             self.assertEqual(f.read(), content)
         # The write path was skipped entirely: no backup, no temp file.
         self.assertEqual(os.listdir(tmp), ["61-mutter-primary-gpu.rules"])
+        shutil.rmtree(tmp)
+
+
+class SetPrimaryUnsupported(unittest.TestCase):
+    """With udevadm unavailable the verification is skipped (not a
+    rejection) and the rule is still written, but the refresh reports
+    unsupported and refresh_ok stays False - the logout fast path is not
+    enabled."""
+
+    PCI = "0000:12:00.0"
+
+    def test_SetPrimary_WritesRule_WhenUdevadmUnavailable(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp12-")
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "rule_conflicts", return_value=[]), \
+             mock.patch.object(h, "_resolve_gpu",
+                               return_value=("card1", "0x1002", "0x7550")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("shutil.which", return_value=None), \
+             mock.patch("os.chown"), \
+             mock.patch("subprocess.run") as run:
+            h.handle_set_primary(mock.Mock(), "sender",
+                                 (self.PCI, "en"), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertEqual(
+            result,
+            (True, "Rule written for 0000:12:00.0. The udev refresh could "
+                   "not be verified (udevadm unavailable); a reboot is "
+                   "required.", "", False))
+        with open(managed, encoding="utf-8") as f:
+            self.assertEqual(f.read(), h._rule_text(self.PCI, "0x1002", "0x7550"))
+        run.assert_not_called()
+        shutil.rmtree(tmp)
+
+    def test_SetPrimary_ReportsUnsupported_WhenUdevadmUnavailable_WhenRuleAlreadyCurrent(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp12-")
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+        content = h._rule_text(self.PCI, "0x1002", "0x7550")
+        with open(managed, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "rule_conflicts", return_value=[]), \
+             mock.patch.object(h, "_resolve_gpu",
+                               return_value=("card1", "0x1002", "0x7550")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("shutil.which", return_value=None), \
+             mock.patch("subprocess.run") as run:
+            h.handle_set_primary(mock.Mock(), "sender",
+                                 (self.PCI, "en"), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertEqual(
+            result,
+            (True, "The rule is already set for 0000:12:00.0. The udev "
+                   "refresh could not be verified (udevadm unavailable); "
+                   "a reboot is required.", "", False))
+        run.assert_not_called()
+        shutil.rmtree(tmp)
+
+
+class SetAutoUnsupported(unittest.TestCase):
+    """SetAuto with udevadm unavailable still performs the file change
+    (remove / already-absent) but reports the refresh as unsupported and
+    refresh_ok False - the logout fast path is not enabled."""
+
+    def test_SetAuto_ReportsUnsupported_WhenUdevadmUnavailable_WhenRuleAlreadyAbsent(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp13-")
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+        self.assertFalse(os.path.exists(managed))
+
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("shutil.which", return_value=None), \
+             mock.patch("subprocess.run") as run:
+            h.handle_set_auto(mock.Mock(), "sender", ("en",), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertEqual(
+            result,
+            (True, "No managed rule (auto selection already in effect). "
+                   "The udev refresh could not be verified (udevadm "
+                   "unavailable); a reboot is required.", False))
+        run.assert_not_called()
+        shutil.rmtree(tmp)
+
+    def test_SetAuto_ReportsUnsupported_WhenUdevadmUnavailable_WhenRuleRemoved(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp13-")
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+        with open(managed, "w", encoding="utf-8") as f:
+            f.write("old rule\n")
+
+        invocation = mock.Mock()
+        with mock.patch.object(h, "_authorized",
+                               return_value=("authorized", "")), \
+             mock.patch.object(h, "MANAGED_RULE", managed), \
+             mock.patch("shutil.which", return_value=None), \
+             mock.patch("os.chown"):
+            h.handle_set_auto(mock.Mock(), "sender", ("en",), invocation)
+        result = invocation.return_value.call_args[0][0].unpack()
+        self.assertFalse(os.path.exists(managed))
+        backups = [f for f in os.listdir(tmp)
+                   if f.startswith("61-mutter-primary-gpu.rules.bak.")]
+        self.assertEqual(len(backups), 1)
+        backup_path = os.path.join(tmp, backups[0])
+        expected = ("Managed rule removed. A backup was saved to "
+                    f"{backup_path}. The udev refresh could not be verified "
+                    "(udevadm unavailable); a reboot is required.")
+        self.assertEqual(result, (True, expected, False))
         shutil.rmtree(tmp)
 
 

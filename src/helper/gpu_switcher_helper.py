@@ -119,6 +119,14 @@ _METHOD_CALL_WINDOW_S = 60.0
 _METHOD_CALL_LIMIT = 20
 _method_call_counts = {}  # (sender, method) -> [count, window_start, noted]
 
+# udevadm verification / refresh states. The distinction matters: a
+# refresh that could not be verified (udevadm missing) must be reported
+# as such and must never enable the fast-path logout as though the tags
+# were confirmed fresh.
+REFRESH_VERIFIED = "verified"       # every step succeeded; tags confirmed
+REFRESH_UNSUPPORTED = "unsupported"  # udevadm unavailable; cannot verify
+REFRESH_FAILED = "failed"           # a step errored, timed out, or was rejected
+
 
 def _sanitize_log_text(message):
     """One log line, bounded and flattened.
@@ -394,15 +402,28 @@ def _rule_text(pci, vendor, device):
 
 
 def _verify_rule(path):
-    """udevadm verify when available; skipped when udevadm cannot run."""
+    """Run udevadm verify and report the verification state.
+
+    Returns REFRESH_VERIFIED when udevadm verify ran and accepted the
+    rule, REFRESH_UNSUPPORTED when udevadm cannot run (verification is
+    not possible - not a rejection, but the rule is also not confirmed),
+    and REFRESH_FAILED when udevadm verify errored, timed out, or
+    rejected the rule.
+    """
     if shutil.which("udevadm") is None:
-        return True
+        _log("udev verify: udevadm not available; rule not verified")
+        return REFRESH_UNSUPPORTED
     try:
         out = subprocess.run(["udevadm", "verify", path],
                              capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
-        return True
-    return out.returncode == 0
+        _log("udev verify: udevadm verify failed to run")
+        return REFRESH_FAILED
+    if out.returncode != 0:
+        _log(f"udev verify: udevadm verify rejected the rule "
+             f"(rc={out.returncode})")
+        return REFRESH_FAILED
+    return REFRESH_VERIFIED
 
 
 def _reload_rules():
@@ -461,11 +482,13 @@ def _card_has_tag(card):
     reads when the session starts. (The cumulative TAGS line may still show
     a stale tag from a previous rule; it is irrelevant to mutter.) This is
     the check that makes "refresh ok" true: without the tag, mutter will
-    not select the primary even after a relogin. Skipped (True) when udevadm
-    is unavailable, matching the _verify_rule skip.
+    not select the primary even after a relogin. Returns False when the tag
+    is absent OR when it cannot be verified (udevadm unavailable or the
+    query fails) - an unverifiable tag must not be treated as present.
     """
     if shutil.which("udevadm") is None:
-        return True
+        _log(f"tag check: udevadm not available; cannot verify tag on {card}")
+        return False
     try:
         out = subprocess.run(
             ["udevadm", "info", "--query=property",
@@ -491,25 +514,27 @@ def _refresh_udev(card=None):
     Scoped to the DRM subsystem: only display devices are touched, nothing
     else is re-probed. When `card` is given (SetPrimary), the tag is checked
     on that card after the settled trigger; SetAuto passes no card, since
-    other rules may legitimately set the tag. Returns True only when all
-    steps succeeded; when udevadm is unavailable the refresh is skipped
-    (True), matching the _verify_rule skip.
+    other rules may legitimately set the tag. Returns REFRESH_VERIFIED only
+    when every step succeeded, REFRESH_UNSUPPORTED when udevadm is
+    unavailable (the refresh could not be verified, so it must not be
+    treated as fresh), and REFRESH_FAILED when a step failed.
     """
     if shutil.which("udevadm") is None:
-        _log("udev refresh: udevadm not available; skipping")
-        return True
+        _log("udev refresh: udevadm not available; refresh not verified")
+        return REFRESH_UNSUPPORTED
     if not _reload_rules():
         _log("udev refresh: udevadm control --reload-rules failed")
-        return False
+        return REFRESH_FAILED
     if not _trigger_drm():
         _log("udev refresh: udevadm trigger --subsystem-match=drm --settle "
              "failed")
-        return False
+        return REFRESH_FAILED
     if card is not None and not _card_has_tag(card):
-        _log(f"udev refresh: tag not present on {card} after refresh")
-        return False
+        _log(f"udev refresh: tag not present (or unverifiable) on {card} "
+             "after refresh")
+        return REFRESH_FAILED
     _log("udev refresh: reload-rules, DRM trigger and tag check succeeded")
-    return True
+    return REFRESH_VERIFIED
 
 
 def _backup_rule():
@@ -596,9 +621,14 @@ def handle_set_primary(connection, sender, params, invocation):
         existing = ""
     if existing == content:
         _log(f"SetPrimary: rule already set for {pci}; nothing to do")
-        refresh_ok = _refresh_udev(_card)
+        state = _refresh_udev(_card)
+        refresh_ok = state == REFRESH_VERIFIED
         if refresh_ok:
             message = tr("The rule is already set for %s. Udev rules reloaded.") % pci
+        elif state == REFRESH_UNSUPPORTED:
+            message = tr("The rule is already set for %s. "
+                         "The udev refresh could not be verified "
+                         "(udevadm unavailable); a reboot is required.") % pci
         else:
             message = tr("The rule is already set for %s. "
                          "The udev refresh failed; a reboot is required.") % pci
@@ -613,7 +643,7 @@ def handle_set_primary(connection, sender, params, invocation):
             f.write(content)
         os.chown(tmp_path, 0, 0)
         os.chmod(tmp_path, 0o644)
-        if not _verify_rule(tmp_path):
+        if _verify_rule(tmp_path) == REFRESH_FAILED:
             os.unlink(tmp_path)
             _log("SetPrimary: udevadm verify rejected the rule")
             invocation.return_value(
@@ -657,7 +687,8 @@ def handle_set_primary(connection, sender, params, invocation):
             except OSError:
                 pass
 
-    refresh_ok = _refresh_udev(_card)
+    state = _refresh_udev(_card)
+    refresh_ok = state == REFRESH_VERIFIED
     if refresh_ok:
         if backup:
             message = tr("Rule written for %s. A backup was saved to %s. "
@@ -667,6 +698,15 @@ def handle_set_primary(connection, sender, params, invocation):
             message = tr("Rule written for %s. Udev rules reloaded; "
                          "the change takes effect after the next login "
                          "(or after a reboot).") % pci
+    elif state == REFRESH_UNSUPPORTED:
+        if backup:
+            message = tr("Rule written for %s. A backup was saved to %s. "
+                         "The udev refresh could not be verified "
+                         "(udevadm unavailable); a reboot is required.") % (pci, backup)
+        else:
+            message = tr("Rule written for %s. "
+                         "The udev refresh could not be verified "
+                         "(udevadm unavailable); a reboot is required.") % pci
     else:
         if backup:
             message = tr("Rule written for %s. A backup was saved to %s. "
@@ -709,10 +749,15 @@ def handle_set_auto(connection, sender, params, invocation):
         # A previous Reset may have removed the rule while its udev refresh
         # failed, so the stale tags persist; refresh udev on the
         # already-absent path too (as SetPrimary does for an unchanged rule).
-        refresh_ok = _refresh_udev()
+        state = _refresh_udev()
+        refresh_ok = state == REFRESH_VERIFIED
         if refresh_ok:
             message = tr("No managed rule (auto selection already in effect). "
                          "Udev rules reloaded.")
+        elif state == REFRESH_UNSUPPORTED:
+            message = tr("No managed rule (auto selection already in effect). "
+                         "The udev refresh could not be verified "
+                         "(udevadm unavailable); a reboot is required.")
         else:
             message = tr("No managed rule (auto selection already in effect). "
                          "The udev refresh failed; a reboot is required.")
@@ -737,11 +782,16 @@ def handle_set_auto(connection, sender, params, invocation):
                           tr("Failed to remove the managed rule; nothing changed."), False)))
         return
     _log(f"SetAuto: rule removed (backup: {backup})")
-    refresh_ok = _refresh_udev()
+    state = _refresh_udev()
+    refresh_ok = state == REFRESH_VERIFIED
     if refresh_ok:
         message = tr("Managed rule removed. A backup was saved to %s. "
                      "Udev rules reloaded; auto selection applies after "
                      "the next login (or after a reboot).") % backup
+    elif state == REFRESH_UNSUPPORTED:
+        message = tr("Managed rule removed. A backup was saved to %s. "
+                     "The udev refresh could not be verified "
+                     "(udevadm unavailable); a reboot is required.") % backup
     else:
         message = tr("Managed rule removed. A backup was saved to %s. "
                      "The udev refresh failed; a reboot is required.") % backup
