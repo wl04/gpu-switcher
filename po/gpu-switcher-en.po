@@ -13,6 +13,9 @@ msgstr "Preferred (configured)"
 msgid "System default (auto)"
 msgstr "System default (auto)"
 
+msgid "Configured GPU (not currently detected)"
+msgstr "Configured GPU (not currently detected)"
+
 msgid "No GPUs detected."
 msgstr "No GPUs detected."
 
@@ -95,6 +98,12 @@ msgstr "Apply sets %s (PCI %s) as the primary display adapter.\n\nThe managed ud
 
 msgid "Apply removes the managed udev rule, returning to automatic GPU selection.\n\nIf a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
 msgstr "Apply removes the managed udev rule, returning to automatic GPU selection.\n\nIf a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
+
+msgid "The configured GPU (PCI %s) is not currently detected. The rule remains on disk; it takes effect when the GPU is available again. Use 'Reset to auto' to remove it."
+msgstr "The configured GPU (PCI %s) is not currently detected. The rule remains on disk; it takes effect when the GPU is available again. Use 'Reset to auto' to remove it."
+
+msgid "The configured GPU (PCI %s) is not currently detected, so there is nothing to apply. The rule stays on disk; use 'Reset to auto' to remove it."
+msgstr "The configured GPU (PCI %s) is not currently detected, so there is nothing to apply. The rule stays on disk; use 'Reset to auto' to remove it."
 
 # Helper messages (the helper loads the same catalogs; one message is shared
 # with the app's startup conflict warning)

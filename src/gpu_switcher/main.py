@@ -22,7 +22,9 @@ gi.require_version("GLib", "2.0")
 from gi.repository import Gtk, GLib
 
 from . import bus, detect, i18n, state
-from .selection import SELECTION_AUTO, initial_selection, selection_after_failure
+from .selection import (SELECTION_AUTO, SELECTION_UNAVAILABLE,
+                             configured_unavailable_pci, initial_selection,
+                             selection_after_failure)
 from .state import Outcome, banner_kind, logout_enabled, outcome_from_result
 
 APP_ID = "com.github.wl04.gpu-switcher"
@@ -39,7 +41,9 @@ class GpuSwitcherApp(Gtk.Application):
         super().__init__(application_id=APP_ID)
         self.window = None
         self.detection = None
-        self.selected_card = SELECTION_AUTO   # card name or SELECTION_AUTO
+        self.selected_card = SELECTION_AUTO   # card name or a SELECTION_* sentinel
+        self.unavailable_radio = None        # disabled row for the configured-but-undetected GPU
+        self.unavailable_pci = None
         self.radios_by_gpu: dict = {}
         self.rows_box = None
         self.banner = None
@@ -122,12 +126,15 @@ class GpuSwitcherApp(Gtk.Application):
         return warning
 
     def _build_rows(self, result) -> None:
-        """One radio row per GPU plus the always-present auto row.
+        """One radio row per GPU, an optional disabled row for a
+        configured GPU that is not currently detected, plus the
+        always-present auto row.
 
         The auto row is created even when no GPUs are detected so
         Reset / the revert path never touch a missing widget. The
         selected radio always mirrors the configured state: the card
-        matching the managed rule, else auto.
+        matching the managed rule, the unavailable row when the rule
+        pins a PCI no detected GPU carries, else auto.
         """
         self.rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.radios_by_gpu = {}
@@ -148,6 +155,25 @@ class GpuSwitcherApp(Gtk.Application):
             self.radios_by_gpu[card] = radio
             sub = f"PCI {gpu.pci} \u00b7 {gpu.node}"
             self.rows_box.append(self._gpu_row(radio, gpu.name, sub, badges))
+        self.unavailable_radio = None
+        self.unavailable_pci = configured_unavailable_pci(result)
+        if self.unavailable_pci is not None:
+            # The configured GPU is not currently detected: show the rule's
+            # PCI as a disabled radio (not user-selectable) so the UI
+            # mirrors the configured state without pretending it is
+            # selectable.
+            unavailable = Gtk.CheckButton(label="")
+            unavailable.add_css_class("radio")
+            unavailable.set_sensitive(False)
+            if first_radio is not None:
+                unavailable.set_group(first_radio)
+            unavailable.connect(
+                "toggled", self._on_radio_toggled, SELECTION_UNAVAILABLE)
+            self.unavailable_radio = unavailable
+            self.rows_box.append(self._gpu_row(
+                unavailable, i18n._("Configured GPU (not currently detected)"),
+                f"PCI {self.unavailable_pci}",
+                [i18n._("Preferred (configured)")]))
         self.auto_radio = Gtk.CheckButton(label="")
         self.auto_radio.add_css_class("radio")
         if first_radio is not None:
@@ -159,6 +185,8 @@ class GpuSwitcherApp(Gtk.Application):
         self.selected_card = card
         if card == SELECTION_AUTO:
             self.auto_radio.set_active(True)
+        elif card == SELECTION_UNAVAILABLE:
+            self.unavailable_radio.set_active(True)
         else:
             self.radios_by_gpu[card].set_active(True)
 
@@ -197,7 +225,14 @@ class GpuSwitcherApp(Gtk.Application):
         self.banner_box.append(self.banner_label)
         self.banner.set_child(self.banner_box)
         self.banner.set_reveal_child(False)
-        if result.conflicts:
+        if self.unavailable_pci is not None:
+            self._banner_show(
+                i18n._("The configured GPU (PCI %s) is not currently "
+                        "detected. The rule remains on disk; it takes "
+                        "effect when the GPU is available again. Use "
+                        "'Reset to auto' to remove it.")
+                % self.unavailable_pci, "warning")
+        elif result.conflicts:
             self._banner_show(
                 i18n._("Another udev rule sets the preferred GPU: %s. "
                         "Resolve it manually first.")
@@ -309,6 +344,16 @@ class GpuSwitcherApp(Gtk.Application):
     # ------------------------------------------------------------- actions
 
     def _on_apply(self, _button) -> None:
+        if self.selected_card == SELECTION_UNAVAILABLE:
+            # Nothing to apply: the configured GPU is not currently
+            # detected. Do not silently fall back to auto - tell the user
+            # the rule stays on disk and offer the explicit reset.
+            self._banner_show(
+                i18n._("The configured GPU (PCI %s) is not currently "
+                        "detected, so there is nothing to apply. The rule "
+                        "stays on disk; use 'Reset to auto' to remove it.")
+                % self.unavailable_pci, "warning")
+            return
         if self.selected_card != SELECTION_AUTO:
             gpu = next((g for g in self.detection.gpus
                         if g.card == self.selected_card), None)
@@ -344,6 +389,8 @@ class GpuSwitcherApp(Gtk.Application):
         self.selected_card = card
         if card == SELECTION_AUTO:
             self.auto_radio.set_active(True)
+        elif card == SELECTION_UNAVAILABLE:
+            self.unavailable_radio.set_active(True)
         else:
             self.radios_by_gpu[card].set_active(True)
 

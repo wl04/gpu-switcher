@@ -1,9 +1,9 @@
 """Unit tests for the pure selection logic in selection.py.
 
 The app must always reflect the configured state: the radio selection is
-the card matching the managed rule on disk, falling back to auto when no
-detected GPU matches (including when no GPUs are detected at all - the
-scenario that used to crash Reset).
+the card matching the managed rule on disk, the configured-unavailable
+state when the rule pins a GPU that is not currently detected, and auto
+when no rule pins a GPU (including when no GPUs are detected at all).
 """
 import unittest
 
@@ -32,15 +32,46 @@ class InitialSelection(unittest.TestCase):
             preferred_pci="0000:12:00.0")
         self.assertEqual(selection.initial_selection(detection), "card2")
 
-    def test_InitialSelection_ReturnsAuto_WhenNoGpuMatches(self):
+    def test_InitialSelection_ReturnsUnavailableState_WhenConfiguredGpuMissing(self):
+        # The rule pins a PCI no detected GPU carries: a distinct state,
+        # not auto - the rule is still on disk.
         detection = _detection(
             [_gpu("card1", "0000:01:00.0")],
             preferred_pci="0000:99:00.0")
+        self.assertEqual(selection.initial_selection(detection),
+                         selection.SELECTION_UNAVAILABLE)
+
+    def test_InitialSelection_ReturnsUnavailableState_WhenNoGpusDetected(self):
+        detection = _detection([], preferred_pci="0000:99:00.0")
+        self.assertEqual(selection.initial_selection(detection),
+                         selection.SELECTION_UNAVAILABLE)
+
+    def test_InitialSelection_ReturnsAuto_WhenNoRule(self):
+        detection = _detection([_gpu("card1", "0000:01:00.0")])
         self.assertEqual(selection.initial_selection(detection), "auto")
 
-    def test_InitialSelection_ReturnsAuto_WhenNoGpusDetected(self):
+    def test_InitialSelection_ReturnsAuto_WhenNoGpusDetectedAndNoRule(self):
         detection = _detection([])
         self.assertEqual(selection.initial_selection(detection), "auto")
+
+
+class ConfiguredUnavailablePci(unittest.TestCase):
+    def test_ConfiguredUnavailablePci_ReturnsPci_WhenRulePinsUndetectedGpu(self):
+        detection = _detection(
+            [_gpu("card1", "0000:01:00.0")],
+            preferred_pci="0000:99:00.0")
+        self.assertEqual(selection.configured_unavailable_pci(detection),
+                         "0000:99:00.0")
+
+    def test_ConfiguredUnavailablePci_ReturnsNone_WhenRuleMatchesDetectedGpu(self):
+        detection = _detection(
+            [_gpu("card1", "0000:01:00.0", preferred=True)],
+            preferred_pci="0000:01:00.0")
+        self.assertIsNone(selection.configured_unavailable_pci(detection))
+
+    def test_ConfiguredUnavailablePci_ReturnsNone_WhenNoRule(self):
+        detection = _detection([_gpu("card1", "0000:01:00.0")])
+        self.assertIsNone(selection.configured_unavailable_pci(detection))
 
 
 class SelectionAfterFailure(unittest.TestCase):
@@ -50,9 +81,15 @@ class SelectionAfterFailure(unittest.TestCase):
             preferred_pci="0000:01:00.0")
         self.assertEqual(selection.selection_after_failure(detection), "card1")
 
-    def test_SelectionAfterFailure_ReturnsAuto_WhenNoPreferredGpu(self):
+    def test_SelectionAfterFailure_ReturnsUnavailableState_WhenConfiguredGpuMissing(self):
         detection = _detection(
-            [_gpu("card1", "0000:01:00.0")])
+            [_gpu("card1", "0000:01:00.0")],
+            preferred_pci="0000:99:00.0")
+        self.assertEqual(selection.selection_after_failure(detection),
+                         selection.SELECTION_UNAVAILABLE)
+
+    def test_SelectionAfterFailure_ReturnsAuto_WhenNoRule(self):
+        detection = _detection([_gpu("card1", "0000:01:00.0")])
         self.assertEqual(selection.selection_after_failure(detection), "auto")
 
 

@@ -13,6 +13,9 @@ msgstr "Назначен (конфигурация)"
 msgid "System default (auto)"
 msgstr "Системный по умолчанию (авто)"
 
+msgid "Configured GPU (not currently detected)"
+msgstr "Назначенный GPU (не обнаружен в данный момент)"
+
 msgid "No GPUs detected."
 msgstr "GPU не обнаружены."
 
@@ -95,6 +98,12 @@ msgstr "Будет назначен %s (PCI %s) основным дисплей�
 
 msgid "Apply removes the managed udev rule, returning to automatic GPU selection.\n\nIf a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
 msgstr "Удалится управляемое udev-правило и выбор GPU снова станет автоматическим.\n\nЕсли правило присутствует, будет сохранена резервная копия. Изменение вступит в силу после перезагрузки, либо после выхода из сессии и повторного входа."
+
+msgid "The configured GPU (PCI %s) is not currently detected. The rule remains on disk; it takes effect when the GPU is available again. Use 'Reset to auto' to remove it."
+msgstr "Назначенный GPU (PCI %s) не обнаружен в данный момент. Правило остаётся на диске; оно вступит в силу, когда GPU снова будет доступен. Используйте «Сбросить к авто», чтобы удалить его."
+
+msgid "The configured GPU (PCI %s) is not currently detected, so there is nothing to apply. The rule stays on disk; use 'Reset to auto' to remove it."
+msgstr "Назначенный GPU (PCI %s) не обнаружен в данный момент, поэтому применять нечего. Правило остаётся на диске; используйте «Сбросить к авто», чтобы удалить его."
 
 # Helper messages (the helper loads the same catalogs; one message is shared
 # with the app's startup conflict warning)
