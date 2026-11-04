@@ -601,6 +601,44 @@ def _backup_rule():
         return ""
 
 
+def _authorization_message(tr, status, detail):
+    """Localized reply for a call that was not authorized."""
+    if status == "denied":
+        return tr("Authorization was denied. Nothing changed.")
+    if status == "cancelled":
+        return tr("Authorization was cancelled. Nothing changed.")
+    if status == "timeout":
+        return tr("The authorization check timed out. Nothing changed.")
+    return tr("Could not check authorization (%s). Nothing changed.") % detail
+
+
+def _refresh_message(tr, state, *, leading, backup="", verified_sentence):
+    """Full localized reply after a udev refresh.
+
+    The reply is composed of the site's leading sentence, the optional
+    backup sentence, and the sentence describing the refresh outcome,
+    joined by single spaces. The catalog entries (po/) are the sentence
+    fragments chosen so the composition reproduces the full localized
+    sentence exactly in every shipped language. `state` is a REFRESH_*
+    constant; `backup` is '' when there is no backup.
+    """
+    prefix = leading
+    if backup:
+        prefix += " " + tr("A backup was saved to %s.") % backup
+    if state == REFRESH_UNSUPPORTED:
+        return (
+            prefix
+            + " "
+            + tr(
+                "The udev refresh could not be verified "
+                "(udevadm unavailable); a reboot is required."
+            )
+        )
+    if state == REFRESH_FAILED:
+        return prefix + " " + tr("The udev refresh failed; a reboot is required.")
+    return prefix + " " + verified_sentence
+
+
 def handle_status(connection, sender, params, invocation) -> None:
     locale = params[0]
     tr = _translator(locale)
@@ -618,16 +656,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
     _log(f"SetPrimary: pci={pci} locale={locale} sender={sender}")
     status, detail = _authorized(invocation, connection, locale)
     if status != "authorized":
-        if status == "denied":
-            message = tr("Authorization was denied. Nothing changed.")
-        elif status == "cancelled":
-            message = tr("Authorization was cancelled. Nothing changed.")
-        elif status == "timeout":
-            message = tr("The authorization check timed out. Nothing changed.")
-        else:
-            message = (
-                tr("Could not check authorization (%s). Nothing changed.") % detail
-            )
+        message = _authorization_message(tr, status, detail)
         _log(f"SetPrimary: authorization {status}; nothing changed")
         invocation.return_value(GLib.Variant("(bssb)", (False, message, "", False)))
         return
@@ -695,25 +724,12 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         _log(f"SetPrimary: rule already set for {pci}; nothing to do")
         state = _refresh_udev(_card)
         refresh_ok = state == REFRESH_VERIFIED
-        if refresh_ok:
-            message = tr("The rule is already set for %s. Udev rules reloaded.") % pci
-        elif state == REFRESH_UNSUPPORTED:
-            message = (
-                tr(
-                    "The rule is already set for %s. "
-                    "The udev refresh could not be verified "
-                    "(udevadm unavailable); a reboot is required."
-                )
-                % pci
-            )
-        else:
-            message = (
-                tr(
-                    "The rule is already set for %s. "
-                    "The udev refresh failed; a reboot is required."
-                )
-                % pci
-            )
+        message = _refresh_message(
+            tr,
+            state,
+            leading=tr("The rule is already set for %s.") % pci,
+            verified_sentence=tr("Udev rules reloaded."),
+        )
         invocation.return_value(GLib.Variant("(bssb)", (True, message, "", refresh_ok)))
         return
 
@@ -788,52 +804,16 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
 
     state = _refresh_udev(_card)
     refresh_ok = state == REFRESH_VERIFIED
-    if refresh_ok:
-        if backup:
-            message = tr(
-                "Rule written for %s. A backup was saved to %s. "
-                "Udev rules reloaded; the change takes effect "
-                "after the next login (or after a reboot)."
-            ) % (pci, backup)
-        else:
-            message = (
-                tr(
-                    "Rule written for %s. Udev rules reloaded; "
-                    "the change takes effect after the next login "
-                    "(or after a reboot)."
-                )
-                % pci
-            )
-    elif state == REFRESH_UNSUPPORTED:
-        if backup:
-            message = tr(
-                "Rule written for %s. A backup was saved to %s. "
-                "The udev refresh could not be verified "
-                "(udevadm unavailable); a reboot is required."
-            ) % (pci, backup)
-        else:
-            message = (
-                tr(
-                    "Rule written for %s. "
-                    "The udev refresh could not be verified "
-                    "(udevadm unavailable); a reboot is required."
-                )
-                % pci
-            )
-    else:
-        if backup:
-            message = tr(
-                "Rule written for %s. A backup was saved to %s. "
-                "The udev refresh failed; a reboot is required."
-            ) % (pci, backup)
-        else:
-            message = (
-                tr(
-                    "Rule written for %s. "
-                    "The udev refresh failed; a reboot is required."
-                )
-                % pci
-            )
+    message = _refresh_message(
+        tr,
+        state,
+        leading=tr("Rule written for %s.") % pci,
+        backup=backup,
+        verified_sentence=tr(
+            "Udev rules reloaded; the change takes effect after the next "
+            "login (or after a reboot)."
+        ),
+    )
     invocation.return_value(GLib.Variant("(bssb)", (True, message, backup, refresh_ok)))
 
 
@@ -843,16 +823,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
     _log(f"SetAuto: locale={locale} sender={sender}")
     status, detail = _authorized(invocation, connection, locale)
     if status != "authorized":
-        if status == "denied":
-            message = tr("Authorization was denied. Nothing changed.")
-        elif status == "cancelled":
-            message = tr("Authorization was cancelled. Nothing changed.")
-        elif status == "timeout":
-            message = tr("The authorization check timed out. Nothing changed.")
-        else:
-            message = (
-                tr("Could not check authorization (%s). Nothing changed.") % detail
-            )
+        message = _authorization_message(tr, status, detail)
         _log(f"SetAuto: authorization {status}; nothing changed")
         invocation.return_value(GLib.Variant("(bsb)", (False, message, False)))
         return
@@ -877,22 +848,12 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
         # already-absent path too (as SetPrimary does for an unchanged rule).
         state = _refresh_udev()
         refresh_ok = state == REFRESH_VERIFIED
-        if refresh_ok:
-            message = tr(
-                "No managed rule (auto selection already in effect). "
-                "Udev rules reloaded."
-            )
-        elif state == REFRESH_UNSUPPORTED:
-            message = tr(
-                "No managed rule (auto selection already in effect). "
-                "The udev refresh could not be verified "
-                "(udevadm unavailable); a reboot is required."
-            )
-        else:
-            message = tr(
-                "No managed rule (auto selection already in effect). "
-                "The udev refresh failed; a reboot is required."
-            )
+        message = _refresh_message(
+            tr,
+            state,
+            leading=tr("No managed rule (auto selection already in effect)."),
+            verified_sentence=tr("Udev rules reloaded."),
+        )
         invocation.return_value(GLib.Variant("(bsb)", (True, message, refresh_ok)))
         return
     backup = _backup_rule()
@@ -927,32 +888,16 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
     _log(f"SetAuto: rule removed (backup: {backup})")
     state = _refresh_udev()
     refresh_ok = state == REFRESH_VERIFIED
-    if refresh_ok:
-        message = (
-            tr(
-                "Managed rule removed. A backup was saved to %s. "
-                "Udev rules reloaded; auto selection applies after "
-                "the next login (or after a reboot)."
-            )
-            % backup
-        )
-    elif state == REFRESH_UNSUPPORTED:
-        message = (
-            tr(
-                "Managed rule removed. A backup was saved to %s. "
-                "The udev refresh could not be verified "
-                "(udevadm unavailable); a reboot is required."
-            )
-            % backup
-        )
-    else:
-        message = (
-            tr(
-                "Managed rule removed. A backup was saved to %s. "
-                "The udev refresh failed; a reboot is required."
-            )
-            % backup
-        )
+    message = _refresh_message(
+        tr,
+        state,
+        leading=tr("Managed rule removed."),
+        backup=backup,
+        verified_sentence=tr(
+            "Udev rules reloaded; auto selection applies after the next "
+            "login (or after a reboot)."
+        ),
+    )
     invocation.return_value(GLib.Variant("(bsb)", (True, message, refresh_ok)))
 
 

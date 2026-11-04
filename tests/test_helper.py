@@ -11,6 +11,7 @@ IPC contract agreement between the app side (gpu_switcher/bus.py), the
 helper side and the INTROSPECTION_XML method signatures.
 """
 
+import gettext
 import os
 import shutil
 import subprocess
@@ -983,6 +984,189 @@ class SetAutoAlreadyAuto(unittest.TestCase):
                 False,
             ),
         )
+
+
+class RefreshMessageRussian(unittest.TestCase):
+    """Post-refresh replies are composed from catalog fragments (leading
+    sentence + optional backup sentence + shared outcome sentence, single
+    spaces). The English reply-string tests cannot catch a fragmentation
+    error, so pin the full Russian sentences against the shipped ru
+    catalog, compiled with the reference compiler (msgfmt)."""
+
+    def setUp(self):
+        self._msgfmt = shutil.which("msgfmt")
+        if self._msgfmt is None:
+            self.skipTest("msgfmt (gettext-tools) is not installed")
+
+    def _ru_gettext(self):
+        po = os.path.join(
+            os.path.dirname(h.__file__), "..", "..", "po", "gpu-switcher-ru.po"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            mo = os.path.join(tmp, "LC_MESSAGES", "gpu-switcher.mo")
+            os.makedirs(os.path.dirname(mo))
+            out = subprocess.run(
+                [self._msgfmt, "-o", mo, po],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(out.returncode, 0, out.stderr)
+            with open(mo, "rb") as f:
+                catalog = gettext.GNUTranslations(f)
+            return catalog.gettext
+
+    def test_refresh_message_composes_the_full_russian_sentences(self):
+        tr = self._ru_gettext()
+        pci = "0000:12:00.0"
+        backup = "/etc/udev/rules.d/61-mutter-primary-gpu.rules.bak.test"
+        reloaded = "udev-правила перезагружены."
+        reloaded_apply = (
+            "udev-правила перезагружены; изменение вступит в силу после "
+            "повторного входа (или после перезагрузки)."
+        )
+        reloaded_auto = (
+            "udev-правила перезагружены; автовыбор вступит в силу после "
+            "повторного входа (или после перезагрузки)."
+        )
+        unverified = (
+            "Обновление udev не удалось проверить (udevadm недоступен); "
+            "требуется перезагрузка."
+        )
+        failed = "Обновление udev не удалось; требуется перезагрузка."
+        already = tr("The rule is already set for %s.") % pci
+        written = tr("Rule written for %s.") % pci
+        no_rule = tr("No managed rule (auto selection already in effect).")
+        removed = tr("Managed rule removed.")
+        reloaded_tr = tr("Udev rules reloaded.")
+        written_reload = tr(
+            "Udev rules reloaded; the change takes effect after the next "
+            "login (or after a reboot)."
+        )
+        removed_reload = tr(
+            "Udev rules reloaded; auto selection applies after the next "
+            "login (or after a reboot)."
+        )
+        cases = [
+            (
+                already,
+                "",
+                reloaded_tr,
+                h.REFRESH_VERIFIED,
+                "Правило уже задано для %s. %s" % (pci, reloaded),
+            ),
+            (
+                already,
+                "",
+                "",
+                h.REFRESH_UNSUPPORTED,
+                "Правило уже задано для %s. %s" % (pci, unverified),
+            ),
+            (
+                already,
+                "",
+                "",
+                h.REFRESH_FAILED,
+                "Правило уже задано для %s. %s" % (pci, failed),
+            ),
+            (
+                written,
+                backup,
+                written_reload,
+                h.REFRESH_VERIFIED,
+                "Правило записано для %s. Резервная копия сохранена: %s. %s"
+                % (pci, backup, reloaded_apply),
+            ),
+            (
+                written,
+                backup,
+                "",
+                h.REFRESH_UNSUPPORTED,
+                "Правило записано для %s. Резервная копия сохранена: %s. %s"
+                % (pci, backup, unverified),
+            ),
+            (
+                written,
+                backup,
+                "",
+                h.REFRESH_FAILED,
+                "Правило записано для %s. Резервная копия сохранена: %s. %s"
+                % (pci, backup, failed),
+            ),
+            (
+                written,
+                "",
+                written_reload,
+                h.REFRESH_VERIFIED,
+                "Правило записано для %s. %s" % (pci, reloaded_apply),
+            ),
+            (
+                written,
+                "",
+                "",
+                h.REFRESH_UNSUPPORTED,
+                "Правило записано для %s. %s" % (pci, unverified),
+            ),
+            (
+                written,
+                "",
+                "",
+                h.REFRESH_FAILED,
+                "Правило записано для %s. %s" % (pci, failed),
+            ),
+            (
+                no_rule,
+                "",
+                reloaded_tr,
+                h.REFRESH_VERIFIED,
+                "Управляемого правила нет (автовыбор уже действует). " + reloaded,
+            ),
+            (
+                no_rule,
+                "",
+                "",
+                h.REFRESH_UNSUPPORTED,
+                "Управляемого правила нет (автовыбор уже действует). " + unverified,
+            ),
+            (
+                no_rule,
+                "",
+                "",
+                h.REFRESH_FAILED,
+                "Управляемого правила нет (автовыбор уже действует). " + failed,
+            ),
+            (
+                removed,
+                backup,
+                removed_reload,
+                h.REFRESH_VERIFIED,
+                "Управляемое правило удалено. Резервная копия сохранена: %s. %s"
+                % (backup, reloaded_auto),
+            ),
+            (
+                removed,
+                backup,
+                "",
+                h.REFRESH_UNSUPPORTED,
+                "Управляемое правило удалено. Резервная копия сохранена: %s. %s"
+                % (backup, unverified),
+            ),
+            (
+                removed,
+                backup,
+                "",
+                h.REFRESH_FAILED,
+                "Управляемое правило удалено. Резервная копия сохранена: %s. %s"
+                % (backup, failed),
+            ),
+        ]
+        for leading, b, verified, state, expected in cases:
+            self.assertEqual(
+                h._refresh_message(
+                    tr, state, leading=leading, backup=b, verified_sentence=verified
+                ),
+                expected,
+            )
 
 
 class BusContract(unittest.TestCase):

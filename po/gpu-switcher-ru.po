@@ -138,14 +138,38 @@ msgstr "Целевой PCI %s — не корректный дисплейный
 msgid "The managed rule is a symlink; refusing to modify it."
 msgstr "Управляемое правило — символьная ссылка; его изменение отклонено."
 
-msgid "The rule is already set for %s. Udev rules reloaded."
-msgstr "Правило уже задано для %s. udev-правила перезагружены."
+# The post-refresh replies are composed by the helper from the leading
+# sentence, the optional backup sentence and the shared outcome sentence
+# (single-space join); the fragments below are the catalog entries.
+msgid "The rule is already set for %s."
+msgstr "Правило уже задано для %s."
 
-msgid "The rule is already set for %s. The udev refresh failed; a reboot is required."
-msgstr "Правило уже задано для %s. Обновление udev не удалось; требуется перезагрузка."
+msgid "Rule written for %s."
+msgstr "Правило записано для %s."
 
-msgid "The rule is already set for %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-msgstr "Правило уже задано для %s. Обновление udev не удалось проверить (udevadm недоступен); требуется перезагрузка."
+msgid "A backup was saved to %s."
+msgstr "Резервная копия сохранена: %s."
+
+msgid "No managed rule (auto selection already in effect)."
+msgstr "Управляемого правила нет (автовыбор уже действует)."
+
+msgid "Managed rule removed."
+msgstr "Управляемое правило удалено."
+
+msgid "Udev rules reloaded."
+msgstr "udev-правила перезагружены."
+
+msgid "Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
+msgstr "udev-правила перезагружены; изменение вступит в силу после повторного входа (или после перезагрузки)."
+
+msgid "Udev rules reloaded; auto selection applies after the next login (or after a reboot)."
+msgstr "udev-правила перезагружены; автовыбор вступит в силу после повторного входа (или после перезагрузки)."
+
+msgid "The udev refresh could not be verified (udevadm unavailable); a reboot is required."
+msgstr "Обновление udev не удалось проверить (udevadm недоступен); требуется перезагрузка."
+
+msgid "The udev refresh failed; a reboot is required."
+msgstr "Обновление udev не удалось; требуется перезагрузка."
 
 msgid "udevadm verify rejected the rule; nothing changed."
 msgstr "udevadm verify отклонил правило; ничего не изменено."
@@ -156,50 +180,14 @@ msgstr "Не удалось создать резервную копию тек�
 msgid "Failed to write the managed rule; nothing changed."
 msgstr "Не удалось записать управляемое правило; ничего не изменено."
 
-msgid "Rule written for %s. A backup was saved to %s. Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
-msgstr "Правило записано для %s. Резервная копия сохранена: %s. udev-правила перезагружены; изменение вступит в силу после повторного входа (или после перезагрузки)."
-
-msgid "Rule written for %s. Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
-msgstr "Правило записано для %s. udev-правила перезагружены; изменение вступит в силу после повторного входа (или после перезагрузки)."
-
-msgid "Rule written for %s. A backup was saved to %s. The udev refresh failed; a reboot is required."
-msgstr "Правило записано для %s. Резервная копия сохранена: %s. Обновление udev не удалось; требуется перезагрузка."
-
-msgid "Rule written for %s. A backup was saved to %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-msgstr "Правило записано для %s. Резервная копия сохранена: %s. Обновление udev не удалось проверить (udevadm недоступен); требуется перезагрузка."
-
-msgid "Rule written for %s. The udev refresh failed; a reboot is required."
-msgstr "Правило записано для %s. Обновление udev не удалось; требуется перезагрузка."
-
-msgid "Rule written for %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-msgstr "Правило записано для %s. Обновление udev не удалось проверить (udevadm недоступен); требуется перезагрузка."
-
 msgid "The managed rule is a symlink; refusing to remove it."
 msgstr "Управляемое правило — символьная ссылка; его удаление отклонено."
-
-msgid "No managed rule (auto selection already in effect). Udev rules reloaded."
-msgstr "Управляемого правила нет (автовыбор уже действует). udev-правила перезагружены."
-
-msgid "No managed rule (auto selection already in effect). The udev refresh failed; a reboot is required."
-msgstr "Управляемого правила нет (автовыбор уже действует). Обновление udev не удалось; требуется перезагрузка."
-
-msgid "No managed rule (auto selection already in effect). The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-msgstr "Управляемого правила нет (автовыбор уже действует). Обновление udev не удалось проверить (udevadm недоступен); требуется перезагрузка."
 
 msgid "Backup of the existing rule failed; nothing removed."
 msgstr "Не удалось создать резервную копию текущего правила; ничего не удалено."
 
 msgid "Failed to remove the managed rule; nothing changed."
 msgstr "Не удалось удалить управляемое правило; ничего не изменено."
-
-msgid "Managed rule removed. A backup was saved to %s. Udev rules reloaded; auto selection applies after the next login (or after a reboot)."
-msgstr "Управляемое правило удалено. Резервная копия сохранена: %s. udev-правила перезагружены; автовыбор вступит в силу после повторного входа (или после перезагрузки)."
-
-msgid "Managed rule removed. A backup was saved to %s. The udev refresh failed; a reboot is required."
-msgstr "Управляемое правило удалено. Резервная копия сохранена: %s. Обновление udev не удалось; требуется перезагрузка."
-
-msgid "Managed rule removed. A backup was saved to %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-msgstr "Управляемое правило удалено. Резервная копия сохранена: %s. Обновление udev не удалось проверить (udevadm недоступен); требуется перезагрузка."
 
 msgid "Could not determine the logind session to log out."
 msgstr "Не удалось определить сессию logind для выхода."

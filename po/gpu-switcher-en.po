@@ -138,14 +138,38 @@ msgstr "Target PCI %s is not a valid display controller."
 msgid "The managed rule is a symlink; refusing to modify it."
 msgstr "The managed rule is a symlink; refusing to modify it."
 
-msgid "The rule is already set for %s. Udev rules reloaded."
-msgstr "The rule is already set for %s. Udev rules reloaded."
+# The post-refresh replies are composed by the helper from the leading
+# sentence, the optional backup sentence and the shared outcome sentence
+# (single-space join); the fragments below are the catalog entries.
+msgid "The rule is already set for %s."
+msgstr "The rule is already set for %s."
 
-msgid "The rule is already set for %s. The udev refresh failed; a reboot is required."
-msgstr "The rule is already set for %s. The udev refresh failed; a reboot is required."
+msgid "Rule written for %s."
+msgstr "Rule written for %s."
 
-msgid "The rule is already set for %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-msgstr "The rule is already set for %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
+msgid "A backup was saved to %s."
+msgstr "A backup was saved to %s."
+
+msgid "No managed rule (auto selection already in effect)."
+msgstr "No managed rule (auto selection already in effect)."
+
+msgid "Managed rule removed."
+msgstr "Managed rule removed."
+
+msgid "Udev rules reloaded."
+msgstr "Udev rules reloaded."
+
+msgid "Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
+msgstr "Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
+
+msgid "Udev rules reloaded; auto selection applies after the next login (or after a reboot)."
+msgstr "Udev rules reloaded; auto selection applies after the next login (or after a reboot)."
+
+msgid "The udev refresh could not be verified (udevadm unavailable); a reboot is required."
+msgstr "The udev refresh could not be verified (udevadm unavailable); a reboot is required."
+
+msgid "The udev refresh failed; a reboot is required."
+msgstr "The udev refresh failed; a reboot is required."
 
 msgid "udevadm verify rejected the rule; nothing changed."
 msgstr "udevadm verify rejected the rule; nothing changed."
@@ -156,50 +180,14 @@ msgstr "Backup of the existing rule failed; nothing changed."
 msgid "Failed to write the managed rule; nothing changed."
 msgstr "Failed to write the managed rule; nothing changed."
 
-msgid "Rule written for %s. A backup was saved to %s. Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
-msgstr "Rule written for %s. A backup was saved to %s. Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
-
-msgid "Rule written for %s. Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
-msgstr "Rule written for %s. Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
-
-msgid "Rule written for %s. A backup was saved to %s. The udev refresh failed; a reboot is required."
-msgstr "Rule written for %s. A backup was saved to %s. The udev refresh failed; a reboot is required."
-
-msgid "Rule written for %s. A backup was saved to %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-msgstr "Rule written for %s. A backup was saved to %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-
-msgid "Rule written for %s. The udev refresh failed; a reboot is required."
-msgstr "Rule written for %s. The udev refresh failed; a reboot is required."
-
-msgid "Rule written for %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-msgstr "Rule written for %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-
 msgid "The managed rule is a symlink; refusing to remove it."
 msgstr "The managed rule is a symlink; refusing to remove it."
-
-msgid "No managed rule (auto selection already in effect). Udev rules reloaded."
-msgstr "No managed rule (auto selection already in effect). Udev rules reloaded."
-
-msgid "No managed rule (auto selection already in effect). The udev refresh failed; a reboot is required."
-msgstr "No managed rule (auto selection already in effect). The udev refresh failed; a reboot is required."
-
-msgid "No managed rule (auto selection already in effect). The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-msgstr "No managed rule (auto selection already in effect). The udev refresh could not be verified (udevadm unavailable); a reboot is required."
 
 msgid "Backup of the existing rule failed; nothing removed."
 msgstr "Backup of the existing rule failed; nothing removed."
 
 msgid "Failed to remove the managed rule; nothing changed."
 msgstr "Failed to remove the managed rule; nothing changed."
-
-msgid "Managed rule removed. A backup was saved to %s. Udev rules reloaded; auto selection applies after the next login (or after a reboot)."
-msgstr "Managed rule removed. A backup was saved to %s. Udev rules reloaded; auto selection applies after the next login (or after a reboot)."
-
-msgid "Managed rule removed. A backup was saved to %s. The udev refresh failed; a reboot is required."
-msgstr "Managed rule removed. A backup was saved to %s. The udev refresh failed; a reboot is required."
-
-msgid "Managed rule removed. A backup was saved to %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
-msgstr "Managed rule removed. A backup was saved to %s. The udev refresh could not be verified (udevadm unavailable); a reboot is required."
 
 msgid "Could not determine the logind session to log out."
 msgstr "Could not determine the logind session to log out."
