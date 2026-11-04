@@ -28,18 +28,18 @@ from gpu_switcher import bus
 
 
 class IsValidPciFormat(unittest.TestCase):
-    def test_IsValidPciFormat_AcceptsFullPciAddress(self):
+    def test_is_valid_pci_format_accepts_full_pci_address(self):
         self.assertTrue(h.is_valid_pci_format("0000:12:00.0"))
 
-    def test_IsValidPciFormat_RejectsDomainOmittedAddress(self):
+    def test_is_valid_pci_format_rejects_domain_omitted_address(self):
         self.assertFalse(h.is_valid_pci_format("12:00.0"))
 
-    def test_IsValidPciFormat_RejectsNonHexAddress(self):
+    def test_is_valid_pci_format_rejects_non_hex_address(self):
         self.assertFalse(h.is_valid_pci_format("0000:GG:00.0"))
 
 
 class RuleText(unittest.TestCase):
-    def test_RuleText_ProducesReferenceRuleLine_ForValidPci(self):
+    def test_rule_text_produces_reference_rule_line_for_valid_pci(self):
         self.assertEqual(
             h._rule_text("0000:12:00.0", "0x1002", "0x7550"),
             "# Managed by gpu-switcher; selected PCI 0000:12:00.0\n"
@@ -54,18 +54,18 @@ class RuleText(unittest.TestCase):
 
 
 class ResolveGpu(unittest.TestCase):
-    def test_ResolveGpu_ReturnsNone_ForMalformedPci(self):
+    def test_resolve_gpu_returns_none_for_malformed_pci(self):
         self.assertIsNone(h._resolve_gpu("12:00.0"))
         self.assertIsNone(h._resolve_gpu("0000:12:00"))
         self.assertIsNone(h._resolve_gpu("not-a-pci"))
 
-    def test_ResolveGpu_ReturnsNone_WhenPciNotADisplayController(self):
+    def test_resolve_gpu_returns_none_when_pci_not_a_display_controller(self):
         with mock.patch("os.path.isdir", return_value=True), \
              mock.patch("helper.gpu_switcher_helper.read_text",
                         return_value="0x080000"):
             self.assertIsNone(h._resolve_gpu("0000:12:00.0"))
 
-    def test_ResolveGpu_Accepts3DControllerClass(self):
+    def test_resolve_gpu_accepts_3d_controller_class(self):
         with mock.patch("os.path.isdir", return_value=True), \
              mock.patch("os.path.islink", return_value=True), \
              mock.patch("os.path.realpath",
@@ -83,7 +83,7 @@ class ResolveGpu(unittest.TestCase):
 
 
 class Translator(unittest.TestCase):
-    def test_Translator_ReturnsIdentity_WhenCatalogMissing(self):
+    def test_translator_returns_identity_when_catalog_missing(self):
         with mock.patch("helper.gpu_switcher_helper.LOCALE_BASE",
                         "/nonexistent-gpu-switcher-locale"):
             tr = h._translator("ru")
@@ -96,13 +96,13 @@ class NormalizeLocale(unittest.TestCase):
     Path-shaped values would let gettext open (or block on) files outside
     LOCALE_BASE."""
 
-    def test_NormalizeLocale_KeepsSupportedLanguages(self):
+    def test_normalize_locale_keeps_supported_languages(self):
         self.assertEqual(h._normalize_locale("en"), "en")
         self.assertEqual(h._normalize_locale("ru"), "ru")
         self.assertEqual(h._normalize_locale("ru_RU.UTF-8"), "ru")
         self.assertEqual(h._normalize_locale("en_US"), "en")
 
-    def test_NormalizeLocale_FallsBackToEnglish_ForUnsupportedOrPathLike(self):
+    def test_normalize_locale_falls_back_to_english_for_unsupported_or_path_like(self):
         for locale in ("fr", "", None, "ru/ru", "..",
                        "/tmp/evil/LC_MESSAGES/gpu-switcher.mo",
                        "C:\\evil", "x" * 33):
@@ -110,7 +110,7 @@ class NormalizeLocale(unittest.TestCase):
 
 
 class TranslatorLocale(unittest.TestCase):
-    def test_Translator_PassesOnlyAllowlistedLanguages_ToGettext(self):
+    def test_translator_passes_only_allowlisted_languages_to_gettext(self):
         """Contract: only allowlisted language identifiers reach
         gettext.translation, so catalog loading cannot leave LOCALE_BASE.
         """
@@ -136,7 +136,7 @@ class LogBounded(unittest.TestCase):
         self.log_path = os.path.join(self.tmp, "helper.log")
         self.addCleanup(shutil.rmtree, self.tmp)
 
-    def test_Log_TruncatesOverlongCallerText(self):
+    def test_log_truncates_overlong_caller_text(self):
         with mock.patch.object(h, "LOG_PATH", self.log_path):
             h._log("pci=" + "a" * 5000 + " locale=x")
         with open(self.log_path, encoding="utf-8") as f:
@@ -150,7 +150,7 @@ class LogBounded(unittest.TestCase):
             + h._LOG_MAX_CHARS + len("…[truncated]"))
         self.assertTrue(lines[0].endswith("…[truncated]"))
 
-    def test_Log_FlattensNewlinesAndDropsControlCharacters(self):
+    def test_log_flattens_newlines_and_drops_control_characters(self):
         """An embedded newline must not forge a second log entry."""
         with mock.patch.object(h, "LOG_PATH", self.log_path):
             h._log("pci=x\nlocale=y\x01")
@@ -171,7 +171,7 @@ class MethodCallRateLimit(unittest.TestCase):
         self.log_path = os.path.join(self.tmp, "helper.log")
         self.addCleanup(shutil.rmtree, self.tmp)
 
-    def test_MethodCallAllowed_SuppressesBeyondLimitOncePerWindow(self):
+    def test_method_call_allowed_suppresses_beyond_limit_once_per_window(self):
         with mock.patch.object(h, "_method_call_counts", {}), \
              mock.patch.object(h, "LOG_PATH", self.log_path):
             for _ in range(h._METHOD_CALL_LIMIT):
@@ -189,7 +189,7 @@ class Authorize(unittest.TestCase):
     """polkit authorization: subject bound to the caller's bus name, a
     unique cancellation id, the result statuses, and timeout cancellation."""
 
-    def test_Authorize_BuildsSystemBusNameSubject_FromMessageSender(self):
+    def test_authorize_builds_system_bus_name_subject_from_message_sender(self):
         conn = mock.Mock()
         conn.call_sync.return_value = ((True, False, {}),)
         h._authorize(conn, ":1.42", "en")
@@ -202,7 +202,7 @@ class Authorize(unittest.TestCase):
         self.assertEqual(details, {})
         self.assertEqual(flags, 1)
 
-    def test_Authorize_PassesUniqueCancellationId_PerInvocation(self):
+    def test_authorize_passes_unique_cancellation_id_per_invocation(self):
         conn = mock.Mock()
         conn.call_sync.return_value = ((True, False, {}),)
         h._authorize(conn, "sender", "en")
@@ -213,28 +213,28 @@ class Authorize(unittest.TestCase):
         self.assertIsInstance(second_id, str)
         self.assertNotEqual(first_id, second_id)
 
-    def test_Authorize_ReturnsAuthorizedStatus_WhenPolkitSaysAuthorized(self):
+    def test_authorize_returns_authorized_status_when_polkit_says_authorized(self):
         conn = mock.Mock()
         conn.call_sync.return_value = ((True, False, {}),)
         status, detail = h._authorize(conn, "sender", "en")
         self.assertEqual(status, "authorized")
         self.assertEqual(detail, "")
 
-    def test_Authorize_ReturnsDeniedStatus_WhenPolkitSaysNotAuthorized(self):
+    def test_authorize_returns_denied_status_when_polkit_says_not_authorized(self):
         conn = mock.Mock()
         conn.call_sync.return_value = ((False, True, {}),)
         status, detail = h._authorize(conn, "sender", "en")
         self.assertEqual(status, "denied")
         self.assertEqual(detail, "")
 
-    def test_Authorize_ReturnsCancelledStatus_WhenDialogWasDismissed(self):
+    def test_authorize_returns_cancelled_status_when_dialog_was_dismissed(self):
         conn = mock.Mock()
         conn.call_sync.return_value = ((False, True, {"polkit.dismissed": "1"}),)
         status, detail = h._authorize(conn, "sender", "en")
         self.assertEqual(status, "cancelled")
         self.assertEqual(detail, "")
 
-    def test_Authorize_ReturnsErrorStatus_WhenPolkitCallFails(self):
+    def test_authorize_returns_error_status_when_polkit_call_fails(self):
         conn = mock.Mock()
         conn.call_sync.side_effect = GLib.Error.new_literal(
             GLib.quark_from_string("g-io-error-quark"), "name has no owner", 8)
@@ -244,7 +244,7 @@ class Authorize(unittest.TestCase):
         # No cancel attempt for a non-timeout failure.
         self.assertEqual(conn.call_sync.call_count, 1)
 
-    def test_Authorize_CancelsPendingCheck_WhenPolkitTimesOut(self):
+    def test_authorize_cancels_pending_check_when_polkit_times_out(self):
         def call_sync(*args):
             if args[3] == "CheckAuthorization":
                 raise GLib.Error.new_literal(
@@ -262,7 +262,7 @@ class Authorize(unittest.TestCase):
 
 
 class SetPrimaryAuthorization(unittest.TestCase):
-    def test_SetPrimary_ReturnsDistinctMessages_ForDenialVsServiceError(self):
+    def test_set_primary_returns_distinct_messages_for_denial_vs_service_error(self):
         def run(status, detail):
             invocation = mock.Mock()
             with mock.patch.object(h, "_authorized",
@@ -284,7 +284,7 @@ class SetPrimaryAuthorization(unittest.TestCase):
 
 
 class TriggerDrm(unittest.TestCase):
-    def test_TriggerDrm_PassesSettleFlag(self):
+    def test_trigger_drm_passes_settle_flag(self):
         with mock.patch("subprocess.run") as run:
             run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
             h._trigger_drm()
@@ -293,14 +293,14 @@ class TriggerDrm(unittest.TestCase):
             argv,
             ["udevadm", "trigger", "--subsystem-match=drm", "--settle"])
 
-    def test_TriggerDrm_ReturnsFalse_WhenTriggerTimesOut(self):
+    def test_trigger_drm_returns_false_when_trigger_times_out(self):
         with mock.patch("subprocess.run",
                         side_effect=subprocess.TimeoutExpired("udevadm", 30)):
             self.assertFalse(h._trigger_drm())
 
 
 class ParseUdevCurrentTags(unittest.TestCase):
-    def test_ParseUdevCurrentTags_ExtractsCurrentTagList_FromPropertyOutput(self):
+    def test_parse_udev_current_tags_extracts_current_tag_list_from_property_output(self):
         # udev prints CURRENT_TAGS colon-separated with a leading and
         # trailing colon, alongside the cumulative TAGS line.
         output = ("DEVPATH=/devices/pci/0000:12:00.0\n"
@@ -311,12 +311,12 @@ class ParseUdevCurrentTags(unittest.TestCase):
             h.parse_udev_current_tags(output),
             ["mutter-device-preferred-primary", "seat", "uaccess"])
 
-    def test_ParseUdevCurrentTags_ReturnsEmptyList_ForEmptyCurrentTagsLine(self):
+    def test_parse_udev_current_tags_returns_empty_list_for_empty_current_tags_line(self):
         self.assertEqual(
             h.parse_udev_current_tags("DEVPATH=/x\nCURRENT_TAGS=\n"), [])
         self.assertEqual(h.parse_udev_current_tags("DEVPATH=/x\n"), [])
 
-    def test_ParseUdevCurrentTags_IgnoresStaleTagInCumulativeTagsLine(self):
+    def test_parse_udev_current_tags_ignores_stale_tag_in_cumulative_tags_line(self):
         # The cumulative TAGS line still carries the tag from a previous
         # rule, but the last uevent (rule no longer matching) set none.
         output = ("DEVPATH=/x\n"
@@ -327,7 +327,7 @@ class ParseUdevCurrentTags(unittest.TestCase):
 
 
 class CardHasTag(unittest.TestCase):
-    def test_CardHasTag_ReturnsTrue_WhenMutterTagInCurrentTags(self):
+    def test_card_has_tag_returns_true_when_mutter_tag_in_current_tags(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run") as run:
             run.return_value = mock.Mock(
@@ -339,7 +339,7 @@ class CardHasTag(unittest.TestCase):
         argv = run.call_args[0][0]
         self.assertIn("--path=/sys/class/drm/card1", argv)
 
-    def test_CardHasTag_ReturnsFalse_WhenTagOnlyInStaleCumulativeTags(self):
+    def test_card_has_tag_returns_false_when_tag_only_in_stale_cumulative_tags(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run") as run:
             run.return_value = mock.Mock(
@@ -349,7 +349,7 @@ class CardHasTag(unittest.TestCase):
                        "CURRENT_TAGS=:seat:\n")
             self.assertFalse(h._card_has_tag("card1"))
 
-    def test_CardHasTag_ReturnsFalse_WhenUdevadmMissing(self):
+    def test_card_has_tag_returns_false_when_udevadm_missing(self):
         # An unverifiable tag must be treated as absent: without the tag
         # mutter will not select the primary even after a relogin.
         with mock.patch("shutil.which", return_value=None), \
@@ -362,7 +362,7 @@ class SetPrimaryRefresh(unittest.TestCase):
     """SetPrimary verifies the tag is present in the card's current udev
     tags (what mutter reads at session start) after the settled refresh."""
 
-    def test_SetPrimary_ReturnsRefreshFailed_WhenTagMissingAfterRefresh(self):
+    def test_set_primary_returns_refresh_failed_when_tag_missing_after_refresh(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp5-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
 
@@ -398,32 +398,32 @@ class VerifyRule(unittest.TestCase):
     """udevadm verify must distinguish verified / unsupported / failed:
     an error or timeout is a failure, never an implicit verification."""
 
-    def test_VerifyRule_ReturnsVerified_WhenUdevadmVerifySucceeds(self):
+    def test_verify_rule_returns_verified_when_udevadm_verify_succeeds(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run") as run:
             run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
             self.assertEqual(h._verify_rule("/tmp/rule"),
                             h.REFRESH_VERIFIED)
 
-    def test_VerifyRule_ReturnsUnsupported_WhenUdevadmMissing(self):
+    def test_verify_rule_returns_unsupported_when_udevadm_missing(self):
         with mock.patch("shutil.which", return_value=None), \
              mock.patch("subprocess.run") as run:
             self.assertEqual(h._verify_rule("/tmp/rule"),
                             h.REFRESH_UNSUPPORTED)
         run.assert_not_called()
 
-    def test_VerifyRule_ReturnsFailed_WhenUdevadmVerifyErrors(self):
+    def test_verify_rule_returns_failed_when_udevadm_verify_errors(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run", side_effect=OSError("spawn failed")):
             self.assertEqual(h._verify_rule("/tmp/rule"), h.REFRESH_FAILED)
 
-    def test_VerifyRule_ReturnsFailed_WhenUdevadmVerifyTimesOut(self):
+    def test_verify_rule_returns_failed_when_udevadm_verify_times_out(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run",
                         side_effect=subprocess.TimeoutExpired("udevadm", 30)):
             self.assertEqual(h._verify_rule("/tmp/rule"), h.REFRESH_FAILED)
 
-    def test_VerifyRule_ReturnsFailed_WhenUdevadmVerifyRejects(self):
+    def test_verify_rule_returns_failed_when_udevadm_verify_rejects(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run") as run:
             run.return_value = mock.Mock(returncode=1, stdout="", stderr="bad")
@@ -434,7 +434,7 @@ class RefreshUdev(unittest.TestCase):
     """The refresh returns the verified / unsupported / failed state,
     never a bare success it cannot stand behind."""
 
-    def test_Refresh_SkipsGracefully_WhenUdevadmMissing(self):
+    def test_refresh_skips_gracefully_when_udevadm_missing(self):
         # Missing udevadm is "unsupported": the refresh could not be
         # verified, so it must not be reported as success.
         with mock.patch("shutil.which", return_value=None), \
@@ -442,7 +442,7 @@ class RefreshUdev(unittest.TestCase):
             self.assertEqual(h._refresh_udev("card1"), h.REFRESH_UNSUPPORTED)
         run.assert_not_called()
 
-    def test_Refresh_ReturnsVerified_WhenAllStepsSucceed(self):
+    def test_refresh_returns_verified_when_all_steps_succeed(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run") as run:
             def run_side(argv, **kwargs):
@@ -454,7 +454,7 @@ class RefreshUdev(unittest.TestCase):
             run.side_effect = run_side
             self.assertEqual(h._refresh_udev("card1"), h.REFRESH_VERIFIED)
 
-    def test_Refresh_ReturnsFailed_WhenTagMissing(self):
+    def test_refresh_returns_failed_when_tag_missing(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run") as run:
             def run_side(argv, **kwargs):
@@ -465,7 +465,7 @@ class RefreshUdev(unittest.TestCase):
             run.side_effect = run_side
             self.assertEqual(h._refresh_udev("card1"), h.REFRESH_FAILED)
 
-    def test_Refresh_ReturnsFailed_WhenTagUnverifiable(self):
+    def test_refresh_returns_failed_when_tag_unverifiable(self):
         # udevadm info fails: the tag cannot be verified, so the refresh
         # must not report success.
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
@@ -478,7 +478,7 @@ class RefreshUdev(unittest.TestCase):
             run.side_effect = run_side
             self.assertEqual(h._refresh_udev("card1"), h.REFRESH_FAILED)
 
-    def test_Refresh_ReturnsFailed_WhenReloadFails(self):
+    def test_refresh_returns_failed_when_reload_fails(self):
         with mock.patch("shutil.which", return_value="/usr/bin/udevadm"), \
              mock.patch("subprocess.run") as run:
             def run_side(argv, **kwargs):
@@ -495,7 +495,7 @@ class SetPrimaryTransaction(unittest.TestCase):
 
     PCI = "0000:12:00.0"
 
-    def test_SetPrimary_ReturnsVerifyRejected_WhenUdevadmVerifyFails(self):
+    def test_set_primary_returns_verify_rejected_when_udevadm_verify_fails(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
 
@@ -525,7 +525,7 @@ class SetPrimaryTransaction(unittest.TestCase):
         self.assertFalse(os.path.exists(managed))
         shutil.rmtree(tmp)
 
-    def test_SetPrimary_ReturnsBackupFailure_WhenCopyFails(self):
+    def test_set_primary_returns_backup_failure_when_copy_fails(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
         old = 'SUBSYSTEMS=="pci", KERNELS=="0000:00:00.0"\n'
@@ -555,7 +555,7 @@ class SetPrimaryTransaction(unittest.TestCase):
             self.assertEqual(f.read(), old)
         shutil.rmtree(tmp)
 
-    def test_SetPrimary_ReturnsNothingChanged_WhenRenameFails(self):
+    def test_set_primary_returns_nothing_changed_when_rename_fails(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
         old = 'SUBSYSTEMS=="pci", KERNELS=="0000:00:00.0"\n'
@@ -586,7 +586,7 @@ class SetPrimaryTransaction(unittest.TestCase):
             self.assertEqual(f.read(), old)
         shutil.rmtree(tmp)
 
-    def test_SetPrimary_SkipsWrite_WhenRuleAlreadyCurrent(self):
+    def test_set_primary_skips_write_when_rule_already_current(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
         content = h._rule_text(self.PCI, "0x1002", "0x7550")
@@ -633,7 +633,7 @@ class SetPrimaryUnsupported(unittest.TestCase):
 
     PCI = "0000:12:00.0"
 
-    def test_SetPrimary_WritesRule_WhenUdevadmUnavailable(self):
+    def test_set_primary_writes_rule_when_udevadm_unavailable(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp12-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
 
@@ -660,7 +660,7 @@ class SetPrimaryUnsupported(unittest.TestCase):
         run.assert_not_called()
         shutil.rmtree(tmp)
 
-    def test_SetPrimary_ReportsUnsupported_WhenUdevadmUnavailable_WhenRuleAlreadyCurrent(self):
+    def test_set_primary_reports_unsupported_when_udevadm_unavailable_when_rule_already_current(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp12-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
         content = h._rule_text(self.PCI, "0x1002", "0x7550")
@@ -693,7 +693,7 @@ class SetAutoUnsupported(unittest.TestCase):
     (remove / already-absent) but reports the refresh as unsupported and
     refresh_ok False - the logout fast path is not enabled."""
 
-    def test_SetAuto_ReportsUnsupported_WhenUdevadmUnavailable_WhenRuleAlreadyAbsent(self):
+    def test_set_auto_reports_unsupported_when_udevadm_unavailable_when_rule_already_absent(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp13-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
         self.assertFalse(os.path.exists(managed))
@@ -714,7 +714,7 @@ class SetAutoUnsupported(unittest.TestCase):
         run.assert_not_called()
         shutil.rmtree(tmp)
 
-    def test_SetAuto_ReportsUnsupported_WhenUdevadmUnavailable_WhenRuleRemoved(self):
+    def test_set_auto_reports_unsupported_when_udevadm_unavailable_when_rule_removed(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp13-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
         with open(managed, "w", encoding="utf-8") as f:
@@ -741,7 +741,7 @@ class SetAutoUnsupported(unittest.TestCase):
 
 
 class SetAutoTransaction(unittest.TestCase):
-    def test_SetAuto_ReturnsNothingRemoved_WhenUnlinkFails(self):
+    def test_set_auto_returns_nothing_removed_when_unlink_fails(self):
         tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
         managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
         with open(managed, "w", encoding="utf-8") as f:
@@ -777,7 +777,7 @@ class SetAutoAlreadyAuto(unittest.TestCase):
         self.assertFalse(os.path.exists(managed))
         return managed
 
-    def test_SetAuto_RefreshesUdev_WhenRuleAlreadyAbsent(self):
+    def test_set_auto_refreshes_udev_when_rule_already_absent(self):
         managed = self._absent_rule()
         invocation = mock.Mock()
         with mock.patch.object(h, "_authorized",
@@ -797,7 +797,7 @@ class SetAutoAlreadyAuto(unittest.TestCase):
         self.assertIn(["udevadm", "trigger", "--subsystem-match=drm",
                        "--settle"], argvs)
 
-    def test_SetAuto_ReturnsRefreshFailed_WhenTriggerFails_WithAbsentRule(self):
+    def test_set_auto_returns_refresh_failed_when_trigger_fails_with_absent_rule(self):
         managed = self._absent_rule()
 
         def run(argv, **kwargs):
@@ -820,12 +820,12 @@ class SetAutoAlreadyAuto(unittest.TestCase):
 
 
 class BusContract(unittest.TestCase):
-    def test_BusContract_MatchesHelperServiceNameAndPathAndInterface(self):
+    def test_bus_contract_matches_helper_service_name_and_path_and_interface(self):
         self.assertEqual(bus.HELPER_NAME, h.SERVICE_NAME)
         self.assertEqual(bus.HELPER_PATH, h.OBJECT_PATH)
         self.assertEqual(bus.HELPER_IFACE, h.INTERFACE)
 
-    def test_BusContract_MatchesIntrospection_MethodsAndSignatures(self):
+    def test_bus_contract_matches_introspection_methods_and_signatures(self):
         """INTROSPECTION_XML must declare the signatures the app side
         (bus.py) actually sends and expects, method for method."""
 

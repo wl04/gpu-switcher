@@ -45,23 +45,23 @@ def _locale_env(**variables):
 
 
 class RequestedLanguage(unittest.TestCase):
-    def test_RequestedLanguage_PrefersLcAllOverLcMessagesAndLang(self):
+    def test_requested_language_prefers_lc_all_over_lc_messages_and_lang(self):
         with _locale_env(LC_ALL="ru_RU.UTF-8", LC_MESSAGES="de_DE.UTF-8",
                          LANG="en_US.UTF-8"):
             self.assertEqual(i18n._requested_language(), "ru_RU.UTF-8")
 
-    def test_RequestedLanguage_UsesLcMessages_WhenLcAllUnset(self):
+    def test_requested_language_uses_lc_messages_when_lc_all_unset(self):
         with _locale_env(LC_ALL=None, LC_MESSAGES="ru_RU.UTF-8",
                          LANG="en_US.UTF-8"):
             self.assertEqual(i18n._requested_language(), "ru_RU.UTF-8")
 
-    def test_RequestedLanguage_FallsBackToEnglish_WhenNoLocaleSet(self):
+    def test_requested_language_falls_back_to_english_when_no_locale_set(self):
         with _locale_env(LC_ALL=None, LC_MESSAGES=None, LANG=None):
             self.assertEqual(i18n._requested_language(), "en")
 
 
 class Localedirs(unittest.TestCase):
-    def test_Localedirs_ListsInstalledDirBeforeSourceTree(self):
+    def test_localedirs_lists_installed_dir_before_source_tree(self):
         installed = "/usr/share/gpu-switcher/locale"
         src = os.path.abspath(os.path.join(os.path.dirname(i18n.__file__),
                                            "..", "..", "data", "locale"))
@@ -87,7 +87,7 @@ class MsgfmtBuild(unittest.TestCase):
         return os.path.join(os.path.dirname(i18n.__file__), "..", "..",
                             "po", name)
 
-    def test_Msgfmt_ChecksCatalogs_AreConsistent(self):
+    def test_msgfmt_checks_catalogs_are_consistent(self):
         # One msgfmt invocation per catalog: multiple .po files would be
         # parsed as one merged catalog and every msgid would duplicate.
         # -o /dev/null: GNU msgfmt's -c still writes the default
@@ -97,7 +97,7 @@ class MsgfmtBuild(unittest.TestCase):
                                  self._po(name)], capture_output=True, text=True)
             self.assertEqual(out.returncode, 0, out.stderr)
 
-    def test_Msgfmt_BuiltCatalog_IsReadableByGettext(self):
+    def test_msgfmt_built_catalog_is_readable_by_gettext(self):
         ru_po = self._po("gpu-switcher-ru.po")
         with tempfile.TemporaryDirectory() as tmp:
             mo_path = os.path.join(tmp, "LC_MESSAGES", "gpu-switcher.mo")

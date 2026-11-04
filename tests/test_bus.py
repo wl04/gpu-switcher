@@ -25,7 +25,7 @@ from gpu_switcher import bus
 
 
 class Logout(unittest.TestCase):
-    def test_Logout_CallsSessionManagerLogout_Mode1OnSessionBus(self):
+    def test_logout_calls_session_manager_logout_mode_1_on_session_bus(self):
         conn = mock.Mock()
         with mock.patch.object(Gio, "bus_get_sync",
                               return_value=conn) as mocked:
@@ -41,7 +41,7 @@ class Logout(unittest.TestCase):
         self.assertEqual(method, "Logout")
         self.assertEqual(params.unpack(), (1,))
 
-    def test_Logout_ForwardsLocalizedError_WhenSessionBusUnavailable(self):
+    def test_logout_forwards_localized_error_when_session_bus_unavailable(self):
         results = []
         error = GLib.Error.new_literal(
             GLib.quark_from_string("g-io-error-quark"), "no session bus", 8)
@@ -59,7 +59,7 @@ class BusGuard(unittest.TestCase):
         return GLib.Error.new_literal(
             GLib.quark_from_string("g-io-error-quark"), "no system bus", 8)
 
-    def test_SetPrimary_ForwardsBusError_WhenSystemBusUnavailable(self):
+    def test_set_primary_forwards_bus_error_when_system_bus_unavailable(self):
         results = []
         with mock.patch.object(Gio, "bus_get_sync",
                               side_effect=self._bus_error()):
@@ -70,7 +70,7 @@ class BusGuard(unittest.TestCase):
                                     "no system bus.",
                                     "", False, False)])
 
-    def test_SetAuto_ForwardsBusError_WhenSystemBusUnavailable(self):
+    def test_set_auto_forwards_bus_error_when_system_bus_unavailable(self):
         results = []
         with mock.patch.object(Gio, "bus_get_sync",
                               side_effect=self._bus_error()):
@@ -80,7 +80,7 @@ class BusGuard(unittest.TestCase):
                                     "no system bus.",
                                     False, False)])
 
-    def test_Reboot_ForwardsBusError_WhenSystemBusUnavailable(self):
+    def test_reboot_forwards_bus_error_when_system_bus_unavailable(self):
         results = []
         with mock.patch.object(Gio, "bus_get_sync",
                               side_effect=self._bus_error()):

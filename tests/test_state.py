@@ -25,20 +25,20 @@ from gpu_switcher.state import (Outcome, banner_kind, is_gio_timeout,
 
 
 class OutcomeMapping(unittest.TestCase):
-    def test_Outcome_MapsTimedOutToUnknown(self):
+    def test_outcome_maps_timed_out_to_unknown(self):
         self.assertIs(outcome_from_result(True, True, True), Outcome.unknown)
         self.assertIs(outcome_from_result(False, False, True), Outcome.unknown)
 
-    def test_Outcome_MapsCallThatChangedNothing_ToIdle(self):
+    def test_outcome_maps_call_that_changed_nothing_to_idle(self):
         self.assertIs(outcome_from_result(False, False, False), Outcome.idle)
 
-    def test_Outcome_MapsSuccess_ToRefreshedOrNot(self):
+    def test_outcome_maps_success_to_refreshed_or_not(self):
         self.assertIs(outcome_from_result(True, True, False),
                       Outcome.success_refreshed)
         self.assertIs(outcome_from_result(True, False, False),
                       Outcome.success_refresh_failed)
 
-    def test_Outcome_TimeoutIsDetected_ViaGioErrorQuarkCode5(self):
+    def test_outcome_timeout_is_detected_via_gio_error_quark_code_5(self):
         quark = GLib.quark_from_string("g-io-error-quark")
         timeout = GLib.Error.new_literal(quark, "timed out", 5)
         other = GLib.Error.new_literal(quark, "name has no owner", 8)
@@ -47,24 +47,24 @@ class OutcomeMapping(unittest.TestCase):
 
 
 class LogoutSensitivity(unittest.TestCase):
-    def test_LogoutEnabled_WhenNotBusyAndSuccessRefreshed(self):
+    def test_logout_enabled_when_not_busy_and_success_refreshed(self):
         self.assertTrue(logout_enabled(False, Outcome.success_refreshed))
 
-    def test_LogoutDisabled_WhenBusy(self):
+    def test_logout_disabled_when_busy(self):
         self.assertFalse(logout_enabled(True, Outcome.success_refreshed))
 
-    def test_LogoutDisabled_WhenSuccessRefreshFailed(self):
+    def test_logout_disabled_when_success_refresh_failed(self):
         self.assertFalse(logout_enabled(False, Outcome.success_refresh_failed))
 
-    def test_LogoutDisabled_WhenOutcomeUnknown(self):
+    def test_logout_disabled_when_outcome_unknown(self):
         self.assertFalse(logout_enabled(False, Outcome.unknown))
 
-    def test_LogoutDisabled_WhenIdle(self):
+    def test_logout_disabled_when_idle(self):
         self.assertFalse(logout_enabled(False, Outcome.idle))
 
 
 class BannerRule(unittest.TestCase):
-    def test_BannerText_WarnsRebootRequired_WhenRefreshFailed(self):
+    def test_banner_text_warns_reboot_required_when_refresh_failed(self):
         # warning style: the rule is on disk, a reboot is required
         # (the helper's refresh-failed message asserts the wording in
         # test_helper.SetPrimaryRefresh).

@@ -34,25 +34,25 @@ class RuleConflicts(unittest.TestCase):
         # running as root, so the "unreadable" path is exercised reliably.
         os.symlink(os.path.join(self.root, "missing-target"), path)
 
-    def test_RuleConflicts_FindsRule_SettingMutterTag(self):
+    def test_rule_conflicts_finds_rule_setting_mutter_tag(self):
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, TAG_LINE)
         self.assertEqual(
             rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
 
-    def test_RuleConflicts_FindsRule_SettingLegacyEnvVariable(self):
+    def test_rule_conflicts_finds_rule_setting_legacy_env_variable(self):
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, ENV_LINE)
         self.assertEqual(
             rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
 
-    def test_RuleConflicts_IgnoresCommentLines(self):
+    def test_rule_conflicts_ignores_comment_lines(self):
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, f"# {MUTTER_TAG}\n# {ENV_LINE}")
         self.assertEqual(
             rule_conflicts((self.dir_a,), on_unreadable="skip"), [])
 
-    def test_RuleConflicts_SkipsManagedRuleFile(self):
+    def test_rule_conflicts_skips_managed_rule_file(self):
         managed = os.path.join(self.dir_a, "61-mutter-primary-gpu.rules")
         self._write_rule(managed, TAG_LINE)
         clean = os.path.join(self.dir_a, "10-clean.rules")
@@ -61,7 +61,7 @@ class RuleConflicts(unittest.TestCase):
             rule_conflicts((self.dir_a,), managed_rule=managed,
                            on_unreadable="skip"), [])
 
-    def test_RuleConflicts_EarlierDirectoryShadowsLaterSameBasename(self):
+    def test_rule_conflicts_earlier_directory_shadows_later_same_basename(self):
         earlier = os.path.join(self.dir_a, "50-same.rules")
         later = os.path.join(self.dir_b, "50-same.rules")
         cases = [
@@ -76,13 +76,13 @@ class RuleConflicts(unittest.TestCase):
                     rule_conflicts((self.dir_a, self.dir_b),
                                   on_unreadable="skip"), expected)
 
-    def test_RuleConflicts_SkipsUnreadableFile_InAppMode(self):
+    def test_rule_conflicts_skips_unreadable_file_in_app_mode(self):
         path = os.path.join(self.dir_a, "10-broken.rules")
         self._make_unreadable(path)
         self.assertEqual(
             rule_conflicts((self.dir_a,), on_unreadable="skip"), [])
 
-    def test_RuleConflicts_FlagsUnreadableFile_InHelperMode(self):
+    def test_rule_conflicts_flags_unreadable_file_in_helper_mode(self):
         path = os.path.join(self.dir_a, "10-broken.rules")
         self._make_unreadable(path)
         self.assertEqual(
@@ -90,14 +90,14 @@ class RuleConflicts(unittest.TestCase):
 
 
 class ReadText(unittest.TestCase):
-    def test_ReadText_ReturnsStrippedContent_WhenFileExists(self):
+    def test_read_text_returns_stripped_content_when_file_exists(self):
         with tempfile.TemporaryDirectory() as root:
             path = os.path.join(root, "file")
             with open(path, "w", encoding="utf-8") as f:
                 f.write("  line\n")
             self.assertEqual(read_text(path), "line")
 
-    def test_ReadText_ReturnsEmptyString_WhenFileMissing(self):
+    def test_read_text_returns_empty_string_when_file_missing(self):
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual(read_text(os.path.join(root, "no-such-file")),
                              "")

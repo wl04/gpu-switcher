@@ -31,22 +31,22 @@ from gpu_switcher import bus, detect
 
 
 class PrimaryCardFromLine(unittest.TestCase):
-    def test_PrimaryCardFromLine_ExtractsCard_FromRuleModeJournalLine(self):
+    def test_primary_card_from_line_extracts_card_from_rule_mode_journal_line(self):
         line = "GPU /dev/dri/card2 selected primary given udev rule"
         self.assertEqual(detect.primary_card_from_line(line), "card2")
 
-    def test_PrimaryCardFromLine_ExtractsCard_FromAutoModeJournalLine(self):
+    def test_primary_card_from_line_extracts_card_from_auto_mode_journal_line(self):
         line = "Boot VGA GPU /dev/dri/card1 selected as primary"
         self.assertEqual(detect.primary_card_from_line(line), "card1")
 
-    def test_PrimaryCardFromLine_ReturnsNone_WhenLineHasNoPrimarySelection(self):
+    def test_primary_card_from_line_returns_none_when_line_has_no_primary_selection(self):
         line = ("Added device '/dev/dri/card1' (amdgpu) "
                 "using atomic mode setting.")
         self.assertIsNone(detect.primary_card_from_line(line))
 
 
 class LastPrimaryCard(unittest.TestCase):
-    def test_LastPrimaryCard_ReturnsCard_FromLastMatchingLine(self):
+    def test_last_primary_card_returns_card_from_last_matching_line(self):
         lines = [
             "GPU /dev/dri/card1 selected primary given udev rule",
             "noise",
@@ -54,39 +54,39 @@ class LastPrimaryCard(unittest.TestCase):
         ]
         self.assertEqual(detect.last_primary_card(lines), "card2")
 
-    def test_LastPrimaryCard_ReturnsNone_WhenNoLineMatches(self):
+    def test_last_primary_card_returns_none_when_no_line_matches(self):
         lines = ["noise", "more noise"]
         self.assertIsNone(detect.last_primary_card(lines))
 
 
 class ManagedRulePciFromText(unittest.TestCase):
-    def test_ManagedRulePciFromText_ExtractsPci_FromRuleText(self):
+    def test_managed_rule_pci_from_text_extracts_pci_from_rule_text(self):
         text = ('KERNELS=="0000:12:00.0", ATTRS{vendor}=="0x1002"\n')
         self.assertEqual(
             detect.managed_rule_pci_from_text(text), "0000:12:00.0")
 
-    def test_ManagedRulePciFromText_ReturnsNone_WhenRuleTextAbsent(self):
+    def test_managed_rule_pci_from_text_returns_none_when_rule_text_absent(self):
         self.assertIsNone(detect.managed_rule_pci_from_text(""))
 
 
 class IsGnomeWayland(unittest.TestCase):
-    def test_IsGnomeWayland_ReturnsTrue_WhenWaylandSessionAndGnomeDesktop(self):
+    def test_is_gnome_wayland_returns_true_when_wayland_session_and_gnome_desktop(self):
         self.assertTrue(detect.is_gnome_wayland("wayland", "GNOME", True))
 
-    def test_IsGnomeWayland_ReturnsTrue_WhenWaylandCaseIsMixed(self):
+    def test_is_gnome_wayland_returns_true_when_wayland_case_is_mixed(self):
         self.assertTrue(detect.is_gnome_wayland("WAYLAND", "GNOME", True))
 
-    def test_IsGnomeWayland_ReturnsFalse_WhenX11Session(self):
+    def test_is_gnome_wayland_returns_false_when_x11_session(self):
         self.assertFalse(detect.is_gnome_wayland("x11", "GNOME", True))
 
-    def test_IsGnomeWayland_ReturnsFalse_WhenShellMissing(self):
+    def test_is_gnome_wayland_returns_false_when_shell_missing(self):
         # XDG_CURRENT_DESKTOP unset: gnome-shell presence is the fallback.
         self.assertFalse(detect.is_gnome_wayland("wayland", "", False))
 
-    def test_IsGnomeWayland_ReturnsFalse_ForKdeWaylandWithGnomeInstalled(self):
+    def test_is_gnome_wayland_returns_false_for_kde_wayland_with_gnome_installed(self):
         self.assertFalse(detect.is_gnome_wayland("wayland", "KDE", True))
 
-    def test_IsGnomeWayland_FallsBackToShellPresence_WhenDesktopUnset(self):
+    def test_is_gnome_wayland_falls_back_to_shell_presence_when_desktop_unset(self):
         self.assertTrue(detect.is_gnome_wayland("wayland", "", True))
 
 
@@ -106,11 +106,11 @@ class GnomeShellPidsInTree(unittest.TestCase):
             400: (1, "gnome-shell"),
         }
 
-    def test_GnomeShellPidsInTree_CollectsOnlyDescendantsOfLeader(self):
+    def test_gnome_shell_pids_in_tree_collects_only_descendants_of_leader(self):
         self.assertEqual(
             detect.gnome_shell_pids_in_tree(self._tree(), 100), [200, 300])
 
-    def test_GnomeShellPidsInTree_ReturnsAll_WhenLeaderUnknown(self):
+    def test_gnome_shell_pids_in_tree_returns_all_when_leader_unknown(self):
         self.assertEqual(
             detect.gnome_shell_pids_in_tree(self._tree(), None),
             [200, 300, 400])
@@ -134,7 +134,7 @@ class RunningPrimary(unittest.TestCase):
     def _stub(self, **kwargs):
         return mock.patch("gpu_switcher.detect.subprocess.run", **kwargs)
 
-    def test_RunningPrimary_ReturnsCard_WhenJournalHasSelectionLine(self):
+    def test_running_primary_returns_card_when_journal_has_selection_line(self):
         result = subprocess.CompletedProcess(
             args=[], returncode=0,
             stdout="noise\nGPU /dev/dri/card2 selected primary given udev rule\n",
@@ -146,7 +146,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertEqual(card, "card2")
         self.assertIsNone(error)
 
-    def test_RunningPrimary_ReturnsNoError_WhenJournalHasNoSelectionLine(self):
+    def test_running_primary_returns_no_error_when_journal_has_no_selection_line(self):
         result = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="noise\n", stderr="")
         with self._stub(return_value=result), \
@@ -156,7 +156,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertIsNone(card)
         self.assertIsNone(error)
 
-    def test_RunningPrimary_ReturnsError_WhenJournalReadFails(self):
+    def test_running_primary_returns_error_when_journal_read_fails(self):
         with self._stub(side_effect=FileNotFoundError("journalctl")), \
              mock.patch.object(detect, "_process_tree",
                               return_value=self._TREE):
@@ -164,7 +164,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertIsNone(card)
         self.assertIsNotNone(error)
 
-    def test_RunningPrimary_ReturnsError_WhenJournalExitCodeIsNonZero(self):
+    def test_running_primary_returns_error_when_journal_exit_code_is_non_zero(self):
         result = subprocess.CompletedProcess(
             args=[], returncode=1, stdout="", stderr="")
         with self._stub(return_value=result), \
@@ -174,7 +174,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertIsNone(card)
         self.assertIsNotNone(error)
 
-    def test_RunningPrimary_FiltersJournalBySessionPid(self):
+    def test_running_primary_filters_journal_by_session_pid(self):
         # Two interleaved sessions: only our leader's shell pid may
         # reach the journal, so the other session's lines never count.
         tree = {
@@ -197,7 +197,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertIn("_PID=200", argv)
         self.assertIn(detect.JOURNAL_UNIT, argv)
 
-    def test_RunningPrimary_FallsBackToSystemWideScan_WhenShellIsNotUnderLeader(self):
+    def test_running_primary_falls_back_to_system_wide_scan_when_shell_is_not_under_leader(self):
         # Current GNOME runs the session under a systemd user manager:
         # gnome-shell is a descendant of the manager, not of the logind
         # session leader (the greeter worker), so the scoped scan is
@@ -221,7 +221,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertIn("_PID=300", argv)
         self.assertIn(detect.JOURNAL_UNIT, argv)
 
-    def test_RunningPrimary_StillUnknown_WhenFallbackFindsMultipleShells(self):
+    def test_running_primary_still_unknown_when_fallback_finds_multiple_shells(self):
         # The scoped scan is empty, but the system-wide fallback finds
         # two shells (two concurrent sessions): the attribution is
         # ambiguous, so the result stays unknown and the journal is
@@ -240,7 +240,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertIsNone(error)
         run.assert_not_called()
 
-    def test_RunningPrimary_ReturnsUnknown_WhenMultipleShellPidsInScope(self):
+    def test_running_primary_returns_unknown_when_multiple_shell_pids_in_scope(self):
         tree = {
             1: (0, "systemd"),
             100: (1, "gnome-session"),
@@ -254,7 +254,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertIsNone(error)
         run.assert_not_called()
 
-    def test_RunningPrimary_ReturnsUnknown_WhenNoShellPidsInScope(self):
+    def test_running_primary_returns_unknown_when_no_shell_pids_in_scope(self):
         tree = {1: (0, "systemd"), 100: (1, "gnome-session")}
         with mock.patch.object(detect, "_process_tree", return_value=tree), \
              self._stub() as run:
@@ -291,21 +291,21 @@ class DetectClassFilter(unittest.TestCase):
                         return_value=True):
             return detect.detect()
 
-    def test_Detect_AcceptsVgaCompatibleClass(self):
+    def test_detect_accepts_vga_compatible_class(self):
         result = self._run_detect("0x030000")
         self.assertEqual([g.pci for g in result.gpus], ["0000:12:00.0"])
 
-    def test_Detect_Accepts3DControllerClass(self):
+    def test_detect_accepts_3d_controller_class(self):
         result = self._run_detect("0x030200")
         self.assertEqual([g.pci for g in result.gpus], ["0000:12:00.0"])
 
-    def test_Detect_SkipsPciClass_OutsideDisplayControllers(self):
+    def test_detect_skips_pci_class_outside_display_controllers(self):
         result = self._run_detect("0x080000")  # system peripheral
         self.assertEqual(result.gpus, [])
 
 
 class SessionLeader(unittest.TestCase):
-    def test_SessionLeader_ReturnsLeaderPid_FromLogind(self):
+    def test_session_leader_returns_leader_pid_from_logind(self):
         conn = mock.Mock()
 
         def call_sync(dest, path, iface, method, params, rtype,
