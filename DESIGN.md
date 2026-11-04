@@ -188,10 +188,12 @@ gpu-switcher/
 │   │   └── i18n.py                    # gettext setup
 │   └── helper/gpu_switcher_helper.py  # root D-Bus service + raw-D-Bus polkit
 ├── tests/                             # unit tests (stdlib unittest)
+│   ├── test_bus.py
 │   ├── test_detect.py
 │   ├── test_udev_rules.py
 │   ├── test_helper.py
 │   ├── test_selection.py
+│   ├── test_state.py
 │   └── test_i18n.py
 ├── tools/
 │   ├── build-deb.sh                   # .deb builder (plain dpkg-deb)
