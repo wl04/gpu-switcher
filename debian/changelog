@@ -1,3 +1,15 @@
+gpu-switcher (0.1.0-25) unstable; urgency=low
+
+  * Security: the caller's locale is mapped to the en/ru allowlist before catalog loading, so a caller-controlled locale can no longer hang the root helper.
+  * Security: the helper's diagnostic log is bounded (2000-char lines, flattened), rotated (1 MiB, one slot), and rate-limited (20 calls/60 s per sender and method).
+  * 3D-controller-class GPUs (PCI 0x030200) are now detected as valid display primaries, in the UI and in the helper.
+  * Reset now refreshes udev when the managed rule is already absent, so a previously failed refresh can be retried.
+  * When the configured GPU is not currently detected, the app shows a distinct "Configured GPU (not currently detected)" state instead of "auto"; Apply on that state is a guarded no-op pointing at "Reset to auto".
+  * The polkit policy is fixed (a single <defaults> block, as the DTD requires) and is validated during every build.
+  * Udev verification now distinguishes verified / unsupported / failed: an error, timeout, or missing udevadm is no longer reported as success and never enables the fast-path logout.
+
+ -- wl04 <wl04@users.noreply.github.com>  Wed, 04 Nov 2026 20:36:23 +0100
+
 gpu-switcher (0.1.0-24) unstable; urgency=low
 
   * "Log out" now ends the session via the GNOME SessionManager.
