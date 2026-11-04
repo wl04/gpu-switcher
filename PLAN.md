@@ -224,3 +224,18 @@ gpu-switcher/
   `dpkg -r` — they are the user's primary-GPU choice, not package data.
 - Quality gates: `lintian` clean on the built `.deb`, `dpkg-deb --info` /
   `--contents` sanity, install/remove tested (see README).
+
+## Versioning
+
+- The `.deb` version is `<upstream>-<revision>` (e.g. `0.1.0-26`):
+  `<upstream>` is the semver-style app version, `<revision>` counts
+  public releases. The top entry of `debian/changelog` is the single
+  source of truth (per Debian policy, `debian/control` has no `Version:`).
+- **Revision `-NN`**: bumped by every public release.
+- **Patch (`0.1.0 → 0.1.1`)**: bug fixes, hardening, and maintenance
+  only — no new user-facing features, no breaking changes.
+- **Minor (`0.1.x → 0.2.0`)**: new user-facing features (the roadmap
+  items).
+- **Major / `1.0.0`**: a stable release; breaking contract changes.
+- When the upstream component changes, the Debian revision restarts
+  from 1 (e.g. `0.1.1-1`, not `0.1.1-27`).
