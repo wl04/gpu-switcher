@@ -113,13 +113,19 @@ available.
 ### Detection (unprivileged, app side)
 
 1. **Enumerate**: `/sys/class/drm/card*` → `device` symlink → PCI address;
-   keep only class `0x030000` with a bound driver.
+   keep only display-controller classes (`0x030000` VGA, `0x030200` 3D
+   controller) with a bound driver.
 2. **Name**: `lspci -nn`; fallback: built-in vendor:device table; last
    resort: `PCI v<vendor> d<device>`.
-3. **Running primary**: latest `journalctl -b -q /usr/bin/gnome-shell` line
-   matching `GPU /dev/dri/cardN selected (as )?primary` — mutter logs
-   `GPU /dev/dri/cardN selected primary given udev rule` in rule mode and
-   `Boot VGA GPU /dev/dri/cardN selected as primary` in auto mode.
+3. **Running primary**: latest `journalctl -b -q _PID=<pid>
+   /usr/bin/gnome-shell` line matching `GPU /dev/dri/cardN selected (as
+   )?primary` — mutter logs `GPU /dev/dri/cardN selected primary given udev
+   rule` in rule mode and `Boot VGA GPU /dev/dri/cardN selected as primary`
+   in auto mode. The pid is scoped to a descendant of the logind session
+   leader; when that scan is empty (current GNOME runs the shell under a
+   systemd user manager, not under the leader), the single system-wide
+   gnome-shell pid is the fallback. Zero or multiple in-scope pids leave
+   the running primary unknown.
 4. **Configured preference**: the managed rule's `KERNELS` + each card's udev
    `TAGS`, plus the conflict scan.
 5. **Session guard**: if the session is not GNOME/Wayland

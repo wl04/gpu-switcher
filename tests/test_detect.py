@@ -119,8 +119,10 @@ class GnomeShellPidsInTree(unittest.TestCase):
 class RunningPrimary(unittest.TestCase):
     """A failed journal read must be reported as an error, not masked as
     "no selection line". The journal is scoped to the single in-scope
-    gnome-shell pid (a descendant of the session leader, or the single
-    system-wide shell when the leader is unknown)."""
+    gnome-shell pid: a descendant of the session leader, falling back to
+    the single system-wide shell when that scan is empty (current GNOME
+    runs the shell under a systemd user manager, not under the leader),
+    or system-wide when the leader is unknown."""
 
     # One session: leader 100 -> shell 200.
     _TREE = {
@@ -194,6 +196,49 @@ class RunningPrimary(unittest.TestCase):
         argv = run.call_args[0][0]
         self.assertIn("_PID=200", argv)
         self.assertIn(detect.JOURNAL_UNIT, argv)
+
+    def test_RunningPrimary_FallsBackToSystemWideScan_WhenShellIsNotUnderLeader(self):
+        # Current GNOME runs the session under a systemd user manager:
+        # gnome-shell is a descendant of the manager, not of the logind
+        # session leader (the greeter worker), so the scoped scan is
+        # empty and the fallback must find the single system-wide shell.
+        tree = {
+            1: (0, "systemd"),
+            100: (1, "gdm-session-worker"),
+            200: (1, "systemd"),
+            300: (200, "gnome-shell"),
+        }
+        with mock.patch.object(detect, "_process_tree", return_value=tree), \
+             self._stub() as run:
+            run.return_value = mock.Mock(
+                returncode=0, stderr="",
+                stdout="GPU /dev/dri/card2 selected primary "
+                       "given udev rule\n")
+            card, error = detect.running_primary(100)
+        self.assertEqual(card, "card2")
+        self.assertIsNone(error)
+        argv = run.call_args[0][0]
+        self.assertIn("_PID=300", argv)
+        self.assertIn(detect.JOURNAL_UNIT, argv)
+
+    def test_RunningPrimary_StillUnknown_WhenFallbackFindsMultipleShells(self):
+        # The scoped scan is empty, but the system-wide fallback finds
+        # two shells (two concurrent sessions): the attribution is
+        # ambiguous, so the result stays unknown and the journal is
+        # never queried.
+        tree = {
+            1: (0, "systemd"),
+            100: (1, "gdm-session-worker"),
+            200: (1, "systemd"),
+            300: (200, "gnome-shell"),
+            400: (200, "gnome-shell"),
+        }
+        with mock.patch.object(detect, "_process_tree", return_value=tree), \
+             self._stub() as run:
+            card, error = detect.running_primary(100)
+        self.assertIsNone(card)
+        self.assertIsNone(error)
+        run.assert_not_called()
 
     def test_RunningPrimary_ReturnsUnknown_WhenMultipleShellPidsInScope(self):
         tree = {

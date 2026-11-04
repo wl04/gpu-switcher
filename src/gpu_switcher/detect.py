@@ -175,11 +175,17 @@ def running_primary(leader_pid=None) -> tuple[str | None, str | None]:
 
     The journal is scoped to a single gnome-shell pid: a descendant of
     our session leader when it is known (leader_pid), else the single
-    gnome-shell pid system-wide. With zero or multiple in-scope pids the
-    attribution is ambiguous and (None, None) is returned — the existing
-    "unknown" note covers it in the UI.
+    gnome-shell pid system-wide. Current GNOME runs the session under a
+    systemd user manager, so the shell is not a descendant of the logind
+    session leader: when the scoped scan is empty, the system-wide scan
+    is the fallback. With zero or multiple in-scope pids the attribution
+    is ambiguous and (None, None) is returned — the existing "unknown"
+    note covers it in the UI.
     """
-    pids = gnome_shell_pids_in_tree(_process_tree(), leader_pid)
+    tree = _process_tree()
+    pids = gnome_shell_pids_in_tree(tree, leader_pid)
+    if not pids and leader_pid is not None:
+        pids = gnome_shell_pids_in_tree(tree, None)
     if len(pids) != 1:
         return None, None
     pid = pids[0]
