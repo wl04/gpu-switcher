@@ -103,21 +103,34 @@ class MsgfmtBuild(unittest.TestCase):
             self.assertEqual(out.returncode, 0, out.stderr)
 
     def test_msgfmt_built_catalog_is_readable_by_gettext(self):
-        ru_po = self._po("gpu-switcher-ru.po")
-        with tempfile.TemporaryDirectory() as tmp:
-            mo_path = os.path.join(tmp, "LC_MESSAGES", "gpu-switcher.mo")
-            os.makedirs(os.path.dirname(mo_path))
-            out = subprocess.run(
-                [self._msgfmt, "-o", mo_path, ru_po],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(out.returncode, 0, out.stderr)
-            with open(mo_path, "rb") as f:
-                catalog = gettext.GNUTranslations(f)
-            self.assertEqual(catalog.gettext("In use now"), "Используется сейчас")
-            self.assertEqual(catalog.gettext("Log out"), "Выйти")
+        # Language-agnostic probe (EN is the primary language): every
+        # shipped catalog must be built by msgfmt and readable by
+        # CPython's gettext. The en catalog is the identity catalog, so
+        # the probe msgid must come back unchanged; the ru catalog must
+        # translate it (gettext falls back to the msgid when a
+        # translation is missing, so a fallback is a failure here). No
+        # language-specific text is pinned.
+        for name, must_translate in (
+            ("gpu-switcher-en.po", False),
+            ("gpu-switcher-ru.po", True),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                mo_path = os.path.join(tmp, "LC_MESSAGES", "gpu-switcher.mo")
+                os.makedirs(os.path.dirname(mo_path))
+                out = subprocess.run(
+                    [self._msgfmt, "-o", mo_path, self._po(name)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(out.returncode, 0, out.stderr)
+                with open(mo_path, "rb") as f:
+                    catalog = gettext.GNUTranslations(f)
+                value = catalog.gettext("In use now")
+                if must_translate:
+                    self.assertNotEqual(value, "In use now")
+                else:
+                    self.assertEqual(value, "In use now")
 
 
 if __name__ == "__main__":
