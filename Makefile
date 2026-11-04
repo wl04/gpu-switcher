@@ -1,4 +1,4 @@
-# Build & install helpers for gpu-switcher (see PLAN.md).
+# Build & install helpers for gpu-switcher (see DESIGN.md).
 SHELL := /bin/bash
 
 # Run the unit tests (stdlib unittest; tests live in tests/).

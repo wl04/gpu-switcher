@@ -97,7 +97,7 @@ Remove the rule manually if you no longer need it.
 - gettext catalogs (`po/`) compile with `msgfmt` (build-time `gettext`
   dependency).
 - Design notes (architecture, polkit, detection, packaging):
-  [PLAN.md](PLAN.md).
+  [DESIGN.md](DESIGN.md).
 
 ### Checks
 

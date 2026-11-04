@@ -200,7 +200,7 @@ gpu-switcher/
 │                                      #   GitHub release
 ├── docs/screenshot.png
 ├── Makefile
-├── PLAN.md                           # this file
+├── DESIGN.md                       # this file
 ├── README.md
 └── LICENSE
 ```
