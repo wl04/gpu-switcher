@@ -5,6 +5,18 @@ SHELL := /bin/bash
 test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v
 
+# Lint and check formatting (ruff; config in pyproject.toml).
+lint:
+	ruff check src tests
+	ruff format --check src tests
+
+# Type-check (mypy; config in pyproject.toml). main.py is a private GTK UI
+# and is intentionally not type-checked: --exclude drops it from the file
+# list, and --follow-imports=silent silences the copy still pulled in via
+# gpu_switcher/__init__.py's `from .main import ...`.
+typecheck:
+	mypy --exclude 'src/gpu_switcher/main.py' --follow-imports=silent
+
 # Compile the gettext catalogs in the source tree (used by dev runs).
 locale:
 	mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
@@ -22,4 +34,4 @@ install: package
 uninstall:
 	sudo dpkg -r gpu-switcher
 
-.PHONY: test locale package install uninstall
+.PHONY: test lint typecheck locale package install uninstall

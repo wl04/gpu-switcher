@@ -103,6 +103,10 @@ Remove the rule manually if you no longer need it.
 
 - `make test` — unit tests. Plain stdlib `unittest` (no test-framework
   dependencies); test names follow `Operation_Behavior_Context`.
+- `make lint` — ruff lint and format check (dev tools, not package
+  dependencies; install once, e.g. `uv tool install ruff mypy`).
+- `make typecheck` — mypy type check; the private GTK UI (`main.py`) is
+  intentionally not type-checked.
 - `make locale` — compile the gettext catalogs into the source tree.
 - `make package` — build the `.deb`.
 - End-to-end verification (no CI; on a real GNOME/Wayland machine): run
