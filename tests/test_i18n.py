@@ -1,9 +1,11 @@
 """Unit tests for the gettext setup in i18n.py.
 
 Pins the locale variable precedence (LC_ALL > LC_MESSAGES > LANG > en),
-the catalog search order (installed location before the source tree), and
-the reference-compiler guards: catalog consistency (`msgfmt -c`) and
-readability of a msgfmt-built catalog by CPython's gettext.
+the catalog search order (installed location before the source tree),
+catalog completeness (every msgid has a translation in every shipped
+locale), and the reference-compiler guards: catalog consistency
+(`msgfmt -c`) and readability of a msgfmt-built catalog by CPython's
+gettext.
 """
 
 import gettext
@@ -75,6 +77,61 @@ class Localedirs(unittest.TestCase):
             self.assertEqual(len(dirs), 1)
 
 
+def _po(name: str) -> str:
+    return os.path.join(os.path.dirname(i18n.__file__), "..", "..", "po", name)
+
+
+def _unquote(value: str) -> str:
+    """Strip the surrounding quotes of a .po string fragment."""
+    value = value.strip()
+    if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+        return value[1:-1].replace('\\"', '"')
+    return value
+
+
+def _po_entries(path: str):
+    """Parse a flat .po file into (msgid, msgstr, fuzzy) entries.
+
+    Minimal parser for the flat catalogs shipped here: quoted values may
+    continue over multiple lines, `#, fuzzy` marks the following entry,
+    and the header (empty msgid) is skipped.
+    """
+    entries = []
+    msgid = ""
+    msgstr = ""
+    fuzzy = False
+    pending_fuzzy = False
+    mode = None
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.rstrip("\n")
+            if line.startswith("#"):
+                if "fuzzy" in line:
+                    pending_fuzzy = True
+                continue
+            if line.startswith("msgid "):
+                if msgid:
+                    entries.append((msgid, msgstr, fuzzy))
+                msgid = _unquote(line[len("msgid ") :])
+                msgstr = ""
+                fuzzy = pending_fuzzy
+                pending_fuzzy = False
+                mode = "id"
+            elif line.startswith("msgstr "):
+                msgstr = _unquote(line[len("msgstr ") :])
+                mode = "str"
+            elif line.startswith('"') and mode is not None:
+                fragment = _unquote(line)
+                if mode == "id":
+                    msgid += fragment
+                else:
+                    msgstr += fragment
+            # Unknown directives (e.g. msgctxt) are ignored.
+    if msgid:
+        entries.append((msgid, msgstr, fuzzy))
+    return entries
+
+
 class MsgfmtBuild(unittest.TestCase):
     """Catalog build guard: the tracked catalogs must pass the reference
     compiler's consistency check, and a msgfmt-built catalog must be
@@ -85,9 +142,6 @@ class MsgfmtBuild(unittest.TestCase):
         if self._msgfmt is None:
             self.skipTest("msgfmt (gettext-tools) is not installed")
 
-    def _po(self, name: str) -> str:
-        return os.path.join(os.path.dirname(i18n.__file__), "..", "..", "po", name)
-
     def test_msgfmt_checks_catalogs_are_consistent(self):
         # One msgfmt invocation per catalog: multiple .po files would be
         # parsed as one merged catalog and every msgid would duplicate.
@@ -95,7 +149,7 @@ class MsgfmtBuild(unittest.TestCase):
         # messages.mo to the CWD without an explicit output file.
         for name in ("gpu-switcher-en.po", "gpu-switcher-ru.po"):
             out = subprocess.run(
-                [self._msgfmt, "-c", "-o", "/dev/null", self._po(name)],
+                [self._msgfmt, "-c", "-o", "/dev/null", _po(name)],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -118,7 +172,7 @@ class MsgfmtBuild(unittest.TestCase):
                 mo_path = os.path.join(tmp, "LC_MESSAGES", "gpu-switcher.mo")
                 os.makedirs(os.path.dirname(mo_path))
                 out = subprocess.run(
-                    [self._msgfmt, "-o", mo_path, self._po(name)],
+                    [self._msgfmt, "-o", mo_path, _po(name)],
                     capture_output=True,
                     text=True,
                     check=False,
@@ -131,6 +185,21 @@ class MsgfmtBuild(unittest.TestCase):
                     self.assertNotEqual(value, "In use now")
                 else:
                     self.assertEqual(value, "In use now")
+
+
+class CatalogCompleteness(unittest.TestCase):
+    """Language-agnostic completeness guard: every msgid in every shipped
+    catalog must carry a non-empty, non-fuzzy translation, so gettext
+    can never silently fall back to the English msgid in a shipped
+    locale. No translated text is pinned."""
+
+    def test_every_string_has_a_translation_in_each_catalog(self):
+        for name in ("gpu-switcher-en.po", "gpu-switcher-ru.po"):
+            for msgid, msgstr, fuzzy in _po_entries(_po(name)):
+                self.assertFalse(fuzzy, f"{name}: fuzzy entry: {msgid!r}")
+                self.assertNotEqual(
+                    msgstr, "", f"{name}: missing translation: {msgid!r}"
+                )
 
 
 if __name__ == "__main__":
