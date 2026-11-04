@@ -141,7 +141,7 @@ fi
   echo '```'
   echo
   echo "apt resolves any missing dependencies from the repository; offline, with"
-  echo "all dependencies present, `sudo dpkg -i` also works."
+  echo "all dependencies present, \`sudo dpkg -i\` also works."
   echo
   echo "Upgrading from an older version: stop a still-running helper first —"
   echo '`sudo pkill -f gpu_switcher_helper`.'
