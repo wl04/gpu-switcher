@@ -1,3 +1,12 @@
+gpu-switcher (0.1.1-1) unstable; urgency=low
+
+  * Fix: the helper no longer crashes (NameError) when its rate-limit cleanup removes expired per-caller entries.
+  * The helper's reply messages are now composed from shared building blocks; the wording is unchanged in every shipped language.
+  * ruff (lint and format) and mypy (type check) are wired into the local checks (make lint, make typecheck); public contracts are type-annotated.
+  * Test suite: snake_case method names, language-agnostic (English primary), and a catalog-completeness guard (no empty or fuzzy translations in any shipped locale).
+
+ -- wl04 <wl04@users.noreply.github.com>  Thu, 05 Nov 2026 00:20:54 +0100
+
 gpu-switcher (0.1.0-26) unstable; urgency=low
 
   * Detection: the running primary is no longer reported as unknown when gnome-shell is not a descendant of the logind session leader (current GNOME runs the session under a systemd user manager); the journal lookup now falls back to the single system-wide gnome-shell pid.
