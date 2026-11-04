@@ -188,7 +188,7 @@ def _method_call_allowed(sender, method):
         _method_call_counts[key] = entry
         for stale in [k for k, e in _method_call_counts.items()
                       if now - e[1] > _METHOD_CALL_WINDOW_S * 2]:
-            del _method_call_counts[k]
+            del _method_call_counts[stale]
     if entry[0] >= _METHOD_CALL_LIMIT:
         if not entry[2]:
             _log("rate limit: suppressing further %s call logs from %s "

@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -183,6 +184,16 @@ class MethodCallRateLimit(unittest.TestCase):
         with open(self.log_path, encoding="utf-8") as f:
             content = f.read()
         self.assertEqual(content.count("rate limit"), 1)
+
+    def test_method_call_allowed_cleans_stale_entries_on_fresh_call(self):
+        now = time.monotonic()
+        stale = (":stale", "Status")
+        counts = {stale: [5, now - 3 * h._METHOD_CALL_WINDOW_S, False]}
+        with mock.patch.object(h, "_method_call_counts", counts), \
+             mock.patch.object(h, "LOG_PATH", self.log_path):
+            self.assertTrue(h._method_call_allowed(":1.1", "Status"))
+        self.assertNotIn(stale, counts)
+        self.assertIn((":1.1", "Status"), counts)
 
 
 class Authorize(unittest.TestCase):
