@@ -11,6 +11,7 @@ known, else the single gnome-shell pid system-wide. Without exactly one
 in-scope pid, the attribution is ambiguous and the running primary is
 unknown.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -19,8 +20,7 @@ import re
 import shutil
 import subprocess
 
-from udev_rules import (DISPLAY_PCI_CLASSES, MANAGED_RULE, read_text,
-                        rule_conflicts)
+from udev_rules import DISPLAY_PCI_CLASSES, MANAGED_RULE, read_text, rule_conflicts
 
 JOURNAL_UNIT = "/usr/bin/gnome-shell"
 
@@ -33,14 +33,14 @@ _KNOWN_GPUS = {
 
 @dataclasses.dataclass
 class Gpu:
-    card: str       # "card2"
-    node: str       # "/dev/dri/card2"
-    pci: str        # "0000:12:00.0"
-    vendor: str     # "1002"
-    device: str     # "13c0"
-    name: str       # human-readable name (lspci or fallback)
-    in_use: bool    # running primary of this boot (journal)
-    preferred: bool # configured preferred (managed rule on disk)
+    card: str  # "card2"
+    node: str  # "/dev/dri/card2"
+    pci: str  # "0000:12:00.0"
+    vendor: str  # "1002"
+    device: str  # "13c0"
+    name: str  # human-readable name (lspci or fallback)
+    in_use: bool  # running primary of this boot (journal)
+    preferred: bool  # configured preferred (managed rule on disk)
 
 
 @dataclasses.dataclass
@@ -49,12 +49,13 @@ class Detection:
     running_card: str | None  # card picked by gnome-shell this boot
     running_card_error: str | None  # set when the journal could not be read
     preferred_pci: str | None  # PCI from the managed rule on disk
-    conflicts: list[str]       # other udev rules setting the tag
+    conflicts: list[str]  # other udev rules setting the tag
     gnome_wayland: bool
 
 
 _LSPCI_LINE_RE = re.compile(
-    r"^\s*([0-9a-f]{4}:)?([0-9a-f]{2}:[0-9a-f]{2}\.[0-9])\s+.*?\]:\s+(.*)$")
+    r"^\s*([0-9a-f]{4}:)?([0-9a-f]{2}:[0-9a-f]{2}\.[0-9])\s+.*?\]:\s+(.*)$"
+)
 
 
 def parse_lspci_names(output: str) -> dict:
@@ -81,8 +82,9 @@ def lspci_names() -> dict:
     """Map PCI address -> display name via `lspci -nn`; {} when lspci is
     missing or fails (names then fall back to vendor:device)."""
     try:
-        out = subprocess.run(["lspci", "-nn"], capture_output=True, text=True,
-                             timeout=10)
+        out = subprocess.run(
+            ["lspci", "-nn"], capture_output=True, text=True, check=False, timeout=10
+        )
     except (OSError, subprocess.SubprocessError):
         return {}
     if out.returncode != 0:
@@ -190,9 +192,13 @@ def running_primary(leader_pid=None) -> tuple[str | None, str | None]:
         return None, None
     pid = pids[0]
     try:
-        out = subprocess.run(["journalctl", "-b", "-q", f"_PID={pid}",
-                              JOURNAL_UNIT],
-                             capture_output=True, text=True, timeout=15)
+        out = subprocess.run(
+            ["journalctl", "-b", "-q", f"_PID={pid}", JOURNAL_UNIT],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
     except (OSError, subprocess.SubprocessError) as error:
         return None, f"journalctl could not be run ({error})"
     if out.returncode != 0:
@@ -211,8 +217,9 @@ def managed_rule_pci() -> str | None:
     return managed_rule_pci_from_text(read_text(MANAGED_RULE))
 
 
-def is_gnome_wayland(session_type: str, xdg_current_desktop: str,
-                     gnome_shell_present: bool) -> bool:
+def is_gnome_wayland(
+    session_type: str, xdg_current_desktop: str, gnome_shell_present: bool
+) -> bool:
     """True when the session is Wayland and the desktop is GNOME.
 
     The desktop is XDG_CURRENT_DESKTOP normalized (last colon-separated
@@ -233,7 +240,8 @@ def gnome_wayland_session() -> bool:
     return is_gnome_wayland(
         os.environ.get("XDG_SESSION_TYPE", ""),
         os.environ.get("XDG_CURRENT_DESKTOP", ""),
-        shutil.which("gnome-shell") is not None)
+        shutil.which("gnome-shell") is not None,
+    )
 
 
 def detect(leader_pid=None) -> Detection:
@@ -254,31 +262,38 @@ def detect(leader_pid=None) -> Detection:
             continue
         pci = os.path.basename(os.path.realpath(f"/sys/class/drm/{entry}/device"))
         pdir = f"/sys/bus/pci/devices/{pci}"
-        if not os.path.isdir(pdir) or \
-                read_text(f"{pdir}/class") not in DISPLAY_PCI_CLASSES:
+        if (
+            not os.path.isdir(pdir)
+            or read_text(f"{pdir}/class") not in DISPLAY_PCI_CLASSES
+        ):
             continue
         node = f"/dev/dri/{entry}"
         if not os.path.exists(node):
             continue
         vendor = read_text(f"{pdir}/vendor").removeprefix("0x").lower()
         device = read_text(f"{pdir}/device").removeprefix("0x").lower()
-        gpus.append(Gpu(
-            card=entry,
-            node=node,
-            pci=pci,
-            vendor=vendor,
-            device=device,
-            name=names.get(pci) or fallback_name(vendor, device),
-            in_use=False,
-            preferred=False,
-        ))
+        gpus.append(
+            Gpu(
+                card=entry,
+                node=node,
+                pci=pci,
+                vendor=vendor,
+                device=device,
+                name=names.get(pci) or fallback_name(vendor, device),
+                in_use=False,
+                preferred=False,
+            )
+        )
     running_card, running_card_error = running_primary(leader_pid)
     preferred = managed_rule_pci()
     for g in gpus:
         g.in_use = g.card == running_card
         g.preferred = g.pci == preferred
-    return Detection(gpus=gpus, running_card=running_card,
-                     running_card_error=running_card_error,
-                     preferred_pci=preferred,
-                     conflicts=rule_conflicts(on_unreadable="skip"),
-                     gnome_wayland=gnome_wayland_session())
+    return Detection(
+        gpus=gpus,
+        running_card=running_card,
+        running_card_error=running_card_error,
+        preferred_pci=preferred,
+        conflicts=rule_conflicts(on_unreadable="skip"),
+        gnome_wayland=gnome_wayland_session(),
+    )

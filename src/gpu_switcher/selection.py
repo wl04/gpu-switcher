@@ -8,6 +8,7 @@ auto); and auto only when no rule pins a GPU. Two named entry points share
 the one rule - the initial UI build and the revert after a cancelled or
 failed action - so each call site documents why it selects.
 """
+
 from __future__ import annotations
 
 from . import detect

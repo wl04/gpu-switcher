@@ -5,6 +5,7 @@ the catalog search order (installed location before the source tree), and
 the reference-compiler guards: catalog consistency (`msgfmt -c`) and
 readability of a msgfmt-built catalog by CPython's gettext.
 """
+
 import gettext
 import os
 import shutil
@@ -46,13 +47,13 @@ def _locale_env(**variables):
 
 class RequestedLanguage(unittest.TestCase):
     def test_requested_language_prefers_lc_all_over_lc_messages_and_lang(self):
-        with _locale_env(LC_ALL="ru_RU.UTF-8", LC_MESSAGES="de_DE.UTF-8",
-                         LANG="en_US.UTF-8"):
+        with _locale_env(
+            LC_ALL="ru_RU.UTF-8", LC_MESSAGES="de_DE.UTF-8", LANG="en_US.UTF-8"
+        ):
             self.assertEqual(i18n._requested_language(), "ru_RU.UTF-8")
 
     def test_requested_language_uses_lc_messages_when_lc_all_unset(self):
-        with _locale_env(LC_ALL=None, LC_MESSAGES="ru_RU.UTF-8",
-                         LANG="en_US.UTF-8"):
+        with _locale_env(LC_ALL=None, LC_MESSAGES="ru_RU.UTF-8", LANG="en_US.UTF-8"):
             self.assertEqual(i18n._requested_language(), "ru_RU.UTF-8")
 
     def test_requested_language_falls_back_to_english_when_no_locale_set(self):
@@ -63,8 +64,9 @@ class RequestedLanguage(unittest.TestCase):
 class Localedirs(unittest.TestCase):
     def test_localedirs_lists_installed_dir_before_source_tree(self):
         installed = "/usr/share/gpu-switcher/locale"
-        src = os.path.abspath(os.path.join(os.path.dirname(i18n.__file__),
-                                           "..", "..", "data", "locale"))
+        src = os.path.abspath(
+            os.path.join(os.path.dirname(i18n.__file__), "..", "..", "data", "locale")
+        )
         dirs = i18n._localedirs()
         self.assertEqual(dirs[0], installed)
         if os.path.isdir(src):
@@ -84,8 +86,7 @@ class MsgfmtBuild(unittest.TestCase):
             self.skipTest("msgfmt (gettext-tools) is not installed")
 
     def _po(self, name: str) -> str:
-        return os.path.join(os.path.dirname(i18n.__file__), "..", "..",
-                            "po", name)
+        return os.path.join(os.path.dirname(i18n.__file__), "..", "..", "po", name)
 
     def test_msgfmt_checks_catalogs_are_consistent(self):
         # One msgfmt invocation per catalog: multiple .po files would be
@@ -93,8 +94,12 @@ class MsgfmtBuild(unittest.TestCase):
         # -o /dev/null: GNU msgfmt's -c still writes the default
         # messages.mo to the CWD without an explicit output file.
         for name in ("gpu-switcher-en.po", "gpu-switcher-ru.po"):
-            out = subprocess.run([self._msgfmt, "-c", "-o", "/dev/null",
-                                 self._po(name)], capture_output=True, text=True)
+            out = subprocess.run(
+                [self._msgfmt, "-c", "-o", "/dev/null", self._po(name)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
             self.assertEqual(out.returncode, 0, out.stderr)
 
     def test_msgfmt_built_catalog_is_readable_by_gettext(self):
@@ -102,13 +107,16 @@ class MsgfmtBuild(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             mo_path = os.path.join(tmp, "LC_MESSAGES", "gpu-switcher.mo")
             os.makedirs(os.path.dirname(mo_path))
-            out = subprocess.run([self._msgfmt, "-o", mo_path, ru_po],
-                                 capture_output=True, text=True)
+            out = subprocess.run(
+                [self._msgfmt, "-o", mo_path, ru_po],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
             self.assertEqual(out.returncode, 0, out.stderr)
             with open(mo_path, "rb") as f:
                 catalog = gettext.GNUTranslations(f)
-            self.assertEqual(catalog.gettext("In use now"),
-                             "Используется сейчас")
+            self.assertEqual(catalog.gettext("In use now"), "Используется сейчас")
             self.assertEqual(catalog.gettext("Log out"), "Выйти")
 
 

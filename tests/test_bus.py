@@ -5,6 +5,7 @@ manager logout call (session bus, destination, path, interface, method,
 mode argument) and the localized failure forwarding when the session
 bus is unavailable.
 """
+
 import os
 import unittest
 from unittest import mock
@@ -27,8 +28,7 @@ from gpu_switcher import bus
 class Logout(unittest.TestCase):
     def test_logout_calls_session_manager_logout_mode_1_on_session_bus(self):
         conn = mock.Mock()
-        with mock.patch.object(Gio, "bus_get_sync",
-                              return_value=conn) as mocked:
+        with mock.patch.object(Gio, "bus_get_sync", return_value=conn) as mocked:
             bus.logout(lambda _ok, _message: None)
         # The assertion must use the captured mock: after the with-block
         # the patch is undone and Gio.bus_get_sync is the real function
@@ -44,11 +44,11 @@ class Logout(unittest.TestCase):
     def test_logout_forwards_localized_error_when_session_bus_unavailable(self):
         results = []
         error = GLib.Error.new_literal(
-            GLib.quark_from_string("g-io-error-quark"), "no session bus", 8)
+            GLib.quark_from_string("g-io-error-quark"), "no session bus", 8
+        )
         with mock.patch.object(Gio, "bus_get_sync", side_effect=error):
             bus.logout(lambda ok, message: results.append((ok, message)))
-        self.assertEqual(results,
-                         [(False, "Could not log out: no session bus.")])
+        self.assertEqual(results, [(False, "Could not log out: no session bus.")])
 
 
 class BusGuard(unittest.TestCase):
@@ -57,36 +57,40 @@ class BusGuard(unittest.TestCase):
 
     def _bus_error(self):
         return GLib.Error.new_literal(
-            GLib.quark_from_string("g-io-error-quark"), "no system bus", 8)
+            GLib.quark_from_string("g-io-error-quark"), "no system bus", 8
+        )
 
     def test_set_primary_forwards_bus_error_when_system_bus_unavailable(self):
         results = []
-        with mock.patch.object(Gio, "bus_get_sync",
-                              side_effect=self._bus_error()):
-            bus.set_primary("0000:12:00.0", "en",
-                            lambda *args: results.append(args))
-        self.assertEqual(results, [(False,
-                                    "Could not reach the GPU helper: "
-                                    "no system bus.",
-                                    "", False, False)])
+        with mock.patch.object(Gio, "bus_get_sync", side_effect=self._bus_error()):
+            bus.set_primary("0000:12:00.0", "en", lambda *args: results.append(args))
+        self.assertEqual(
+            results,
+            [
+                (
+                    False,
+                    "Could not reach the GPU helper: no system bus.",
+                    "",
+                    False,
+                    False,
+                )
+            ],
+        )
 
     def test_set_auto_forwards_bus_error_when_system_bus_unavailable(self):
         results = []
-        with mock.patch.object(Gio, "bus_get_sync",
-                              side_effect=self._bus_error()):
+        with mock.patch.object(Gio, "bus_get_sync", side_effect=self._bus_error()):
             bus.set_auto("en", lambda *args: results.append(args))
-        self.assertEqual(results, [(False,
-                                    "Could not reach the GPU helper: "
-                                    "no system bus.",
-                                    False, False)])
+        self.assertEqual(
+            results,
+            [(False, "Could not reach the GPU helper: no system bus.", False, False)],
+        )
 
     def test_reboot_forwards_bus_error_when_system_bus_unavailable(self):
         results = []
-        with mock.patch.object(Gio, "bus_get_sync",
-                              side_effect=self._bus_error()):
+        with mock.patch.object(Gio, "bus_get_sync", side_effect=self._bus_error()):
             bus.reboot(lambda *args: results.append(args))
-        self.assertEqual(results, [(False,
-                                    "Could not reach logind: no system bus.")])
+        self.assertEqual(results, [(False, "Could not reach logind: no system bus.")])
 
 
 if __name__ == "__main__":

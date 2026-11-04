@@ -1,0 +1,36 @@
+# Tooling configuration only (ruff + mypy). This file is not used for
+# packaging or installation: the Debian package is built from debian/ and
+# tools/build-deb.sh, and the only runtime dependencies are Python 3 (>= 3.12)
+# and PyGObject (GTK 4), which are not pip packages (see README "Install").
+[project]
+name = "gpu-switcher"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+# Source root, so ruff treats gpu_switcher, helper and udev_rules as
+# first-party when sorting imports.
+src = ["src"]
+
+[tool.ruff.lint]
+# Deliberate broad `except Exception` at documented service boundaries, not
+# bugs: the D-Bus helper's best-effort logging, the D-Bus handler's catch-all
+# error reply, and the UI's session-leader degradation to None.
+# S110: _log intentionally uses try/except: pass so logging can never crash the
+# helper. RUF012: read-only shared constant test data (a dict keyed by pid).
+# ISC004: implicit string concatenation in expected-value tuples is deliberate
+# (readable multi-line strings); parenthesizing it is cosmetic churn.
+# UP031: %-formatting is used deliberately (e.g. the bounded _log line with a
+# nested strftime); f-strings would be longer and noisier here.
+ignore = ["BLE001", "S110", "RUF012", "ISC004", "UP031"]
+
+[tool.mypy]
+files = ["src", "tests"]
+mypy_path = ["src"]
+ignore_missing_imports = true
+# Resolve the helper as helper.gpu_switcher_helper (a namespace package under
+# src/) rather than as a duplicate top-level module.
+explicit_package_bases = true

@@ -5,6 +5,7 @@ the authoritative check runs in the root helper) and the helper (unreadable
 rules must block), so both unreadable modes and the udev load-order
 semantics (earlier directory shadows the later one) are tested here.
 """
+
 import os
 import tempfile
 import unittest
@@ -37,20 +38,17 @@ class RuleConflicts(unittest.TestCase):
     def test_rule_conflicts_finds_rule_setting_mutter_tag(self):
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, TAG_LINE)
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
+        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
 
     def test_rule_conflicts_finds_rule_setting_legacy_env_variable(self):
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, ENV_LINE)
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
+        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
 
     def test_rule_conflicts_ignores_comment_lines(self):
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, f"# {MUTTER_TAG}\n# {ENV_LINE}")
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable="skip"), [])
+        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [])
 
     def test_rule_conflicts_skips_managed_rule_file(self):
         managed = os.path.join(self.dir_a, "61-mutter-primary-gpu.rules")
@@ -58,8 +56,9 @@ class RuleConflicts(unittest.TestCase):
         clean = os.path.join(self.dir_a, "10-clean.rules")
         self._write_rule(clean, 'SUBSYSTEM=="drm"\n')
         self.assertEqual(
-            rule_conflicts((self.dir_a,), managed_rule=managed,
-                           on_unreadable="skip"), [])
+            rule_conflicts((self.dir_a,), managed_rule=managed, on_unreadable="skip"),
+            [],
+        )
 
     def test_rule_conflicts_earlier_directory_shadows_later_same_basename(self):
         earlier = os.path.join(self.dir_a, "50-same.rules")
@@ -73,20 +72,19 @@ class RuleConflicts(unittest.TestCase):
                 self._write_rule(earlier, earlier_text)
                 self._write_rule(later, later_text)
                 self.assertEqual(
-                    rule_conflicts((self.dir_a, self.dir_b),
-                                  on_unreadable="skip"), expected)
+                    rule_conflicts((self.dir_a, self.dir_b), on_unreadable="skip"),
+                    expected,
+                )
 
     def test_rule_conflicts_skips_unreadable_file_in_app_mode(self):
         path = os.path.join(self.dir_a, "10-broken.rules")
         self._make_unreadable(path)
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable="skip"), [])
+        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [])
 
     def test_rule_conflicts_flags_unreadable_file_in_helper_mode(self):
         path = os.path.join(self.dir_a, "10-broken.rules")
         self._make_unreadable(path)
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable="flag"), [path])
+        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="flag"), [path])
 
 
 class ReadText(unittest.TestCase):
@@ -99,8 +97,7 @@ class ReadText(unittest.TestCase):
 
     def test_read_text_returns_empty_string_when_file_missing(self):
         with tempfile.TemporaryDirectory() as root:
-            self.assertEqual(read_text(os.path.join(root, "no-such-file")),
-                             "")
+            self.assertEqual(read_text(os.path.join(root, "no-such-file")), "")
 
 
 if __name__ == "__main__":

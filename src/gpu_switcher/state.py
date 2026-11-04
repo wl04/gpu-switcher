@@ -6,6 +6,7 @@ and the result banner are derived from it, so the banner survives the
 _refresh() rebuild and Log out is enabled only after a successful,
 refreshed operation.
 """
+
 from __future__ import annotations
 
 from enum import Enum
@@ -56,8 +57,7 @@ def is_gio_timeout(error) -> bool:
     pygobject does not expose Gio.GIOError, so the quark+code check is
     the usable test.
     """
-    return error.matches(GLib.quark_from_string("g-io-error-quark"),
-                         G_IO_ERROR_TIMEOUT)
+    return error.matches(GLib.quark_from_string("g-io-error-quark"), G_IO_ERROR_TIMEOUT)
 
 
 def logout_enabled(busy, outcome) -> bool:

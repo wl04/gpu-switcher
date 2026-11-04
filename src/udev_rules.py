@@ -8,6 +8,7 @@ sets the preferred-GPU tag blocks the switch.
 Pure stdlib, no `gi`: the root helper can import this without pulling in
 the GUI package (`gpu_switcher/__init__` imports Gtk).
 """
+
 from __future__ import annotations
 
 import os
@@ -48,9 +49,12 @@ def read_text(path: str) -> str:
         return ""
 
 
-def rule_conflicts(rule_dirs: tuple[str, ...] = RULE_DIRS,
-                   managed_rule: str = MANAGED_RULE,
-                   *, on_unreadable: str) -> list[str]:
+def rule_conflicts(
+    rule_dirs: tuple[str, ...] = RULE_DIRS,
+    managed_rule: str = MANAGED_RULE,
+    *,
+    on_unreadable: str,
+) -> list[str]:
     """Paths of the other udev rules that set the preferred-GPU tag.
 
     Scans `*.rules` files in `rule_dirs` in the given order, skipping

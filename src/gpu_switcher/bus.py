@@ -15,6 +15,7 @@ loop, so the UI never blocks while the interactive polkit dialog is open.
 The `locale` arguments are passed explicitly because the helper runs as a
 root-activated process with no user locale of its own.
 """
+
 from __future__ import annotations
 
 import os
@@ -63,8 +64,13 @@ def set_primary(pci: str, locale: str, callback) -> None:
     try:
         connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
     except GLib.Error as error:
-        callback(False, i18n._("Could not reach the GPU helper: %s.") % error.message,
-                 "", False, False)
+        callback(
+            False,
+            i18n._("Could not reach the GPU helper: %s.") % error.message,
+            "",
+            False,
+            False,
+        )
         return
     params = GLib.Variant("(ss)", (pci, locale))
 
@@ -72,14 +78,22 @@ def set_primary(pci: str, locale: str, callback) -> None:
         try:
             ok, message, backup, refresh_ok = c.call_finish(task)
         except GLib.Error as error:
-            callback(False, error.message, "", False,
-                     state.is_gio_timeout(error))
+            callback(False, error.message, "", False, state.is_gio_timeout(error))
             return
         callback(bool(ok), message, backup, bool(refresh_ok), False)
 
-    connection.call(HELPER_NAME, HELPER_PATH, HELPER_IFACE, "SetPrimary",
-                    params, GLib.VariantType("(bssb)"), 0, HELPER_TIMEOUT_MS,
-                    None, on_call)
+    connection.call(
+        HELPER_NAME,
+        HELPER_PATH,
+        HELPER_IFACE,
+        "SetPrimary",
+        params,
+        GLib.VariantType("(bssb)"),
+        0,
+        HELPER_TIMEOUT_MS,
+        None,
+        on_call,
+    )
 
 
 def set_auto(locale: str, callback) -> None:
@@ -94,8 +108,12 @@ def set_auto(locale: str, callback) -> None:
     try:
         connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
     except GLib.Error as error:
-        callback(False, i18n._("Could not reach the GPU helper: %s.") % error.message,
-                 False, False)
+        callback(
+            False,
+            i18n._("Could not reach the GPU helper: %s.") % error.message,
+            False,
+            False,
+        )
         return
     params = GLib.Variant("(s)", (locale,))
 
@@ -107,9 +125,18 @@ def set_auto(locale: str, callback) -> None:
             return
         callback(bool(ok), message, bool(refresh_ok), False)
 
-    connection.call(HELPER_NAME, HELPER_PATH, HELPER_IFACE, "SetAuto",
-                    params, GLib.VariantType("(bsb)"), 0, HELPER_TIMEOUT_MS,
-                    None, on_call)
+    connection.call(
+        HELPER_NAME,
+        HELPER_PATH,
+        HELPER_IFACE,
+        "SetAuto",
+        params,
+        GLib.VariantType("(bsb)"),
+        0,
+        HELPER_TIMEOUT_MS,
+        None,
+        on_call,
+    )
 
 
 def reboot(callback) -> None:
@@ -132,9 +159,18 @@ def reboot(callback) -> None:
         except GLib.Error as error:
             callback(False, error.message)
 
-    connection.call(LOGIN1_NAME, LOGIN1_PATH, LOGIN1_MANAGER_IFACE, "Reboot",
-                    params, GLib.VariantType("()"), 0, LOGIN1_TIMEOUT_MS,
-                    None, on_call)
+    connection.call(
+        LOGIN1_NAME,
+        LOGIN1_PATH,
+        LOGIN1_MANAGER_IFACE,
+        "Reboot",
+        params,
+        GLib.VariantType("()"),
+        0,
+        LOGIN1_TIMEOUT_MS,
+        None,
+        on_call,
+    )
 
 
 def _our_session_path() -> str:
@@ -150,14 +186,25 @@ def _our_session_path() -> str:
     try:
         connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
         result = connection.call_sync(
-            LOGIN1_NAME, LOGIN1_PATH, LOGIN1_MANAGER_IFACE, "ListSessions",
-            None, GLib.VariantType("(a(susso))"), 0, LOGIN1_TIMEOUT_MS, None)
+            LOGIN1_NAME,
+            LOGIN1_PATH,
+            LOGIN1_MANAGER_IFACE,
+            "ListSessions",
+            None,
+            GLib.VariantType("(a(susso))"),
+            0,
+            LOGIN1_TIMEOUT_MS,
+            None,
+        )
     except GLib.Error:
         return ""
     uid = os.getuid()
     # Row: (session_id, uid, user, seat, object_path).
-    rows = [(sid, seat, path) for sid, session_uid, _user, seat, path
-            in result[0] if session_uid == uid]
+    rows = [
+        (sid, seat, path)
+        for sid, session_uid, _user, seat, path in result[0]
+        if session_uid == uid
+    ]
     if wanted.isdigit():
         return next((path for sid, _seat, path in rows if sid == wanted), "")
     seated = [path for _sid, seat, path in rows if seat]
@@ -179,9 +226,16 @@ def session_leader():
     try:
         connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
         result = connection.call_sync(
-            LOGIN1_NAME, path, "org.freedesktop.DBus.Properties", "Get",
+            LOGIN1_NAME,
+            path,
+            "org.freedesktop.DBus.Properties",
+            "Get",
             GLib.Variant("(ss)", (LOGIN1_SESSION_IFACE, "Leader")),
-            GLib.VariantType("(v)"), 0, LOGIN1_TIMEOUT_MS, None)
+            GLib.VariantType("(v)"),
+            0,
+            LOGIN1_TIMEOUT_MS,
+            None,
+        )
     except GLib.Error:
         return None
     try:
@@ -216,7 +270,15 @@ def logout(callback) -> None:
         except GLib.Error as error:
             callback(False, i18n._("Could not log out: %s.") % error.message)
 
-    connection.call(SESSION_MANAGER_NAME, SESSION_MANAGER_PATH,
-                    SESSION_MANAGER_IFACE, "Logout",
-                    params, GLib.VariantType("()"), 0, LOGIN1_TIMEOUT_MS,
-                    None, on_call)
+    connection.call(
+        SESSION_MANAGER_NAME,
+        SESSION_MANAGER_PATH,
+        SESSION_MANAGER_IFACE,
+        "Logout",
+        params,
+        GLib.VariantType("()"),
+        0,
+        LOGIN1_TIMEOUT_MS,
+        None,
+        on_call,
+    )

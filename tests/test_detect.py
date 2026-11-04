@@ -10,6 +10,7 @@ External binaries (lspci, journalctl) are replaced by stubs in the unit
 tests; the real commands are exercised by the manual end-to-end
 verification.
 """
+
 import os
 import subprocess
 import unittest
@@ -19,7 +20,7 @@ import gi
 
 gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
-from gi.repository import Gio, GLib
+from gi.repository import Gio
 
 # gpu_switcher.i18n binds its gettext function at import time, so the
 # locale must be pinned before the app import: the assertions below
@@ -39,9 +40,10 @@ class PrimaryCardFromLine(unittest.TestCase):
         line = "Boot VGA GPU /dev/dri/card1 selected as primary"
         self.assertEqual(detect.primary_card_from_line(line), "card1")
 
-    def test_primary_card_from_line_returns_none_when_line_has_no_primary_selection(self):
-        line = ("Added device '/dev/dri/card1' (amdgpu) "
-                "using atomic mode setting.")
+    def test_primary_card_from_line_returns_none_when_line_has_no_primary_selection(
+        self,
+    ):
+        line = "Added device '/dev/dri/card1' (amdgpu) using atomic mode setting."
         self.assertIsNone(detect.primary_card_from_line(line))
 
 
@@ -61,9 +63,8 @@ class LastPrimaryCard(unittest.TestCase):
 
 class ManagedRulePciFromText(unittest.TestCase):
     def test_managed_rule_pci_from_text_extracts_pci_from_rule_text(self):
-        text = ('KERNELS=="0000:12:00.0", ATTRS{vendor}=="0x1002"\n')
-        self.assertEqual(
-            detect.managed_rule_pci_from_text(text), "0000:12:00.0")
+        text = 'KERNELS=="0000:12:00.0", ATTRS{vendor}=="0x1002"\n'
+        self.assertEqual(detect.managed_rule_pci_from_text(text), "0000:12:00.0")
 
     def test_managed_rule_pci_from_text_returns_none_when_rule_text_absent(self):
         self.assertIsNone(detect.managed_rule_pci_from_text(""))
@@ -107,13 +108,12 @@ class GnomeShellPidsInTree(unittest.TestCase):
         }
 
     def test_gnome_shell_pids_in_tree_collects_only_descendants_of_leader(self):
-        self.assertEqual(
-            detect.gnome_shell_pids_in_tree(self._tree(), 100), [200, 300])
+        self.assertEqual(detect.gnome_shell_pids_in_tree(self._tree(), 100), [200, 300])
 
     def test_gnome_shell_pids_in_tree_returns_all_when_leader_unknown(self):
         self.assertEqual(
-            detect.gnome_shell_pids_in_tree(self._tree(), None),
-            [200, 300, 400])
+            detect.gnome_shell_pids_in_tree(self._tree(), None), [200, 300, 400]
+        )
 
 
 class RunningPrimary(unittest.TestCase):
@@ -136,40 +136,48 @@ class RunningPrimary(unittest.TestCase):
 
     def test_running_primary_returns_card_when_journal_has_selection_line(self):
         result = subprocess.CompletedProcess(
-            args=[], returncode=0,
+            args=[],
+            returncode=0,
             stdout="noise\nGPU /dev/dri/card2 selected primary given udev rule\n",
-            stderr="")
-        with self._stub(return_value=result), \
-             mock.patch.object(detect, "_process_tree",
-                              return_value=self._TREE):
+            stderr="",
+        )
+        with (
+            self._stub(return_value=result),
+            mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+        ):
             card, error = detect.running_primary()
         self.assertEqual(card, "card2")
         self.assertIsNone(error)
 
     def test_running_primary_returns_no_error_when_journal_has_no_selection_line(self):
         result = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="noise\n", stderr="")
-        with self._stub(return_value=result), \
-             mock.patch.object(detect, "_process_tree",
-                              return_value=self._TREE):
+            args=[], returncode=0, stdout="noise\n", stderr=""
+        )
+        with (
+            self._stub(return_value=result),
+            mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+        ):
             card, error = detect.running_primary()
         self.assertIsNone(card)
         self.assertIsNone(error)
 
     def test_running_primary_returns_error_when_journal_read_fails(self):
-        with self._stub(side_effect=FileNotFoundError("journalctl")), \
-             mock.patch.object(detect, "_process_tree",
-                              return_value=self._TREE):
+        with (
+            self._stub(side_effect=FileNotFoundError("journalctl")),
+            mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+        ):
             card, error = detect.running_primary()
         self.assertIsNone(card)
         self.assertIsNotNone(error)
 
     def test_running_primary_returns_error_when_journal_exit_code_is_non_zero(self):
         result = subprocess.CompletedProcess(
-            args=[], returncode=1, stdout="", stderr="")
-        with self._stub(return_value=result), \
-             mock.patch.object(detect, "_process_tree",
-                              return_value=self._TREE):
+            args=[], returncode=1, stdout="", stderr=""
+        )
+        with (
+            self._stub(return_value=result),
+            mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+        ):
             card, error = detect.running_primary()
         self.assertIsNone(card)
         self.assertIsNotNone(error)
@@ -184,12 +192,15 @@ class RunningPrimary(unittest.TestCase):
             500: (1, "gnome-session"),
             600: (500, "gnome-shell"),
         }
-        with mock.patch.object(detect, "_process_tree", return_value=tree), \
-             self._stub() as run:
+        with (
+            mock.patch.object(detect, "_process_tree", return_value=tree),
+            self._stub() as run,
+        ):
             run.return_value = mock.Mock(
-                returncode=0, stderr="",
-                stdout="GPU /dev/dri/card2 selected primary "
-                       "given udev rule\n")
+                returncode=0,
+                stderr="",
+                stdout="GPU /dev/dri/card2 selected primary given udev rule\n",
+            )
             card, error = detect.running_primary(100)
         self.assertEqual(card, "card2")
         self.assertIsNone(error)
@@ -197,7 +208,9 @@ class RunningPrimary(unittest.TestCase):
         self.assertIn("_PID=200", argv)
         self.assertIn(detect.JOURNAL_UNIT, argv)
 
-    def test_running_primary_falls_back_to_system_wide_scan_when_shell_is_not_under_leader(self):
+    def test_running_primary_falls_back_to_system_wide_scan_when_shell_is_not_under_leader(
+        self,
+    ):
         # Current GNOME runs the session under a systemd user manager:
         # gnome-shell is a descendant of the manager, not of the logind
         # session leader (the greeter worker), so the scoped scan is
@@ -208,12 +221,15 @@ class RunningPrimary(unittest.TestCase):
             200: (1, "systemd"),
             300: (200, "gnome-shell"),
         }
-        with mock.patch.object(detect, "_process_tree", return_value=tree), \
-             self._stub() as run:
+        with (
+            mock.patch.object(detect, "_process_tree", return_value=tree),
+            self._stub() as run,
+        ):
             run.return_value = mock.Mock(
-                returncode=0, stderr="",
-                stdout="GPU /dev/dri/card2 selected primary "
-                       "given udev rule\n")
+                returncode=0,
+                stderr="",
+                stdout="GPU /dev/dri/card2 selected primary given udev rule\n",
+            )
             card, error = detect.running_primary(100)
         self.assertEqual(card, "card2")
         self.assertIsNone(error)
@@ -233,8 +249,10 @@ class RunningPrimary(unittest.TestCase):
             300: (200, "gnome-shell"),
             400: (200, "gnome-shell"),
         }
-        with mock.patch.object(detect, "_process_tree", return_value=tree), \
-             self._stub() as run:
+        with (
+            mock.patch.object(detect, "_process_tree", return_value=tree),
+            self._stub() as run,
+        ):
             card, error = detect.running_primary(100)
         self.assertIsNone(card)
         self.assertIsNone(error)
@@ -247,8 +265,10 @@ class RunningPrimary(unittest.TestCase):
             200: (100, "gnome-shell"),
             300: (100, "gnome-shell"),
         }
-        with mock.patch.object(detect, "_process_tree", return_value=tree), \
-             self._stub() as run:
+        with (
+            mock.patch.object(detect, "_process_tree", return_value=tree),
+            self._stub() as run,
+        ):
             card, error = detect.running_primary(100)
         self.assertIsNone(card)
         self.assertIsNone(error)
@@ -256,8 +276,10 @@ class RunningPrimary(unittest.TestCase):
 
     def test_running_primary_returns_unknown_when_no_shell_pids_in_scope(self):
         tree = {1: (0, "systemd"), 100: (1, "gnome-session")}
-        with mock.patch.object(detect, "_process_tree", return_value=tree), \
-             self._stub() as run:
+        with (
+            mock.patch.object(detect, "_process_tree", return_value=tree),
+            self._stub() as run,
+        ):
             card, error = detect.running_primary(100)
         self.assertIsNone(card)
         self.assertIsNone(error)
@@ -271,24 +293,26 @@ class DetectClassFilter(unittest.TestCase):
     device."""
 
     def _run_detect(self, pci_class):
-        with mock.patch("os.listdir",
-                        side_effect=lambda d: ["card1"]
-                        if d == "/sys/class/drm" else []), \
-             mock.patch("os.path.realpath", return_value="0000:12:00.0"), \
-             mock.patch("os.path.isdir", return_value=True), \
-             mock.patch("gpu_switcher.detect.read_text",
-                        side_effect=lambda p: pci_class
-                        if p.endswith("/class") else ""), \
-             mock.patch("os.path.exists", return_value=True), \
-             mock.patch("gpu_switcher.detect.lspci_names", return_value={}), \
-             mock.patch("gpu_switcher.detect.running_primary",
-                        return_value=(None, None)), \
-             mock.patch("gpu_switcher.detect.managed_rule_pci",
-                        return_value=None), \
-             mock.patch("gpu_switcher.detect.rule_conflicts",
-                        return_value=[]), \
-             mock.patch("gpu_switcher.detect.gnome_wayland_session",
-                        return_value=True):
+        with (
+            mock.patch(
+                "os.listdir",
+                side_effect=lambda d: ["card1"] if d == "/sys/class/drm" else [],
+            ),
+            mock.patch("os.path.realpath", return_value="0000:12:00.0"),
+            mock.patch("os.path.isdir", return_value=True),
+            mock.patch(
+                "gpu_switcher.detect.read_text",
+                side_effect=lambda p: pci_class if p.endswith("/class") else "",
+            ),
+            mock.patch("os.path.exists", return_value=True),
+            mock.patch("gpu_switcher.detect.lspci_names", return_value={}),
+            mock.patch(
+                "gpu_switcher.detect.running_primary", return_value=(None, None)
+            ),
+            mock.patch("gpu_switcher.detect.managed_rule_pci", return_value=None),
+            mock.patch("gpu_switcher.detect.rule_conflicts", return_value=[]),
+            mock.patch("gpu_switcher.detect.gnome_wayland_session", return_value=True),
+        ):
             return detect.detect()
 
     def test_detect_accepts_vga_compatible_class(self):
@@ -308,23 +332,35 @@ class SessionLeader(unittest.TestCase):
     def test_session_leader_returns_leader_pid_from_logind(self):
         conn = mock.Mock()
 
-        def call_sync(dest, path, iface, method, params, rtype,
-                      flags, timeout, user_data):
+        def call_sync(
+            dest, path, iface, method, params, rtype, flags, timeout, user_data
+        ):
             if method == "ListSessions":
                 # out-arg a(susso): one row of (sid, uid, user, seat, path)
-                return ((("1", 1000, "user", "seat0",
-                          "/org/freedesktop/login1/session/2"),),)
+                return (
+                    (
+                        (
+                            "1",
+                            1000,
+                            "user",
+                            "seat0",
+                            "/org/freedesktop/login1/session/2",
+                        ),
+                    ),
+                )
             if method == "Get":
                 self.assertEqual(iface, "org.freedesktop.DBus.Properties")
                 self.assertEqual(
-                    params.unpack(),
-                    ("org.freedesktop.login1.Session", "Leader"))
+                    params.unpack(), ("org.freedesktop.login1.Session", "Leader")
+                )
                 return (4361,)
             raise AssertionError(f"unexpected method {method}")
 
         conn.call_sync.side_effect = call_sync
-        with mock.patch.object(Gio, "bus_get_sync", return_value=conn), \
-             mock.patch.dict(os.environ, {"XDG_SESSION_ID": "1"}):
+        with (
+            mock.patch.object(Gio, "bus_get_sync", return_value=conn),
+            mock.patch.dict(os.environ, {"XDG_SESSION_ID": "1"}),
+        ):
             self.assertEqual(bus.session_leader(), 4361)
 
 

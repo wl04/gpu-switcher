@@ -5,6 +5,7 @@ nothing -> idle, success with/without a successful refresh), the
 G_IO_ERROR_TIMEOUT detection via quark+code, the logout sensitivity rule,
 and the banner style rule for a completed Apply/Reset.
 """
+
 import os
 import unittest
 
@@ -19,9 +20,13 @@ from gi.repository import GLib
 # locale.
 os.environ["LC_ALL"] = "en"
 
-from gpu_switcher import state
-from gpu_switcher.state import (Outcome, banner_kind, is_gio_timeout,
-                                logout_enabled, outcome_from_result)
+from gpu_switcher.state import (
+    Outcome,
+    banner_kind,
+    is_gio_timeout,
+    logout_enabled,
+    outcome_from_result,
+)
 
 
 class OutcomeMapping(unittest.TestCase):
@@ -33,10 +38,10 @@ class OutcomeMapping(unittest.TestCase):
         self.assertIs(outcome_from_result(False, False, False), Outcome.idle)
 
     def test_outcome_maps_success_to_refreshed_or_not(self):
-        self.assertIs(outcome_from_result(True, True, False),
-                      Outcome.success_refreshed)
-        self.assertIs(outcome_from_result(True, False, False),
-                      Outcome.success_refresh_failed)
+        self.assertIs(outcome_from_result(True, True, False), Outcome.success_refreshed)
+        self.assertIs(
+            outcome_from_result(True, False, False), Outcome.success_refresh_failed
+        )
 
     def test_outcome_timeout_is_detected_via_gio_error_quark_code_5(self):
         quark = GLib.quark_from_string("g-io-error-quark")
@@ -68,10 +73,8 @@ class BannerRule(unittest.TestCase):
         # warning style: the rule is on disk, a reboot is required
         # (the helper's refresh-failed message asserts the wording in
         # test_helper.SetPrimaryRefresh).
-        self.assertEqual(
-            banner_kind(Outcome.success_refresh_failed), "warning")
-        self.assertEqual(
-            banner_kind(Outcome.success_refreshed), "success")
+        self.assertEqual(banner_kind(Outcome.success_refresh_failed), "warning")
+        self.assertEqual(banner_kind(Outcome.success_refreshed), "success")
 
 
 if __name__ == "__main__":

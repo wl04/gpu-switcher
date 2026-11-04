@@ -11,6 +11,7 @@ and after a successful, refreshed operation. A collapsible hint gives
 the journalctl command to verify the switch after restart. Detection runs
 on a worker thread, so the main loop never blocks on it.
 """
+
 from __future__ import annotations
 
 import threading
@@ -19,12 +20,16 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("GLib", "2.0")
-from gi.repository import Gtk, GLib
+from gi.repository import GLib, Gtk
 
-from . import bus, detect, i18n, state
-from .selection import (SELECTION_AUTO, SELECTION_UNAVAILABLE,
-                             configured_unavailable_pci, initial_selection,
-                             selection_after_failure)
+from . import bus, detect, i18n
+from .selection import (
+    SELECTION_AUTO,
+    SELECTION_UNAVAILABLE,
+    configured_unavailable_pci,
+    initial_selection,
+    selection_after_failure,
+)
 from .state import Outcome, banner_kind, logout_enabled, outcome_from_result
 
 APP_ID = "com.github.wl04.gpu-switcher"
@@ -41,8 +46,10 @@ class GpuSwitcherApp(Gtk.Application):
         super().__init__(application_id=APP_ID)
         self.window = None
         self.detection = None
-        self.selected_card = SELECTION_AUTO   # card name or a SELECTION_* sentinel
-        self.unavailable_radio = None        # disabled row for the configured-but-undetected GPU
+        self.selected_card = SELECTION_AUTO  # card name or a SELECTION_* sentinel
+        self.unavailable_radio = (
+            None  # disabled row for the configured-but-undetected GPU
+        )
         self.unavailable_pci = None
         self.radios_by_gpu: dict = {}
         self.rows_box = None
@@ -119,8 +126,11 @@ class GpuSwitcherApp(Gtk.Application):
         """Warning label outside a GNOME Wayland session, else None."""
         if result.gnome_wayland:
             return None
-        warning = Gtk.Label(label=i18n._(
-            "Not running in a GNOME Wayland session - this build only supports GNOME."))
+        warning = Gtk.Label(
+            label=i18n._(
+                "Not running in a GNOME Wayland session - this build only supports GNOME."
+            )
+        )
         warning.set_wrap(True)
         warning.add_css_class("dim-label")
         return warning
@@ -168,19 +178,25 @@ class GpuSwitcherApp(Gtk.Application):
             if first_radio is not None:
                 unavailable.set_group(first_radio)
             unavailable.connect(
-                "toggled", self._on_radio_toggled, SELECTION_UNAVAILABLE)
+                "toggled", self._on_radio_toggled, SELECTION_UNAVAILABLE
+            )
             self.unavailable_radio = unavailable
-            self.rows_box.append(self._gpu_row(
-                unavailable, i18n._("Configured GPU (not currently detected)"),
-                f"PCI {self.unavailable_pci}",
-                [i18n._("Preferred (configured)")]))
+            self.rows_box.append(
+                self._gpu_row(
+                    unavailable,
+                    i18n._("Configured GPU (not currently detected)"),
+                    f"PCI {self.unavailable_pci}",
+                    [i18n._("Preferred (configured)")],
+                )
+            )
         self.auto_radio = Gtk.CheckButton(label="")
         self.auto_radio.add_css_class("radio")
         if first_radio is not None:
             self.auto_radio.set_group(first_radio)
         self.auto_radio.connect("toggled", self._on_radio_toggled, SELECTION_AUTO)
-        self.rows_box.append(self._gpu_row(
-            self.auto_radio, i18n._("System default (auto)"), "", []))
+        self.rows_box.append(
+            self._gpu_row(self.auto_radio, i18n._("System default (auto)"), "", [])
+        )
         card = initial_selection(result)
         self.selected_card = card
         if card == SELECTION_AUTO:
@@ -194,12 +210,14 @@ class GpuSwitcherApp(Gtk.Application):
         """Note when the running primary is unknown or the session journal
         could not be read; None when a running primary is known."""
         if result.running_card_error is not None:
-            text = i18n._(
-                "Running primary: could not read the session journal (%s).") \
+            text = (
+                i18n._("Running primary: could not read the session journal (%s).")
                 % result.running_card_error
+            )
         elif result.running_card is None:
             text = i18n._(
-                "Running primary: unknown (verify in the journal after restart).")
+                "Running primary: unknown (verify in the journal after restart)."
+            )
         else:
             text = None
         if text is None:
@@ -227,16 +245,24 @@ class GpuSwitcherApp(Gtk.Application):
         self.banner.set_reveal_child(False)
         if self.unavailable_pci is not None:
             self._banner_show(
-                i18n._("The configured GPU (PCI %s) is not currently "
-                        "detected. The rule remains on disk; it takes "
-                        "effect when the GPU is available again. Use "
-                        "'Reset to auto' to remove it.")
-                % self.unavailable_pci, "warning")
+                i18n._(
+                    "The configured GPU (PCI %s) is not currently "
+                    "detected. The rule remains on disk; it takes "
+                    "effect when the GPU is available again. Use "
+                    "'Reset to auto' to remove it."
+                )
+                % self.unavailable_pci,
+                "warning",
+            )
         elif result.conflicts:
             self._banner_show(
-                i18n._("Another udev rule sets the preferred GPU: %s. "
-                        "Resolve it manually first.")
-                % result.conflicts[0], "warning")
+                i18n._(
+                    "Another udev rule sets the preferred GPU: %s. "
+                    "Resolve it manually first."
+                )
+                % result.conflicts[0],
+                "warning",
+            )
 
     def _build_buttons(self) -> Gtk.Box:
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -270,19 +296,21 @@ class GpuSwitcherApp(Gtk.Application):
         # xalign is 0.5), so each line needs an explicit xalign of 0.
         lead = Gtk.Label(label=i18n._("Run in a terminal after reboot or login:"))
         lead.set_wrap(True)
-        command = Gtk.Label(label="journalctl -b0 /usr/bin/gnome-shell "
-                                  "| grep -E 'selected (as )?primary'")
+        command = Gtk.Label(
+            label="journalctl -b0 /usr/bin/gnome-shell "
+            "| grep -E 'selected (as )?primary'"
+        )
         command.set_wrap(True)
         command.add_css_class("monospace")
         command.add_css_class("dim-label")
         mid = Gtk.Label(label=i18n._("and look for a line like:"))
-        example = Gtk.Label(
-            label="GPU /dev/dri/cardN selected primary given udev rule")
+        example = Gtk.Label(label="GPU /dev/dri/cardN selected primary given udev rule")
         example.add_css_class("monospace")
         example.add_css_class("dim-label")
         example.set_wrap(True)
         auto_example = Gtk.Label(
-            label="Boot VGA GPU /dev/dri/cardN selected as primary")
+            label="Boot VGA GPU /dev/dri/cardN selected as primary"
+        )
         auto_example.add_css_class("monospace")
         auto_example.add_css_class("dim-label")
         auto_example.set_wrap(True)
@@ -349,14 +377,19 @@ class GpuSwitcherApp(Gtk.Application):
             # detected. Do not silently fall back to auto - tell the user
             # the rule stays on disk and offer the explicit reset.
             self._banner_show(
-                i18n._("The configured GPU (PCI %s) is not currently "
-                        "detected, so there is nothing to apply. The rule "
-                        "stays on disk; use 'Reset to auto' to remove it.")
-                % self.unavailable_pci, "warning")
+                i18n._(
+                    "The configured GPU (PCI %s) is not currently "
+                    "detected, so there is nothing to apply. The rule "
+                    "stays on disk; use 'Reset to auto' to remove it."
+                )
+                % self.unavailable_pci,
+                "warning",
+            )
             return
         if self.selected_card != SELECTION_AUTO:
-            gpu = next((g for g in self.detection.gpus
-                        if g.card == self.selected_card), None)
+            gpu = next(
+                (g for g in self.detection.gpus if g.card == self.selected_card), None
+            )
             if gpu is None:  # card vanished since selection; fall back to auto
                 self.selected_card = SELECTION_AUTO
                 self.auto_radio.set_active(True)
@@ -366,17 +399,18 @@ class GpuSwitcherApp(Gtk.Application):
                 "Apply removes the managed udev rule, returning to automatic "
                 "GPU selection.\n\n"
                 "If a rule is present, a backup is saved. The change takes "
-                "effect after a reboot, or after logging out and back in.")
+                "effect after a reboot, or after logging out and back in."
+            )
         else:
             target = gpu.pci
             text = i18n._(
                 "Apply sets %s (PCI %s) as the primary display adapter.\n\n"
                 "The managed udev rule is written; if a rule is present, a "
                 "backup is saved. The change takes effect after a reboot, or "
-                "after logging out and back in.") % (gpu.name, gpu.pci)
+                "after logging out and back in."
+            ) % (gpu.name, gpu.pci)
 
-        self._confirm(text, i18n._("Apply"),
-                      lambda ok: self._do_apply(ok, target))
+        self._confirm(text, i18n._("Apply"), lambda ok: self._do_apply(ok, target))
 
     def _revert_selection(self) -> None:
         """Reset the radio selection to the currently configured GPU.
@@ -405,8 +439,7 @@ class GpuSwitcherApp(Gtk.Application):
         else:
             bus.set_primary(target, locale, self._on_set_primary_done)
 
-    def _on_set_primary_done(self, ok, message, _backup, refresh_ok,
-                             timed_out) -> None:
+    def _on_set_primary_done(self, ok, message, _backup, refresh_ok, timed_out) -> None:
         if timed_out:
             self._on_helper_timeout()
             return
@@ -443,9 +476,15 @@ class GpuSwitcherApp(Gtk.Application):
         """
         self.outcome = Outcome.unknown
         self._set_busy(False)
-        self._refresh(banner=(
-            i18n._("The operation timed out; the outcome is unknown. "
-                    "The current state was rechecked."), "warning"))
+        self._refresh(
+            banner=(
+                i18n._(
+                    "The operation timed out; the outcome is unknown. "
+                    "The current state was rechecked."
+                ),
+                "warning",
+            )
+        )
 
     def _on_reset(self, _button) -> None:
         self.selected_card = SELECTION_AUTO
@@ -453,16 +492,21 @@ class GpuSwitcherApp(Gtk.Application):
         self._on_apply(None)
 
     def _on_reboot(self, _button) -> None:
-        self._confirm(i18n._("Reboot the computer now?"),
-                      i18n._("Reboot"), self._do_reboot)
+        self._confirm(
+            i18n._("Reboot the computer now?"), i18n._("Reboot"), self._do_reboot
+        )
 
     def _do_reboot(self, ok) -> None:
         if not ok:
             return
         self._confirm(
-            i18n._("Are you sure? The system will reboot immediately and "
-                   "the selected GPU will become primary on boot."),
-            i18n._("Reboot"), self._do_reboot_now)
+            i18n._(
+                "Are you sure? The system will reboot immediately and "
+                "the selected GPU will become primary on boot."
+            ),
+            i18n._("Reboot"),
+            self._do_reboot_now,
+        )
 
     def _do_reboot_now(self, ok) -> None:
         if not ok:
@@ -482,10 +526,14 @@ class GpuSwitcherApp(Gtk.Application):
     # ------------------------------------------------------------- fast path
 
     def _on_logout(self, _button) -> None:
-        self._confirm(i18n._(
-            "Log out now? The session will end, and the configured GPU "
-            "takes effect on the next login."),
-            i18n._("Log out"), self._do_logout)
+        self._confirm(
+            i18n._(
+                "Log out now? The session will end, and the configured GPU "
+                "takes effect on the next login."
+            ),
+            i18n._("Log out"),
+            self._do_logout,
+        )
 
     def _do_logout(self, ok) -> None:
         if not ok:
