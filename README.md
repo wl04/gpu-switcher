@@ -57,8 +57,11 @@ Download the latest `.deb` from the
 [releases page](https://github.com/wl04/gpu-switcher/releases), then:
 
 ```sh
-sudo dpkg -i gpu-switcher_*_all.deb
+sudo apt install ./gpu-switcher_<version>_all.deb
 ```
+
+`apt` resolves any missing dependencies from the repository; if you are
+offline and all dependencies are present, `sudo dpkg -i` works too.
 
 After installing, launch the app from the GNOME app grid
 (**gpu-switcher**); `man gpu-switcher` is also installed.
@@ -76,7 +79,7 @@ sudo pkill -f gpu_switcher_helper
 git clone https://github.com/wl04/gpu-switcher
 cd gpu-switcher
 ./tools/build-deb.sh    # builds ../gpu-switcher_<version>_all.deb (version from the top debian/changelog entry)
-sudo dpkg -i ../gpu-switcher_<version>_all.deb
+sudo apt install ../gpu-switcher_<version>_all.deb
 ```
 
 Uninstalling (`sudo dpkg -r gpu-switcher`) leaves the managed udev rule and
