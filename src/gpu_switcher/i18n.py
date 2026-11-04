@@ -6,11 +6,12 @@ source tree, and falls back to English (identity) when no catalog exists.
 
 import gettext
 import os
+from collections.abc import Callable
 
 APP_NAME = "gpu-switcher"
 
 
-def _localedirs():
+def _localedirs() -> list[str]:
     dirs = ["/usr/share/gpu-switcher/locale"]
     src = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "..", "data", "locale")
@@ -20,7 +21,7 @@ def _localedirs():
     return dirs
 
 
-def _requested_language():
+def _requested_language() -> str:
     for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
         value = os.environ.get(var)
         if value:
@@ -28,7 +29,7 @@ def _requested_language():
     return "en"
 
 
-def _make_gettext():
+def _make_gettext() -> Callable[[str], str]:
     # gettext.translation takes a single directory string, so try each search
     # directory in turn (installed location first, then the source tree) and
     # fall back to English (identity) when no catalog exists.

@@ -45,7 +45,7 @@ class Gpu:
 
 @dataclasses.dataclass
 class Detection:
-    gpus: list
+    gpus: list[Gpu]
     running_card: str | None  # card picked by gnome-shell this boot
     running_card_error: str | None  # set when the journal could not be read
     preferred_pci: str | None  # PCI from the managed rule on disk
@@ -58,13 +58,13 @@ _LSPCI_LINE_RE = re.compile(
 )
 
 
-def parse_lspci_names(output: str) -> dict:
+def parse_lspci_names(output: str) -> dict[str, str]:
     """Map PCI address -> display name from `lspci -nn` text.
 
     Handles both `0000:03:00.0` and domain-omitted `03:00.0` address
     forms, and strips the trailing `[1002:7550]` ID / `(rev ..)` parts.
     """
-    names: dict = {}
+    names: dict[str, str] = {}
     for line in output.splitlines():
         m = _LSPCI_LINE_RE.match(line)
         if not m:
@@ -78,7 +78,7 @@ def parse_lspci_names(output: str) -> dict:
     return names
 
 
-def lspci_names() -> dict:
+def lspci_names() -> dict[str, str]:
     """Map PCI address -> display name via `lspci -nn`; {} when lspci is
     missing or fails (names then fall back to vendor:device)."""
     try:
@@ -120,14 +120,16 @@ def last_primary_card(lines: list[str]) -> str | None:
     return card
 
 
-def gnome_shell_pids_in_tree(tree, leader):
+def gnome_shell_pids_in_tree(
+    tree: dict[int, tuple[int, str]], leader: int | None
+) -> list[int]:
     """gnome-shell pids in a process tree of {pid: (ppid, comm)}.
 
     With a leader, only its descendants are collected (session-scoped
     scan: shells of other sessions/users never count). With leader None,
     the whole tree is scanned. Result is sorted and deduplicated.
     """
-    children = {}
+    children: dict[int, list[int]] = {}
     for pid, (ppid, _comm) in tree.items():
         children.setdefault(ppid, []).append(pid)
     if leader is not None and leader not in tree:
@@ -143,14 +145,14 @@ def gnome_shell_pids_in_tree(tree, leader):
     return sorted(found)
 
 
-def _process_tree() -> dict:
+def _process_tree() -> dict[int, tuple[int, str]]:
     """{pid: (ppid, comm)} for the live process table.
 
     /proc/<pid>/stat is `pid (comm) state ppid ...`; comm may contain
     spaces and parentheses, so the line is split at the last ')'.
     Unreadable entries are skipped (processes vanish mid-scan normally).
     """
-    tree = {}
+    tree: dict[int, tuple[int, str]] = {}
     try:
         entries = os.listdir("/proc")
     except OSError:
@@ -171,7 +173,7 @@ def _process_tree() -> dict:
     return tree
 
 
-def running_primary(leader_pid=None) -> tuple[str | None, str | None]:
+def running_primary(leader_pid: int | None = None) -> tuple[str | None, str | None]:
     """Card picked by gnome-shell in our session (e.g. 'card2'), and the
     error text when the journal could not be read (None on success).
 
@@ -244,7 +246,7 @@ def gnome_wayland_session() -> bool:
     )
 
 
-def detect(leader_pid=None) -> Detection:
+def detect(leader_pid: int | None = None) -> Detection:
     """Full detection snapshot used by the UI.
 
     leader_pid scopes the running-primary attribution to our session

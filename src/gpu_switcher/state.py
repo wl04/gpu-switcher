@@ -37,7 +37,7 @@ class Outcome(Enum):
     unknown = "unknown"
 
 
-def outcome_from_result(ok, refresh_ok, timed_out):
+def outcome_from_result(ok: bool, refresh_ok: bool, timed_out: bool) -> Outcome:
     """Outcome for a completed SetPrimary/SetAuto result.
 
     A timeout is unknown regardless of the rest: the client gave up
@@ -51,7 +51,7 @@ def outcome_from_result(ok, refresh_ok, timed_out):
     return Outcome.success_refreshed if refresh_ok else Outcome.success_refresh_failed
 
 
-def is_gio_timeout(error) -> bool:
+def is_gio_timeout(error: GLib.Error) -> bool:
     """True when a GLib.Error is G_IO_ERROR_TIMEOUT (g-io-error-quark, 5).
 
     pygobject does not expose Gio.GIOError, so the quark+code check is
@@ -60,7 +60,7 @@ def is_gio_timeout(error) -> bool:
     return error.matches(GLib.quark_from_string("g-io-error-quark"), G_IO_ERROR_TIMEOUT)
 
 
-def logout_enabled(busy, outcome) -> bool:
+def logout_enabled(busy: bool, outcome: Outcome) -> bool:
     """Sensitivity rule: Log out is enabled iff not busy AND the outcome
     is success_refreshed — the tags are fresh, so a logout/login switches
     the primary without another prompt. A failed refresh, a call that
@@ -69,7 +69,7 @@ def logout_enabled(busy, outcome) -> bool:
     return not busy and outcome is Outcome.success_refreshed
 
 
-def banner_kind(outcome) -> str:
+def banner_kind(outcome: Outcome) -> str:
     """Banner style for a completed, non-timeout Apply/Reset: success when
     the refresh succeeded, warning when it failed (rule on disk, a reboot
     is required)."""

@@ -211,7 +211,7 @@ def _our_session_path() -> str:
     return seated[0] if len(seated) == 1 else ""
 
 
-def session_leader():
+def session_leader() -> int | None:
     """The pid of the session leader of our logind session, or None when
     it cannot be determined.
 

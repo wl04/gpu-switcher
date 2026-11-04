@@ -124,7 +124,9 @@ _LOG_MAX_BYTES = 1024 * 1024
 # logging is rate-limited per (sender, method) window.
 _METHOD_CALL_WINDOW_S = 60.0
 _METHOD_CALL_LIMIT = 20
-_method_call_counts = {}  # (sender, method) -> [count, window_start, noted]
+_method_call_counts: dict[
+    tuple[str, str], list
+] = {}  # (sender, method) -> [count, window_start, noted]
 
 # udevadm verification / refresh states. The distinction matters: a
 # refresh that could not be verified (udevadm missing) must be reported
@@ -503,7 +505,7 @@ def _trigger_drm():
     return out.returncode == 0
 
 
-def parse_udev_current_tags(output):
+def parse_udev_current_tags(output: str) -> list[str]:
     """The CURRENT_TAGS of a udevadm info --query=property dump as a list.
 
     The dump is KEY=VALUE lines; CURRENT_TAGS is colon-separated with a
@@ -599,7 +601,7 @@ def _backup_rule():
         return ""
 
 
-def handle_status(connection, sender, params, invocation):
+def handle_status(connection, sender, params, invocation) -> None:
     locale = params[0]
     tr = _translator(locale)
     rule = read_text(MANAGED_RULE)
@@ -610,7 +612,7 @@ def handle_status(connection, sender, params, invocation):
     invocation.return_value(GLib.Variant("(ss)", (rule, message)))
 
 
-def handle_set_primary(connection, sender, params, invocation):
+def handle_set_primary(connection, sender, params, invocation) -> None:
     pci, locale = params
     tr = _translator(locale)
     _log(f"SetPrimary: pci={pci} locale={locale} sender={sender}")
@@ -835,7 +837,7 @@ def handle_set_primary(connection, sender, params, invocation):
     invocation.return_value(GLib.Variant("(bssb)", (True, message, backup, refresh_ok)))
 
 
-def handle_set_auto(connection, sender, params, invocation):
+def handle_set_auto(connection, sender, params, invocation) -> None:
     locale = params[0]
     tr = _translator(locale)
     _log(f"SetAuto: locale={locale} sender={sender}")
@@ -978,7 +980,7 @@ def _reset_idle_timer():
 
 def handle_method_call(
     connection, sender, object_path, interface_name, method_name, params, invocation
-):
+) -> None:
     if _method_call_allowed(sender, method_name):
         _log(f"method call: {method_name} from {sender}")
     try:
@@ -1007,15 +1009,15 @@ def handle_method_call(
 _LOOP = None
 
 
-def on_bus_acquired(connection, name):
+def on_bus_acquired(connection, name) -> None:
     _log(f"connected to system bus (name: {name})")
 
 
-def on_name_acquired(connection, name):
+def on_name_acquired(connection, name) -> None:
     _log(f"name acquired: {name}; ready to serve calls")
 
 
-def on_name_lost(connection, name):
+def on_name_lost(connection, name) -> None:
     where = (
         "on the owning connection" if connection is not None else "connection closed"
     )
@@ -1024,7 +1026,7 @@ def on_name_lost(connection, name):
         _LOOP.quit()
 
 
-def main():
+def main() -> None:
     global _LOOP
     _log(f"helper starting (uid={os.getuid()}, argv={sys.argv})")
     _LOOP = GLib.MainLoop.new(None, False)
