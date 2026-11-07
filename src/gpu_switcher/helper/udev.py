@@ -49,6 +49,21 @@ def check_udevadm() -> bool:
     return _udevadm_available
 
 
+def _decode(stream) -> str:
+    """Decode a subprocess output stream to text.
+
+    communicate_finish hands back GLib.Bytes (or None for an empty stream),
+    never Python bytes; normalize both to a str before decoding.
+    """
+    if stream is None:
+        return ""
+    if isinstance(stream, bytes):
+        raw = stream
+    else:
+        raw = stream.get_data()
+    return raw.decode("utf-8", "replace")
+
+
 def run_udev_async(argv, on_done, cancellable=None):
     """Run one udevadm step asynchronously under the per-step timeout.
 
@@ -85,12 +100,13 @@ def run_udev_async(argv, on_done, cancellable=None):
             print(f"{argv[0]}: {error}", file=sys.stderr)
             on_done(1, "", str(error))
             return
+        out_text = _decode(out)
+        err_text = _decode(err)
         print(
-            f"{argv[0]} rc={rc} output="
-            f"{out.decode('utf-8', 'replace').strip() or err.decode('utf-8', 'replace').strip() or '-'}",
+            f"{argv[0]} rc={rc} output={out_text.strip() or err_text.strip() or '-'}",
             file=sys.stderr,
         )
-        on_done(rc, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"))
+        on_done(rc, out_text, err_text)
 
     proc.communicate_async(None, step_cancellable, on_communicate, None)
 

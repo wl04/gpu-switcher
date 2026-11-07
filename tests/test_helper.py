@@ -108,11 +108,16 @@ def _fake_udev(results: dict[Any, Any], started: list[list[Any]]) -> Any:
         if spec.get("error") is not None:
             proc.communicate_finish.side_effect = spec["error"]
         else:
-            # communicate_finish returns Python bytes (matching the real API).
+            # The real communicate_finish returns GLib.Bytes (or None for an
+            # empty stream), not Python bytes. Model that faithfully so a
+            # decode() call on the stream surfaces in the test.
+            def _gb(v: str) -> Any:
+                return GLib.Bytes.new(v.encode("utf-8")) if v else None
+
             proc.communicate_finish.return_value = (
                 True,
-                spec.get("out", "").encode("utf-8"),
-                spec.get("err", "").encode("utf-8"),
+                _gb(spec.get("out", "")),
+                _gb(spec.get("err", "")),
             )
         proc.get_exit_status.return_value = spec.get("rc", 0)
         started.append(list(argv))
