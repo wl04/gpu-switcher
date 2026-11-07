@@ -597,6 +597,16 @@ class GpuSwitcherApp(Gtk.Application):
     # ------------------------------------------------------------- lifecycle
 
     def do_activate(self) -> None:
+        # A second start of the app must not build a second window:
+        # present the existing one (single-instance via GApplication).
+        if self.window is not None:
+            if self.window.is_destroyed():
+                # The window was closed; the app is still running, so
+                # fall through and build a new window.
+                self.window = None
+            else:
+                self.window.present()
+                return
         self.window = Gtk.ApplicationWindow(application=self)
         self.window.set_title("gpu-switcher")
         self.window.set_default_size(560, 430)
