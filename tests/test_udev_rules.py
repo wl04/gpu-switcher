@@ -10,7 +10,13 @@ import os
 import tempfile
 import unittest
 
-from gpu_switcher.core.udev import MUTTER_ENV, MUTTER_TAG, read_text, rule_conflicts
+from gpu_switcher.core.udev import (
+    MUTTER_ENV,
+    MUTTER_TAG,
+    OnUnreadable,
+    read_text,
+    rule_conflicts,
+)
 
 TAG_LINE = f'SUBSYSTEM=="drm", TAG+="{MUTTER_TAG}"\n'
 ENV_LINE = f'ENV{{{MUTTER_ENV}}}="1"\n'
@@ -38,12 +44,16 @@ class RuleConflicts(unittest.TestCase):
     def test_rule_conflicts_finds_rule_setting_mutter_tag(self):
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, TAG_LINE)
-        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
+        )
 
     def test_rule_conflicts_finds_rule_setting_legacy_env_variable(self):
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, ENV_LINE)
-        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
+        )
 
     def test_rule_conflicts_ignores_unassign_and_match_lines(self):
         # TAG-= (unset) and TAG== (match expression) are not assignments
@@ -55,7 +65,9 @@ class RuleConflicts(unittest.TestCase):
             f'SUBSYSTEM=="drm", TAG=="{MUTTER_TAG}"\n'
             f'SUBSYSTEM=="drm", ENV{{{MUTTER_ENV}}}!=""\n',
         )
-        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [])
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), []
+        )
 
     def test_rule_conflicts_finds_plain_assignment_lines(self):
         path = os.path.join(self.dir_a, "10-other.rules")
@@ -63,12 +75,16 @@ class RuleConflicts(unittest.TestCase):
             path,
             f'SUBSYSTEM=="drm", TAG="{MUTTER_TAG}"\nENV{{{MUTTER_ENV}}}="1"\n',
         )
-        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
+        )
 
     def test_rule_conflicts_ignores_comment_lines(self):
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, f"# {MUTTER_TAG}\n# {ENV_LINE}")
-        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [])
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), []
+        )
 
     def test_rule_conflicts_skips_managed_rule_file(self):
         managed = os.path.join(self.dir_a, "61-mutter-primary-gpu.rules")
@@ -76,7 +92,9 @@ class RuleConflicts(unittest.TestCase):
         clean = os.path.join(self.dir_a, "10-clean.rules")
         self._write_rule(clean, 'SUBSYSTEM=="drm"\n')
         self.assertEqual(
-            rule_conflicts((self.dir_a,), managed_rule=managed, on_unreadable="skip"),
+            rule_conflicts(
+                (self.dir_a,), managed_rule=managed, on_unreadable=OnUnreadable.SKIP
+            ),
             [],
         )
 
@@ -92,19 +110,30 @@ class RuleConflicts(unittest.TestCase):
                 self._write_rule(earlier, earlier_text)
                 self._write_rule(later, later_text)
                 self.assertEqual(
-                    rule_conflicts((self.dir_a, self.dir_b), on_unreadable="skip"),
+                    rule_conflicts(
+                        (self.dir_a, self.dir_b), on_unreadable=OnUnreadable.SKIP
+                    ),
                     expected,
                 )
 
     def test_rule_conflicts_skips_unreadable_file_in_app_mode(self):
         path = os.path.join(self.dir_a, "10-broken.rules")
         self._make_unreadable(path)
-        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [])
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), []
+        )
 
     def test_rule_conflicts_flags_unreadable_file_in_helper_mode(self):
         path = os.path.join(self.dir_a, "10-broken.rules")
         self._make_unreadable(path)
-        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="flag"), [path])
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.FLAG), [path]
+        )
+
+    def test_rule_conflicts_raises_on_unknown_on_unreadable(self):
+        # An unknown mode must not silently behave like "skip".
+        with self.assertRaises(ValueError):
+            rule_conflicts((self.dir_a,), on_unreadable="bogus")
 
 
 class ReadText(unittest.TestCase):

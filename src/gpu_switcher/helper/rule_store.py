@@ -90,13 +90,13 @@ def refresh_message(tr, state, *, leading, backup="", verified_sentence):
     backup sentence, and the sentence describing the refresh outcome,
     joined by single spaces. The catalog entries (po/) are the sentence
     fragments chosen so the composition reproduces the full localized
-    sentence exactly in every shipped language. `state` is a REFRESH_*
+    sentence exactly in every shipped language. `state` is a RefreshState
     constant; `backup` is '' when there is no backup.
     """
     prefix = leading
     if backup:
         prefix += " " + tr("A backup was saved to %s.") % backup
-    if state == hud.REFRESH_UNSUPPORTED:
+    if state == hud.RefreshState.UNSUPPORTED:
         return (
             prefix
             + " "
@@ -105,7 +105,7 @@ def refresh_message(tr, state, *, leading, backup="", verified_sentence):
                 "(udevadm unavailable); a reboot is required."
             )
         )
-    if state == hud.REFRESH_FAILED:
+    if state == hud.RefreshState.FAILED:
         return prefix + " " + tr("The udev refresh failed; a reboot is required.")
     return prefix + " " + verified_sentence
 
@@ -142,7 +142,7 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
         )
 
         def on_refresh(state):
-            refresh_ok = state == hud.REFRESH_VERIFIED
+            refresh_ok = state == hud.RefreshState.VERIFIED
             message = refresh_message(
                 tr,
                 state,
@@ -158,7 +158,7 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
         hud.refresh_udev_async(card, on_refresh, cancellable)
 
     def after_verify(state, tmp_path):
-        if state == hud.REFRESH_FAILED:
+        if state == hud.RefreshState.FAILED:
             try:
                 os.unlink(tmp_path)
             except OSError:

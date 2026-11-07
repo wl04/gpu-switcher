@@ -8,6 +8,7 @@ dialog cannot linger.
 
 import sys
 import uuid
+from enum import Enum
 
 import gi
 
@@ -15,6 +16,17 @@ gi.require_version("GLib", "2.0")
 from gi.repository import GLib
 
 from gpu_switcher.core.udev import G_IO_ERROR_TIMEOUT, POLKIT_TIMEOUT_MS
+
+
+class AuthStatus(Enum):
+    """Outcome of the polkit CheckAuthorization step."""
+
+    AUTHORIZED = "authorized"
+    DENIED = "denied"
+    CANCELLED = "cancelled"  # dialog dismissed
+    TIMEOUT = "timeout"  # our budget expired; the check is cancelled
+    ERROR = "error"  # the check itself failed
+
 
 POLKIT_ACTION = "com.github.wl04.gpu_switcher.set-primary"
 POLKIT_IFACE = "org.freedesktop.PolicyKit1.Authority"
@@ -36,8 +48,8 @@ def authorize(connection, sender, locale, on_done, cancellable=None):
     details), so the reply body type is ((bba{ss})).
 
     Asynchronous: on_done(status, detail) is called from the reply
-    callback; status is "authorized", "denied", "cancelled" (dialog
-    dismissed), "timeout", or "error"; detail describes a failed check
+    callback; status is an AuthStatus member; detail describes a
+    failed check
     and is empty otherwise. The check is issued with the shared
     POLKIT_TIMEOUT_MS budget (the client's budget exceeds it, so this
     timeout always resolves first).
@@ -76,10 +88,10 @@ def authorize(connection, sender, locale, on_done, cancellable=None):
                 if cancellable is not None:
                     cancellable.cancel()
                 cancel_check_authorization(connection, cancellation_id)
-                on_done("timeout", "")
+                on_done(AuthStatus.TIMEOUT, "")
                 return
             print(f"polkit CheckAuthorization failed: {message}", file=sys.stderr)
-            on_done("error", message)
+            on_done(AuthStatus.ERROR, message)
             return
         # Reply body is one struct (b b a{ss}):
         # (authorized, whether_challenge, details).
@@ -91,11 +103,11 @@ def authorize(connection, sender, locale, on_done, cancellable=None):
         )
         if not authorized:
             if details.get("polkit.dismissed"):
-                on_done("cancelled", "")
+                on_done(AuthStatus.CANCELLED, "")
                 return
-            on_done("denied", "")
+            on_done(AuthStatus.DENIED, "")
             return
-        on_done("authorized", "")
+        on_done(AuthStatus.AUTHORIZED, "")
 
     connection.call(
         "org.freedesktop.PolicyKit1",

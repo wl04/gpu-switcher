@@ -38,6 +38,7 @@ from gpu_switcher.core import gpu
 from gpu_switcher.core import udev as udev_rules
 from gpu_switcher.helper import auth, rule_store, service
 from gpu_switcher.helper import udev as hud
+from gpu_switcher.helper.auth import AuthStatus
 
 _IO_QUARK = GLib.quark_from_string("g-io-error-quark")
 
@@ -255,21 +256,23 @@ class Authorize(unittest.TestCase):
 
     def test_authorize_reports_authorized(self):
         conn = _polkit_conn(reply=((True, False, {}),))
-        self.assertEqual(_run_authorize(conn), ("authorized", ""))
+        self.assertEqual(_run_authorize(conn), (AuthStatus.AUTHORIZED, ""))
 
     def test_authorize_reports_denied(self):
         conn = _polkit_conn(reply=((False, False, {}),))
-        self.assertEqual(_run_authorize(conn), ("denied", ""))
+        self.assertEqual(_run_authorize(conn), (AuthStatus.DENIED, ""))
 
     def test_authorize_reports_cancelled_when_dialog_dismissed(self):
         conn = _polkit_conn(reply=((False, False, {"polkit.dismissed": True}),))
-        self.assertEqual(_run_authorize(conn), ("cancelled", ""))
+        self.assertEqual(_run_authorize(conn), (AuthStatus.CANCELLED, ""))
 
     def test_authorize_reports_error_on_check_authorization_failure(self):
         conn = _polkit_conn(
             call_error=GLib.Error.new_literal(_IO_QUARK, "polkitd is not running", 8)
         )
-        self.assertEqual(_run_authorize(conn), ("error", "polkitd is not running"))
+        self.assertEqual(
+            _run_authorize(conn), (AuthStatus.ERROR, "polkitd is not running")
+        )
 
     def test_authorize_returns_timeout_cancels_check_when_polkit_times_out(self):
         conn = _polkit_conn(
@@ -277,7 +280,7 @@ class Authorize(unittest.TestCase):
         )
         cancellable = Gio.Cancellable.new()
         status, detail = _run_authorize(conn, cancellable=cancellable)
-        self.assertEqual((status, detail), ("timeout", ""))
+        self.assertEqual((status, detail), (AuthStatus.TIMEOUT, ""))
         self.assertTrue(cancellable.is_cancelled())
         self.assertTrue(conn.call_sync.called)
         self.assertEqual(conn.call_sync.call_args[0][3], "CancelCheckAuthorization")
@@ -285,7 +288,7 @@ class Authorize(unittest.TestCase):
     def test_authorize_does_not_treat_io_error_code_5_as_timeout(self):
         conn = _polkit_conn(call_error=GLib.Error.new_literal(_IO_QUARK, "io", 5))
         status, detail = _run_authorize(conn)
-        self.assertEqual(status, "error")
+        self.assertEqual(status, AuthStatus.ERROR)
         self.assertEqual(detail, "io")
         self.assertFalse(conn.call_sync.called)
 
@@ -312,8 +315,8 @@ class SetPrimaryAuthorization(unittest.TestCase):
                 )
             return invocation.return_value.call_args[0][0].unpack()
 
-        denied = run("denied", "")
-        error = run("error", "polkitd is not running")
+        denied = run(AuthStatus.DENIED, "")
+        error = run(AuthStatus.ERROR, "polkitd is not running")
 
         self.assertEqual(
             denied, (False, "Authorization was denied. Nothing changed.", "", False)
@@ -332,7 +335,9 @@ class SetPrimaryAuthorization(unittest.TestCase):
     def test_set_primary_reports_conflict_when_other_rule_sets_tag(self):
         invocation = _invocation()
         with (
-            mock.patch.object(auth, "authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(
+                auth, "authorize", _fake_authorize(AuthStatus.AUTHORIZED, "")
+            ),
             mock.patch.object(
                 service, "rule_conflicts", return_value=["/etc/udev/rules.d/10-x.rules"]
             ),
@@ -360,7 +365,9 @@ class SetPrimaryAuthorization(unittest.TestCase):
     def test_set_primary_reports_invalid_pci(self):
         invocation = _invocation()
         with (
-            mock.patch.object(auth, "authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(
+                auth, "authorize", _fake_authorize(AuthStatus.AUTHORIZED, "")
+            ),
             mock.patch.object(service, "rule_conflicts", return_value=[]),
             mock.patch.object(service, "resolve_gpu", return_value=None),
         ):
@@ -466,7 +473,7 @@ class VerifyRule(unittest.TestCase):
         ):
             result = []
             hud.verify_rule_async("/tmp/r.rules", result.append)
-            self.assertEqual(result, [hud.REFRESH_VERIFIED])
+            self.assertEqual(result, [hud.RefreshState.VERIFIED])
         self.assertEqual(started, [[hud.UDEVDADM, "verify", "/tmp/r.rules"]])
 
     def test_verify_rule_returns_failed_when_udevadm_rejects(self):
@@ -476,7 +483,7 @@ class VerifyRule(unittest.TestCase):
         ):
             result = []
             hud.verify_rule_async("/tmp/r.rules", result.append)
-            self.assertEqual(result, [hud.REFRESH_FAILED])
+            self.assertEqual(result, [hud.RefreshState.FAILED])
 
     def test_verify_rule_returns_failed_when_step_times_out(self):
         error = GLib.Error.new_literal(_IO_QUARK, "Operation was cancelled", 8)
@@ -488,14 +495,14 @@ class VerifyRule(unittest.TestCase):
         ):
             result = []
             hud.verify_rule_async("/tmp/r.rules", result.append)
-            self.assertEqual(result, [hud.REFRESH_FAILED])
+            self.assertEqual(result, [hud.RefreshState.FAILED])
 
     def test_verify_rule_returns_unsupported_when_udevadm_missing(self):
         started = []
         with mock.patch.object(hud, "check_udevadm", return_value=False):
             result = []
             hud.verify_rule_async("/tmp/r.rules", result.append)
-            self.assertEqual(result, [hud.REFRESH_UNSUPPORTED])
+            self.assertEqual(result, [hud.RefreshState.UNSUPPORTED])
         self.assertEqual(started, [])
 
 
@@ -516,7 +523,9 @@ class RefreshUdev(unittest.TestCase):
     def test_refresh_udev_returns_verified_when_every_step_succeeds_and_tag_present(
         self,
     ):
-        self.assertEqual(self._run(_ok_results("card1"), "card1"), hud.REFRESH_VERIFIED)
+        self.assertEqual(
+            self._run(_ok_results("card1"), "card1"), hud.RefreshState.VERIFIED
+        )
         self.assertEqual(
             self.started,
             [
@@ -528,23 +537,23 @@ class RefreshUdev(unittest.TestCase):
 
     def test_refresh_udev_returns_failed_when_reload_fails(self):
         results = {RELOAD_ARGV: {"rc": 1}, TRIGGER_ARGV: {"rc": 0}}
-        self.assertEqual(self._run(results, None), hud.REFRESH_FAILED)
+        self.assertEqual(self._run(results, None), hud.RefreshState.FAILED)
         self.assertEqual(len(self.started), 1)
 
     def test_refresh_udev_returns_failed_when_trigger_fails(self):
         results = {RELOAD_ARGV: {"rc": 0}, TRIGGER_ARGV: {"rc": 1}}
-        self.assertEqual(self._run(results, None), hud.REFRESH_FAILED)
+        self.assertEqual(self._run(results, None), hud.RefreshState.FAILED)
         self.assertEqual(len(self.started), 2)
 
     def test_refresh_udev_returns_failed_when_tag_absent(self):
         results = _ok_results("card1")
         results[_info_argv("card1")] = {"rc": 0, "out": "CURRENT_TAGS=:seat:\n"}
-        self.assertEqual(self._run(results, "card1"), hud.REFRESH_FAILED)
+        self.assertEqual(self._run(results, "card1"), hud.RefreshState.FAILED)
 
     def test_refresh_udev_returns_failed_when_tag_query_fails(self):
         results = _ok_results("card1")
         results[_info_argv("card1")] = {"rc": 1}
-        self.assertEqual(self._run(results, "card1"), hud.REFRESH_FAILED)
+        self.assertEqual(self._run(results, "card1"), hud.RefreshState.FAILED)
 
     def test_refresh_udev_returns_unsupported_when_udevadm_missing(self):
         with (
@@ -553,11 +562,11 @@ class RefreshUdev(unittest.TestCase):
         ):
             out = []
             hud.refresh_udev_async(None, out.append)
-            self.assertEqual(out, [hud.REFRESH_UNSUPPORTED])
+            self.assertEqual(out, [hud.RefreshState.UNSUPPORTED])
         self.assertEqual(self.started, [])
 
     def test_refresh_udev_without_card_skips_tag_check(self):
-        self.assertEqual(self._run(_ok_results(None), None), hud.REFRESH_VERIFIED)
+        self.assertEqual(self._run(_ok_results(None), None), hud.RefreshState.VERIFIED)
         self.assertEqual(len(self.started), 2)
 
 
@@ -601,7 +610,9 @@ class SetPrimaryTransactionBase(unittest.TestCase):
         patches = [
             _fake_udev(results, []),
             mock.patch.object(rule_store, "MANAGED_RULE", self.rule),
-            mock.patch.object(auth, "authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(
+                auth, "authorize", _fake_authorize(AuthStatus.AUTHORIZED, "")
+            ),
             mock.patch.object(service, "rule_conflicts", return_value=[]),
             mock.patch.object(
                 service, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
@@ -764,7 +775,9 @@ class SetAutoTransactionBase(unittest.TestCase):
         patches = [
             _fake_udev(results or _ok_results(None), []),
             mock.patch.object(rule_store, "MANAGED_RULE", self.rule),
-            mock.patch.object(auth, "authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(
+                auth, "authorize", _fake_authorize(AuthStatus.AUTHORIZED, "")
+            ),
             mock.patch.object(hud, "check_udevadm", return_value=udevadm),
             mock.patch("os.chown"),
         ]

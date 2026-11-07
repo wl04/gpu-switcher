@@ -22,6 +22,7 @@ import subprocess
 
 from gpu_switcher.core.udev import (
     MANAGED_RULE,
+    OnUnreadable,
     is_display_gpu,
     read_text,
     rule_conflicts,
@@ -304,6 +305,6 @@ def detect(leader_pid: int | None = None) -> Detection:
         running_card=running_card,
         running_card_error=running_card_error,
         preferred_pci=preferred,
-        conflicts=rule_conflicts(on_unreadable="skip"),
+        conflicts=rule_conflicts(on_unreadable=OnUnreadable.SKIP),
         gnome_wayland=gnome_wayland_session(),
     )

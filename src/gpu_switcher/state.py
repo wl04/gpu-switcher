@@ -37,6 +37,15 @@ class Outcome(Enum):
     unknown = "unknown"
 
 
+class BannerKind(Enum):
+    """The result banner's style (main.py maps these to Adwaita classes)."""
+
+    SUCCESS = "success"
+    WARNING = "warning"
+    ERROR = "error"
+    INFO = "info"
+
+
 def outcome_from_result(ok: bool, refresh_ok: bool, timed_out: bool) -> Outcome:
     """Outcome for a completed SetPrimary/SetAuto result.
 
@@ -71,10 +80,10 @@ def logout_enabled(busy: bool, outcome: Outcome) -> bool:
     return not busy and outcome is Outcome.success_refreshed
 
 
-def banner_kind(outcome: Outcome) -> str:
+def banner_kind(outcome: Outcome) -> BannerKind:
     """Banner style for a completed, non-timeout Apply/Reset: success when
     the refresh succeeded, warning when it failed (rule on disk, a reboot
     is required)."""
     if outcome is Outcome.success_refreshed:
-        return "success"
-    return "warning"
+        return BannerKind.SUCCESS
+    return BannerKind.WARNING

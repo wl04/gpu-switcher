@@ -21,6 +21,7 @@ from gi.repository import GLib
 os.environ["LC_ALL"] = "en"
 
 from gpu_switcher.state import (
+    BannerKind,
     Outcome,
     actions_enabled,
     banner_kind,
@@ -86,8 +87,10 @@ class BannerRule(unittest.TestCase):
         # warning style: the rule is on disk, a reboot is required
         # (the helper's refresh-failed message asserts the wording in
         # test_helper.SetPrimaryRefresh).
-        self.assertEqual(banner_kind(Outcome.success_refresh_failed), "warning")
-        self.assertEqual(banner_kind(Outcome.success_refreshed), "success")
+        self.assertEqual(
+            banner_kind(Outcome.success_refresh_failed), BannerKind.WARNING
+        )
+        self.assertEqual(banner_kind(Outcome.success_refreshed), BannerKind.SUCCESS)
 
 
 if __name__ == "__main__":

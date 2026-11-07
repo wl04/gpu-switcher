@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+from enum import Enum
 
 # ---------------------------------------------------------------------------
 # D-Bus error names: first-class, stable contract shared by the helper
@@ -76,6 +77,13 @@ RULE_DIRS = (
     "/usr/lib/udev/rules.d",
     "/lib/udev/rules.d",
 )
+
+
+class OnUnreadable(Enum):
+    """How rule_conflicts treats a .rules file it cannot read."""
+
+    SKIP = "skip"  # ignore (app side: the root helper is authoritative)
+    FLAG = "flag"  # report as a conflict (helper side: must block)
 
 
 def is_display_gpu(pci: str) -> str | None:
@@ -154,7 +162,7 @@ def rule_conflicts(
     rule_dirs: tuple[str, ...] = RULE_DIRS,
     managed_rule: str = MANAGED_RULE,
     *,
-    on_unreadable: str,
+    on_unreadable: OnUnreadable,
 ) -> list[str]:
     """Paths of the other udev rules that set the preferred-GPU tag.
 
@@ -165,10 +173,16 @@ def rule_conflicts(
     conflict. A base name seen in an earlier directory shadows the later
     one (the later copy is ignored).
 
-    `on_unreadable`: "skip" ignores files that cannot be read (app side:
-    the authoritative check runs in the root helper); "flag" reports them
-    as conflicts (helper side: a rule root cannot read must block).
+    `on_unreadable`: OnUnreadable.SKIP ignores files that cannot be read
+    (app side: the authoritative check runs in the root helper);
+    OnUnreadable.FLAG reports them as conflicts (helper side: a rule root
+    cannot read must block). An unknown value raises ValueError instead
+    of silently behaving like SKIP.
     """
+    if not isinstance(on_unreadable, OnUnreadable):
+        # ValueError (not TypeError): an unknown mode is an invalid argument
+        # value, and silently behaving like SKIP would mask the bug.
+        raise ValueError(f"unknown on_unreadable mode: {on_unreadable!r}")  # noqa: TRY004
     conflicts = []
     seen = set()
     for d in rule_dirs:
@@ -187,7 +201,7 @@ def rule_conflicts(
                 with open(path, encoding="utf-8", errors="replace") as f:
                     text = f.read()
             except OSError:
-                if on_unreadable == "flag":
+                if on_unreadable is OnUnreadable.FLAG:
                     conflicts.append(path)
                 continue
             lines = [l for l in text.splitlines() if not l.strip().startswith("#")]

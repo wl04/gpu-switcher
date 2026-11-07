@@ -1,15 +1,15 @@
 """udevadm verification / refresh steps for the helper.
 
 Every step runs as a Gio.Subprocess with a per-step timeout (the shared
-budget from core.udev) under a per-step cancellable.
-
-The verification / refresh states. The distinction matters: a refresh that
-could not be verified (udevadm missing) must be reported as such and must
-never enable the fast-path logout as though the tags were confirmed fresh.
+budget from core.udev) under a per-step cancellable. The RefreshState
+outcome distinguishes a refresh that could not be verified (udevadm
+missing) from one that confirmed the tags: the former must never enable
+the fast-path logout as though the tags were fresh.
 """
 
 import os
 import sys
+from enum import Enum
 
 import gi
 
@@ -19,9 +19,19 @@ from gi.repository import Gio, GLib
 
 from gpu_switcher.core.udev import MUTTER_TAG, UDEVDADM_STEP_TIMEOUT_S
 
-REFRESH_VERIFIED = "verified"  # every step succeeded; tags confirmed
-REFRESH_UNSUPPORTED = "unsupported"  # udevadm unavailable; cannot verify
-REFRESH_FAILED = "failed"  # a step errored, timed out, or was rejected
+
+class RefreshState(Enum):
+    """Verification / refresh state of the udevadm steps.
+
+    The distinction matters: a refresh that could not be verified (udevadm
+    missing) must be reported as such and must never enable the fast-path
+    logout as though the tags were confirmed fresh.
+    """
+
+    VERIFIED = "verified"  # every step succeeded; tags confirmed
+    UNSUPPORTED = "unsupported"  # udevadm unavailable; cannot verify
+    FAILED = "failed"  # a step errored, timed out, or was rejected
+
 
 # Absolute path by policy: the hardening is explicit about what runs, and a
 # PATH change must not substitute another udevadm.
@@ -87,21 +97,21 @@ def run_udev_async(argv, on_done, cancellable=None):
 
 def verify_rule_async(path, on_done, cancellable=None):
     """Run udevadm verify on the given path and report the verification
-    state: REFRESH_VERIFIED when it ran and accepted the rule,
-    REFRESH_UNSUPPORTED when udevadm cannot run (not a rejection, but the
-    rule is also not confirmed), REFRESH_FAILED when it errored, timed
+    state: RefreshState.VERIFIED when it ran and accepted the rule,
+    RefreshState.UNSUPPORTED when udevadm cannot run (not a rejection, but the
+    rule is also not confirmed), RefreshState.FAILED when it errored, timed
     out, or rejected the rule."""
     if not check_udevadm():
         print("udev verify: udevadm not available; rule not verified", file=sys.stderr)
-        on_done(REFRESH_UNSUPPORTED)
+        on_done(RefreshState.UNSUPPORTED)
         return
 
     def on_run(rc, _out, _err):
         if rc != 0:
             print(f"udev verify: rejected the rule (rc={rc})", file=sys.stderr)
-            on_done(REFRESH_FAILED)
+            on_done(RefreshState.FAILED)
         else:
-            on_done(REFRESH_VERIFIED)
+            on_done(RefreshState.VERIFIED)
 
     run_udev_async([UDEVDADM, "verify", path], on_run, cancellable)
 
@@ -205,9 +215,9 @@ def refresh_udev_async(card, on_done, cancellable=None):
     else is re-probed. When `card` is given (SetPrimary), the tag is
     checked on that card after the settled trigger; SetAuto passes no
     card, since other rules may legitimately set the tag. on_done(state)
-    reports REFRESH_VERIFIED only when every step succeeded,
-    REFRESH_UNSUPPORTED when udevadm is unavailable (the refresh could not
-    be verified, so it must not be treated as fresh), and REFRESH_FAILED
+    reports RefreshState.VERIFIED only when every step succeeded,
+    RefreshState.UNSUPPORTED when udevadm is unavailable (the refresh could not
+    be verified, so it must not be treated as fresh), and RefreshState.FAILED
     when a step failed.
     """
     if not check_udevadm():
@@ -215,24 +225,24 @@ def refresh_udev_async(card, on_done, cancellable=None):
             "udev refresh: udevadm not available; refresh not verified",
             file=sys.stderr,
         )
-        on_done(REFRESH_UNSUPPORTED)
+        on_done(RefreshState.UNSUPPORTED)
         return
 
     def after_reload(ok):
         if not ok:
-            on_done(REFRESH_FAILED)
+            on_done(RefreshState.FAILED)
             return
 
         def after_trigger(ok):
             if not ok:
-                on_done(REFRESH_FAILED)
+                on_done(RefreshState.FAILED)
                 return
             if card is None:
                 print(
                     "udev refresh: reload-rules and DRM trigger succeeded",
                     file=sys.stderr,
                 )
-                on_done(REFRESH_VERIFIED)
+                on_done(RefreshState.VERIFIED)
                 return
 
             def after_tag(has):
@@ -242,13 +252,13 @@ def refresh_udev_async(card, on_done, cancellable=None):
                         f"on {card} after refresh",
                         file=sys.stderr,
                     )
-                    on_done(REFRESH_FAILED)
+                    on_done(RefreshState.FAILED)
                     return
                 print(
                     "udev refresh: reload-rules, DRM trigger and tag check succeeded",
                     file=sys.stderr,
                 )
-                on_done(REFRESH_VERIFIED)
+                on_done(RefreshState.VERIFIED)
 
             card_has_tag_async(card, after_tag, cancellable)
 

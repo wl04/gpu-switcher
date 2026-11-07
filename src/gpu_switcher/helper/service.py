@@ -63,11 +63,13 @@ from gpu_switcher.core.gpu import resolve_gpu, rule_text
 from gpu_switcher.core.udev import (
     DBUS_ERROR_BUSY,
     DBUS_ERROR_INTERNAL,
+    OnUnreadable,
     read_text,
     rule_conflicts,
 )
 from gpu_switcher.helper import auth, rule_store
 from gpu_switcher.helper import udev as hud
+from gpu_switcher.helper.auth import AuthStatus
 from gpu_switcher.helper.errors import HelperFailure
 
 SERVICE_NAME = "com.github.wl04.gpu_switcher.Helper"
@@ -174,11 +176,11 @@ def _internal_error(invocation, detail):
 
 def authorization_message(tr, status, detail):
     """Localized reply for a call that was not authorized."""
-    if status == "denied":
+    if status is AuthStatus.DENIED:
         return tr("Authorization was denied. Nothing changed.")
-    if status == "cancelled":
+    if status is AuthStatus.CANCELLED:
         return tr("Authorization was cancelled. Nothing changed.")
-    if status == "timeout":
+    if status is AuthStatus.TIMEOUT:
         return tr("The authorization check timed out. Nothing changed.")
     return tr("Could not check authorization (%s). Nothing changed.") % detail
 
@@ -200,7 +202,7 @@ def _set_primary_plan(pci, tr):
     Root cannot skip unreadable rules: they may set the tag. Returns
     (card, vendor, device) when the target is valid.
     """
-    conflicts = rule_conflicts(on_unreadable="flag")
+    conflicts = rule_conflicts(on_unreadable=OnUnreadable.FLAG)
     if conflicts:
         print(f"SetPrimary: conflicts found: {conflicts}", file=sys.stderr)
         raise HelperFailure(
@@ -250,7 +252,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         )
 
     def on_auth(status, detail):
-        if status != "authorized":
+        if status is not AuthStatus.AUTHORIZED:
             print(
                 f"SetPrimary: authorization {status}; nothing changed", file=sys.stderr
             )
@@ -281,7 +283,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
                         verified_sentence=tr("Udev rules reloaded."),
                     ),
                     "",
-                    state == hud.REFRESH_VERIFIED,
+                    state == hud.RefreshState.VERIFIED,
                 )
 
             hud.refresh_udev_async(card, on_refresh_idempotent, cancellable)
@@ -350,7 +352,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
         invocation.return_value(GLib.Variant("(bsb)", (ok, message, refresh_ok)))
 
     def on_auth(status, detail):
-        if status != "authorized":
+        if status is not AuthStatus.AUTHORIZED:
             print(f"SetAuto: authorization {status}; nothing changed", file=sys.stderr)
             finish(False, authorization_message(tr, status, detail), False)
             return
@@ -369,7 +371,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
                 backup=backup,
                 verified_sentence=verified_sentence,
             )
-            finish(True, message, state == hud.REFRESH_VERIFIED)
+            finish(True, message, state == hud.RefreshState.VERIFIED)
 
         hud.refresh_udev_async(None, on_refresh, cancellable)
 

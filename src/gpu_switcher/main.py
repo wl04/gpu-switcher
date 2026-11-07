@@ -32,6 +32,7 @@ from .selection import (
     selection_after_failure,
 )
 from .state import (
+    BannerKind,
     Outcome,
     actions_enabled,
     banner_kind,
@@ -259,7 +260,7 @@ class GpuSwitcherApp(Gtk.Application):
                     "'Reset to auto' to remove it."
                 )
                 % self.unavailable_pci,
-                "warning",
+                BannerKind.WARNING,
             )
         elif result.conflicts:
             self._banner_show(
@@ -268,7 +269,7 @@ class GpuSwitcherApp(Gtk.Application):
                     "Resolve it manually first."
                 )
                 % result.conflicts[0],
-                "warning",
+                BannerKind.WARNING,
             )
 
     def _build_buttons(self) -> Gtk.Box:
@@ -338,12 +339,12 @@ class GpuSwitcherApp(Gtk.Application):
         if radio.get_active():
             self.selected_card = card
 
-    def _banner_show(self, text: str, kind: str) -> None:
+    def _banner_show(self, text: str, kind: BannerKind) -> None:
         for css_class in ("suggested-action", "destructive-action", "dim-label"):
             self.banner_box.remove_css_class(css_class)
-        if kind == "warning":
+        if kind is BannerKind.WARNING:
             self.banner_box.add_css_class("dim-label")
-        elif kind == "error":
+        elif kind is BannerKind.ERROR:
             self.banner_box.add_css_class("destructive-action")
         else:
             self.banner_box.add_css_class("suggested-action")
@@ -400,14 +401,14 @@ class GpuSwitcherApp(Gtk.Application):
                         "stays on disk; use 'Reset to auto' to remove it."
                     )
                     % self.unavailable_pci,
-                    "warning",
+                    BannerKind.WARNING,
                 )
             else:
                 # The card vanished since the row was built: re-check the
                 # world instead of applying a stale selection.
                 self._banner_show(
                     i18n._("The selected GPU is no longer detected; re-checking…"),
-                    "warning",
+                    BannerKind.WARNING,
                 )
                 self._refresh()
             return
@@ -467,7 +468,7 @@ class GpuSwitcherApp(Gtk.Application):
             # shown only after the rebuild (see _start_detection).
             self._refresh(banner=(message, banner_kind(self.outcome)))
         else:
-            self._banner_show(message, "error")
+            self._banner_show(message, BannerKind.ERROR)
             self._revert_selection()
 
     def _on_set_auto_done(self, ok, message, refresh_ok, timed_out) -> None:
@@ -481,7 +482,7 @@ class GpuSwitcherApp(Gtk.Application):
             # shown only after the rebuild (see _start_detection).
             self._refresh(banner=(message, banner_kind(self.outcome)))
         else:
-            self._banner_show(message, "error")
+            self._banner_show(message, BannerKind.ERROR)
             self._revert_selection()
 
     def _on_helper_timeout(self) -> None:
@@ -499,7 +500,7 @@ class GpuSwitcherApp(Gtk.Application):
                     "The operation timed out; the outcome is unknown. "
                     "The current state was rechecked."
                 ),
-                "warning",
+                BannerKind.WARNING,
             )
         )
 
@@ -533,10 +534,10 @@ class GpuSwitcherApp(Gtk.Application):
         def done(ok, message):
             if ok:
                 # The machine is going down; keep the UI calm.
-                self._banner_show(i18n._("Rebooting."), "info")
+                self._banner_show(i18n._("Rebooting."), BannerKind.INFO)
             else:
                 self._set_busy(False)
-                self._banner_show(message or i18n._("Reboot failed."), "error")
+                self._banner_show(message or i18n._("Reboot failed."), BannerKind.ERROR)
 
         bus.reboot(done)
 
@@ -556,7 +557,7 @@ class GpuSwitcherApp(Gtk.Application):
         if not ok:
             return
         self._set_busy(True)
-        self._banner_show(i18n._("Logging out."), "info")
+        self._banner_show(i18n._("Logging out."), BannerKind.INFO)
         bus.logout(self._on_logout_done)
 
     def _on_logout_done(self, ok, message) -> None:
@@ -564,7 +565,7 @@ class GpuSwitcherApp(Gtk.Application):
             # The session is ending; the app dies with it.
             return
         self._set_busy(False)
-        self._banner_show(message or i18n._("Log out failed."), "error")
+        self._banner_show(message or i18n._("Log out failed."), BannerKind.ERROR)
 
     def _refresh(self, banner=None) -> None:
         """Re-detect (read-only) and rebuild the window after a change.
@@ -590,7 +591,7 @@ class GpuSwitcherApp(Gtk.Application):
         self._detect_generation += 1
         generation = self._detect_generation
         if self.banner is not None:
-            self._banner_show(i18n._("Detecting…"), "info")
+            self._banner_show(i18n._("Detecting…"), BannerKind.INFO)
 
         def apply(result):
             if generation != self._detect_generation:
@@ -632,7 +633,7 @@ class GpuSwitcherApp(Gtk.Application):
                         box.append(label)
                         self.window.set_child(box)
                         return
-                    self._banner_show(error_message, "error")
+                    self._banner_show(error_message, BannerKind.ERROR)
 
                 GLib.idle_add(show_error)
                 return
