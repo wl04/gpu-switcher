@@ -1,13 +1,9 @@
 """Unit tests for the unprivileged detection in detect.py.
 
-Covers the gnome-shell journal line matching, the pure parsing cores,
-the GNOME/Wayland session classification (XDG_CURRENT_DESKTOP
-normalization, fallback to shell presence), the pure process-tree scan
-for the uid-scoped gnome-shell pids, the uid-scoped journal attribution
-of the running primary, and the journal error/absence distinction.
-External binaries (lspci, journalctl) are replaced by stubs in the unit
-tests; the real commands are exercised by the manual end-to-end
-verification.
+Covers the journal line matching, the pure parsers, the GNOME/Wayland
+session check, the uid-scoped gnome-shell pid scan and journal attribution,
+and the journal error vs. absence distinction. lspci and journalctl are
+stubbed; the real commands are covered by the manual end-to-end check.
 """
 
 import os
@@ -17,10 +13,9 @@ import unittest
 from typing import Any
 from unittest import mock
 
-# gpu_switcher.i18n binds its gettext function at import time, so the
-# locale must be pinned before the app import: the assertions below
-# compare English catalog strings and must hold under any developer
-# locale. LANGUAGE is cleared so it cannot override the LC_ALL pin.
+# i18n binds gettext at import time: pin the locale before importing the app
+# so English strings are asserted under any developer locale (LANGUAGE would
+# override LC_ALL, so it is cleared).
 os.environ["LC_ALL"] = "en"
 os.environ.pop("LANGUAGE", None)
 

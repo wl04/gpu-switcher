@@ -1,9 +1,8 @@
-"""Unit tests for the shared udev rule scanning in udev_rules.py.
+"""Unit tests for the udev rule scan in core/udev.py.
 
-The scan is shared by the unprivileged app (unreadable rules are skipped;
-the authoritative check runs in the root helper) and the helper (unreadable
-rules must block), so both unreadable modes and the udev load-order
-semantics (earlier directory shadows the later one) are tested here.
+The app skips unreadable rules (the helper's check is authoritative) while the
+helper must treat them as conflicts, so both modes are tested, along with
+udev's load order (an earlier directory shadows a later one).
 """
 
 import os

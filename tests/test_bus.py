@@ -1,8 +1,8 @@
 """Unit tests for the app-side D-Bus clients (gpu_switcher/bus.py).
 
-Mocks Gio.bus_get_sync and the returned connection: pins the session
-manager logout call (session bus, destination, path, interface, method,
-mode argument) and the localized failure forwarding when the session
+Mocks Gio.bus_get_sync and the connection. Pins the session manager logout
+call, the call dispatch (success vs. error handlers, remote-error prefix
+stripping), the timeout budget, and the localized failure message when the
 bus is unavailable.
 """
 
@@ -16,10 +16,9 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
-# gpu_switcher.i18n binds its gettext function at import time, so the
-# locale must be pinned before the app import: the assertions below
-# compare English catalog strings and must hold under any developer
-# locale. LANGUAGE is cleared so it cannot override the LC_ALL pin.
+# i18n binds gettext at import time: pin the locale before importing the app
+# so English strings are asserted under any developer locale (LANGUAGE would
+# override LC_ALL, so it is cleared).
 os.environ["LC_ALL"] = "en"
 os.environ.pop("LANGUAGE", None)
 

@@ -1,10 +1,8 @@
 """Tests for the GPU row builder in the GTK UI.
 
-GTK widgets can be constructed headless (no display), so the row builder is
-testable here. Each GPU row is a two-line block: the name on its own line (the
-radio's child, so it is the row's accessible name and is clickable), and the
-PCI address plus status badges on a second line. This keeps the window from
-stretching to name + PCI + badges on one line.
+Each GPU row is two lines: the name (the radio's child, so it is the
+accessible name and is clickable) and below it the PCI address plus badges,
+which keeps the window narrow.
 """
 
 import unittest

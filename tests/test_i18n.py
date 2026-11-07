@@ -1,11 +1,9 @@
 """Unit tests for the gettext setup in i18n.py.
 
-Pins the locale variable precedence (LANGUAGE > LC_ALL > LC_MESSAGES >
-LANG > en), the catalog search order (installed location before the source
-tree), catalog completeness (every msgid has a translation in every shipped
-locale), and the reference-compiler guards: catalog consistency
-(`msgfmt -c`) and readability of a msgfmt-built catalog by CPython's
-gettext.
+Covers locale variable precedence (LANGUAGE > LC_ALL > LC_MESSAGES > LANG >
+en), the catalog search order (installed before source tree), catalog
+completeness (every msgid translated in every shipped locale), `msgfmt -c`
+consistency, and that CPython's gettext can read a msgfmt-built catalog.
 """
 
 import gettext
@@ -18,10 +16,9 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
-# gpu_switcher.i18n binds its gettext function at import time, so the
-# locale must be pinned before the app import: the assertions below
-# compare English catalog strings and must hold under any developer
-# locale. LANGUAGE is cleared so it cannot override the LC_ALL pin.
+# i18n binds gettext at import time: pin the locale before importing the app
+# so English strings are asserted under any developer locale (LANGUAGE would
+# override LC_ALL, so it is cleared).
 os.environ["LC_ALL"] = "en"
 os.environ.pop("LANGUAGE", None)
 

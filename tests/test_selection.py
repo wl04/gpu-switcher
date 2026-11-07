@@ -1,9 +1,8 @@
 """Unit tests for the pure selection logic in selection.py.
 
-The app must always reflect the configured state: the radio selection is
-the card matching the managed rule on disk, the configured-unavailable
-state when the rule pins a GPU that is not currently detected, and auto
-when no rule pins a GPU (including when no GPUs are detected at all).
+The selection mirrors the managed rule: its card, the unavailable state when
+the rule pins an undetected GPU, and auto when no rule pins a GPU (also when
+no GPUs are detected).
 """
 
 import unittest

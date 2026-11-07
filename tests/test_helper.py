@@ -1,24 +1,16 @@
 """Unit tests for the root D-Bus helper (gpu_switcher/helper/).
 
-Covers the pure PCI-format validation, the /sys resolution failure paths
-(stubbed filesystem), the managed rule line format (golden string matching
-the reference script mutter-primary-gpu.sh), the polkit authorization
-(subject binding, cancellation id, result statuses — mocked D-Bus), the
-distinct authorization-failure messages of SetPrimary, the
-SetPrimary/SetAuto transaction failure paths (verify, backup, rename,
-unlink) and the idempotent no-write path, the missing-catalog translator
-fallback, the in-progress lock (Busy D-Bus error), the backup retention,
-and the IPC contract agreement between the app side (gpu_switcher/bus.py),
-the helper side and the INTROSPECTION_XML method signatures.
+Covers PCI validation and /sys resolution, the managed rule text, polkit
+authorization, the SetPrimary/SetAuto transactions (failure paths, the
+idempotent no-write path, backup retention), the Busy lock, the translator
+fallback, and the contract between bus.py, the helper and INTROSPECTION_XML.
 
-Patches target the module that resolves the name at call time: service
-(dispatcher/handlers), auth (polkit), hud (udevadm steps), rule_store
-(managed-rule file operations).
+Patches target the module that looks the name up at call time: service,
+auth, hud (udevadm steps) and rule_store.
 
-The async design is tested with two fakes: a connection whose
-CheckAuthorization reply is delivered synchronously, and a Gio.Subprocess
-whose communicate_async callback fires synchronously, so the whole
-operation chain runs inline and assertions stay deterministic.
+Two fakes make the async chain run inline and deterministically: a connection
+that delivers the CheckAuthorization reply synchronously and a Gio.Subprocess
+whose communicate_async callback fires immediately.
 """
 
 import contextlib

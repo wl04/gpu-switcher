@@ -1,9 +1,8 @@
 """Unit tests for the explicit operation-outcome state (state.py).
 
-Covers the outcome mapping (timeout -> unknown, a call that changed
-nothing -> idle, success with/without a successful refresh), the
-G_IO_ERROR_TIMEOUT detection via quark+code, the logout sensitivity rule,
-and the banner style rule for a completed Apply/Reset.
+Covers the outcome mapping (timeout -> unknown, no change -> idle, success
+with or without a refresh), G_IO_ERROR_TIMEOUT detection, the Log out
+sensitivity rule and the banner style rule.
 """
 
 import os
