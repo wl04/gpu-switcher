@@ -22,8 +22,8 @@ from gi.repository import Gio, GLib
 # locale.
 os.environ["LC_ALL"] = "en"
 
-from gpu_switcher import bus
 import udev_rules
+from gpu_switcher import bus
 
 
 class TimeoutBudget(unittest.TestCase):

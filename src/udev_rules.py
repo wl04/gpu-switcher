@@ -37,9 +37,7 @@ SET_PRIMARY_STEP_COUNT = 4
 
 # The client's budget must exceed the helper's worst case plus slack.
 HELPER_TIMEOUT_MS = (
-    POLKIT_TIMEOUT_MS
-    + SET_PRIMARY_STEP_COUNT * UDEVDADM_STEP_TIMEOUT_S * 1000
-    + 30_000
+    POLKIT_TIMEOUT_MS + SET_PRIMARY_STEP_COUNT * UDEVDADM_STEP_TIMEOUT_S * 1000 + 30_000
 )
 
 # Mutter reads this tag from the udev database at session start; the ENV

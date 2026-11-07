@@ -26,8 +26,9 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
-from . import i18n, state
 from udev_rules import HELPER_TIMEOUT_MS
+
+from . import i18n, state
 
 HELPER_NAME = "com.github.wl04.gpu_switcher.Helper"
 HELPER_PATH = "/com/github/wl04/gpu_switcher/Helper"
