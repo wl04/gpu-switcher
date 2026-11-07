@@ -129,9 +129,10 @@ def _fake_authorize(status: AuthStatus, detail: str) -> Any:
 
 
 def _invocation() -> Any:
-    inv = mock.Mock()
-    inv.get_cancellable.return_value = Gio.Cancellable.new()
-    return inv
+    # Model the real GDBusMethodInvocation API, which has NO get_cancellable()
+    # in this pygobject build. The handler must not rely on it. return_value /
+    # return_dbus_error / get_message are the members the handler actually uses.
+    return mock.Mock(spec_set=["return_value", "return_dbus_error", "get_message"])
 
 
 RELOAD_ARGV = (hud.UDEVDADM, "control", "--reload-rules")

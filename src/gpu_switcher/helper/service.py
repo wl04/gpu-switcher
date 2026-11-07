@@ -238,7 +238,9 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         )
         return
     card, vendor, device = _set_primary_plan(pci, tr)
-    cancellable = invocation.get_cancellable()
+    # The real GDBusMethodInvocation exposes no get_cancellable() in this
+    # pygobject build, so use a fresh cancellable for the operation.
+    cancellable = Gio.Cancellable.new()
 
     def finish(ok, message, backup, refresh_ok):
         _release_operation()
@@ -340,7 +342,9 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
             DBUS_ERROR_BUSY, "Another operation is in progress."
         )
         return
-    cancellable = invocation.get_cancellable()
+    # The real GDBusMethodInvocation exposes no get_cancellable() in this
+    # pygobject build, so use a fresh cancellable for the operation.
+    cancellable = Gio.Cancellable.new()
 
     def finish(ok, message, refresh_ok):
         _release_operation()
