@@ -36,6 +36,28 @@ def configured_unavailable_pci(detection: detect.Detection) -> str | None:
     return None
 
 
+def apply_target(
+    detection: detect.Detection, selected_card: str
+) -> tuple[str | None, str | None]:
+    """Validate a radio selection for Apply.
+
+    Returns (target, error): target is SELECTION_AUTO or the selected
+    GPU's PCI when the selection can be applied; error is the
+    SELECTION_UNAVAILABLE sentinel for the unavailable row, or the
+    selected card name when it is no longer detected (the UI re-checks
+    and refuses instead of silently switching to auto). At most one of
+    the two is non-None.
+    """
+    if selected_card == SELECTION_AUTO:
+        return SELECTION_AUTO, None
+    if selected_card == SELECTION_UNAVAILABLE:
+        return None, SELECTION_UNAVAILABLE
+    gpu = next((g for g in detection.gpus if g.card == selected_card), None)
+    if gpu is None:
+        return None, selected_card
+    return gpu.pci, None
+
+
 def _mirror_configured_state(detection: detect.Detection) -> str:
     """Card mirroring the configured state: the matching detected card,
     the unavailable sentinel when the rule pins an undetected GPU, or

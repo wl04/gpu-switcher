@@ -122,5 +122,37 @@ class SelectionAfterFailure(unittest.TestCase):
         self.assertEqual(selection.selection_after_failure(detection), "auto")
 
 
+class ApplyTarget(unittest.TestCase):
+    def test_apply_target_returns_pci_when_selected_card_is_detected(self):
+        detection = _detection([_gpu("card1", "0000:01:00.0")])
+        target, error = selection.apply_target(detection, "card1")
+        self.assertEqual(target, "0000:01:00.0")
+        self.assertIsNone(error)
+
+    def test_apply_target_returns_auto_for_the_auto_sentinel(self):
+        detection = _detection([_gpu("card1", "0000:01:00.0")])
+        target, error = selection.apply_target(detection, selection.SELECTION_AUTO)
+        self.assertEqual(target, selection.SELECTION_AUTO)
+        self.assertIsNone(error)
+
+    def test_apply_target_fails_when_selected_card_vanished(self):
+        # The radio was selected, but the card is no longer detected:
+        # Apply must refuse, not silently switch to auto.
+        detection = _detection([_gpu("card1", "0000:01:00.0")])
+        target, error = selection.apply_target(detection, "card2")
+        self.assertIsNone(target)
+        self.assertEqual(error, "card2")
+
+    def test_apply_target_fails_when_selected_card_is_unavailable_sentinel(self):
+        detection = _detection(
+            [_gpu("card1", "0000:01:00.0")], preferred_pci="0000:99:00.0"
+        )
+        target, error = selection.apply_target(
+            detection, selection.SELECTION_UNAVAILABLE
+        )
+        self.assertIsNone(target)
+        self.assertEqual(error, selection.SELECTION_UNAVAILABLE)
+
+
 if __name__ == "__main__":
     unittest.main()
