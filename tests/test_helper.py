@@ -216,6 +216,20 @@ class ResolveGpu(unittest.TestCase):
                 gpu.resolve_gpu("0000:12:00.0"), ("card1", "0x1002", "0x7550")
             )
 
+    def test_resolve_gpu_returns_none_when_vendor_or_device_unreadable(self) -> None:
+        for vendor, device in (("", "0x7550"), ("0x1002", ""), ("garbage", "0x7550")):
+            with (
+                mock.patch.object(gpu, "is_display_gpu", return_value="card1"),
+                mock.patch.object(
+                    gpu,
+                    "read_text",
+                    side_effect=lambda p, v=vendor, d=device: (
+                        v if p.endswith("vendor") else d
+                    ),
+                ),
+            ):
+                self.assertIsNone(gpu.resolve_gpu("0000:12:00.0"))
+
     def test_resolve_gpu_returns_none_when_two_cards_bound_to_same_pci(self) -> None:
         # Ambiguous binding: is_display_gpu already refuses it.
         with mock.patch.object(gpu, "is_display_gpu", return_value=None):
@@ -861,6 +875,25 @@ class SetAutoTransactionBase(unittest.TestCase):
 
 
 class SetAutoTransaction(SetAutoTransactionBase):
+    def test_set_auto_retains_only_the_newest_backups(self) -> None:
+        with open(self.rule, "w", encoding="utf-8") as f:
+            f.write("old rule\n")
+        for i in range(rule_store.BACKUP_KEEP + 2):
+            with open(
+                f"{self.rule}.bak.2026010{i}T000000Z.{i:06x}", "w", encoding="utf-8"
+            ) as f:
+                f.write(f"backup {i}\n")
+
+        ok, _message, _refresh_ok = self._run_set_auto()
+
+        self.assertTrue(ok)
+        backups = [
+            e
+            for e in os.listdir(self.rules_dir)
+            if e.startswith("61-mutter-primary-gpu.rules.bak.")
+        ]
+        self.assertEqual(len(backups), rule_store.BACKUP_KEEP)
+
     def test_set_auto_removes_rule_backs_up_and_refreshes(self) -> None:
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write('SUBSYSTEM=="drm", TAG="x"\n')

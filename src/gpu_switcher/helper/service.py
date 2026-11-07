@@ -351,6 +351,7 @@ def _set_auto_apply(tr):
             raise HelperFailure(
                 tr("Backup of the existing rule failed; nothing removed.")
             )
+        rule_store.retain_backups()
         try:
             rule_store.unlink_managed_rule()
         except OSError:

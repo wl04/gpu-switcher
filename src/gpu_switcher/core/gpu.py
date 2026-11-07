@@ -20,6 +20,10 @@ from gpu_switcher.core.udev import (
 _PCI_ADDRESS_RE = re.compile(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9]")
 
 
+# sysfs `vendor` / `device` value: 0x followed by four lowercase hex digits.
+_PCI_ID_RE = re.compile(r"0x[0-9a-f]{4}")
+
+
 def is_valid_pci_format(pci: str) -> bool:
     """Full `DDDD:BB:DD.D` PCI address (domain included, lowercase hex).
 
@@ -30,7 +34,8 @@ def is_valid_pci_format(pci: str) -> bool:
 
 
 def resolve_gpu(pci: str) -> tuple[str, str, str] | None:
-    """(card, vendor, device) for a valid display controller, else None.
+    """(card, vendor, device) for a valid display controller, else None
+    (also None when the vendor or device id cannot be read).
 
     Thin wrapper over the shared is_display_gpu contract (display class,
     bound driver, exactly one /dev/dri card for this PCI); the PCI address
@@ -44,6 +49,10 @@ def resolve_gpu(pci: str) -> tuple[str, str, str] | None:
     pdir = f"/sys/bus/pci/devices/{pci}"
     vendor = read_text(f"{pdir}/vendor")
     device = read_text(f"{pdir}/device")
+    # An unreadable attribute reads as "": a rule built from it would never
+    # match while the switch is reported as done.
+    if not (_PCI_ID_RE.fullmatch(vendor) and _PCI_ID_RE.fullmatch(device)):
+        return None
     return card, vendor, device
 
 
