@@ -100,7 +100,7 @@ sudo udevadm trigger --subsystem-match=drm --settle
 sudo reboot
 ```
 
-Earlier versions of the rule are kept next to it as
+Backups of replaced rules are kept next to it as
 `61-mutter-primary-gpu.rules.bak.*`.
 
 ## How it works

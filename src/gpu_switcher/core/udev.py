@@ -51,7 +51,7 @@ HELPER_TIMEOUT_MS = (
 )
 
 # Mutter reads this tag from the udev database at session start; the ENV
-# variable is retained for compatibility with the previous local rule.
+# variable is kept for compatibility with rules that still use it.
 MUTTER_TAG = "mutter-device-preferred-primary"
 MUTTER_ENV = "MUTTER_DEVICE_PREFERRED_PRIMARY"
 

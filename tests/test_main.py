@@ -1,4 +1,4 @@
-"""Regression tests for the GPU row builder in the GTK UI.
+"""Tests for the GPU row builder in the GTK UI.
 
 GTK widgets can be constructed headless (no display), so the row builder is
 testable here. Each GPU row is a two-line block: the name on its own line (the

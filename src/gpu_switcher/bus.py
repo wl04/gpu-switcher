@@ -47,9 +47,8 @@ SESSION_MANAGER_LOGOUT_MODE = 1
 # The D-Bus timeout budget constants (POLKIT_TIMEOUT_MS,
 # UDEVADM_STEP_TIMEOUT_S, SET_PRIMARY_STEP_COUNT, HELPER_TIMEOUT_MS) are
 # defined in gpu_switcher/core/udev.py — the shared module the helper can
-# import — so
-# the client's budget is always derived from the helper's worst case, not
-# from a duplicated literal.
+# import — so the client's budget is always derived from the helper's worst
+# case, not from a duplicated literal.
 
 LOGIN1_TIMEOUT_MS = 15000
 

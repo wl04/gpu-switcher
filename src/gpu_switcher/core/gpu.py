@@ -63,7 +63,7 @@ def rule_text(pci: str, vendor: str, device: str) -> str:
     """
     return (
         f"# Managed by gpu-switcher; selected PCI {pci}\n"
-        "# Mutter uses TAG; ENV is retained for compatibility with the previous local rule.\n"
+        "# Mutter uses TAG; ENV is kept for compatibility with rules that still use it.\n"
         'SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", KERNEL=="card[0-9]*", '
         'KERNEL!="card*-*", SUBSYSTEMS=="pci", KERNELS=="' + pci + '",'
         ' ATTRS{vendor}=="' + vendor + '",'

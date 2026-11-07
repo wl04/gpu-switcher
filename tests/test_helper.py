@@ -183,8 +183,8 @@ class RuleText(unittest.TestCase):
         self.assertEqual(
             gpu.rule_text("0000:12:00.0", "0x1002", "0x7550"),
             "# Managed by gpu-switcher; selected PCI 0000:12:00.0\n"
-            "# Mutter uses TAG; ENV is retained for compatibility "
-            "with the previous local rule.\n"
+            "# Mutter uses TAG; ENV is kept for compatibility "
+            "with rules that still use it.\n"
             'SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", '
             'KERNEL=="card[0-9]*", KERNEL!="card*-*", '
             'SUBSYSTEMS=="pci", KERNELS=="0000:12:00.0", '

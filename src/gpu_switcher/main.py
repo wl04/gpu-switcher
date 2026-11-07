@@ -357,8 +357,8 @@ class GpuSwitcherApp(Gtk.Application):
 
     def _banner_show(self, text: str, kind: BannerKind) -> None:
         # Adwaita status classes for the three result kinds; info stays the
-        # neutral dim-label. The old button classes (suggested-action /
-        # destructive-action) are not status styling and are dropped.
+        # neutral dim-label. Button classes (suggested-action /
+        # destructive-action) are not status styling and are not used.
         for css_class in ("success", "warning", "error", "dim-label"):
             self.banner_box.remove_css_class(css_class)
         if kind is BannerKind.INFO:
@@ -381,11 +381,10 @@ class GpuSwitcherApp(Gtk.Application):
     def _confirm(self, text: str, confirm_label: str, on_result) -> None:
         """Modal confirmation via Gtk.AlertDialog (GTK >= 4.10).
 
-        The old Gtk.MessageDialog run()/add_button API no longer exists in
-        GTK 4; choose()/choose_finish() is the modern async flow. The result
-        is the clicked button's index: 0 = Cancel, 1 = confirm button; Escape
-        and closing the window both map to Cancel. The dialog's window is
-        disposed by choose_finish itself.
+        choose()/choose_finish() is the async flow. The result is the clicked
+        button's index: 0 = Cancel, 1 = confirm button; Escape and closing the
+        window both map to Cancel. The dialog's window is disposed by
+        choose_finish itself.
         """
         dialog = Gtk.AlertDialog()
         dialog.set_message(text)

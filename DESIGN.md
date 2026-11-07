@@ -6,8 +6,7 @@ What the app does and why it is built this way. For usage see
 
 ## Scope
 
-**v1 = GNOME / Wayland (Mutter) only.** KDE Plasma and X11 are designed as
-future extensions, not built.
+**GNOME / Wayland (Mutter) only.** KDE Plasma and X11 are not supported.
 
 ## Technology
 
@@ -17,9 +16,8 @@ Python 3 + GTK 4 (PyGObject); no compilation step.
   D-Bus protocol and the detection logic.
 - The `.deb` is assembled from source files; the runtime dependencies
   (`python3`, `python3-gi`, `libgtk-4-1`, ...) are standard on Ubuntu/Debian.
-- Rust + GTK4 was evaluated for v1: the architecture (D-Bus protocol, helper
-  contract) is independent of the UI technology, so it remains the sensible
-  choice later if a standalone static binary is ever wanted.
+- The architecture (D-Bus protocol, helper contract) is independent of the
+  UI technology.
 
 i18n: all strings go through gettext — `po/gpu-switcher-{en,ru}.po` compiled
 with `msgfmt` (build-time `gettext` dependency) and installed to

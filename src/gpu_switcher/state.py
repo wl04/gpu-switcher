@@ -1,10 +1,9 @@
 """Explicit operation-outcome state for the app.
 
-Pure logic (GLib only, no Gtk): instead of a bare fast_path_pending flag,
-the app keeps one explicit outcome per Apply/Reset; button sensitivity
-and the result banner are derived from it, so the banner survives the
-_refresh() rebuild and Log out is enabled only after a successful,
-refreshed operation.
+Pure logic (GLib only, no Gtk): the app keeps one explicit outcome per
+Apply/Reset; button sensitivity and the result banner are derived from it,
+so the banner survives the _refresh() rebuild and Log out is enabled only
+after a successful, refreshed operation.
 """
 
 from __future__ import annotations
