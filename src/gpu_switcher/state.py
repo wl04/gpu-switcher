@@ -16,7 +16,7 @@ import gi
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib
 
-G_IO_ERROR_TIMEOUT = 5
+from udev_rules import G_IO_ERROR_TIMEOUT
 
 
 class Outcome(Enum):
@@ -52,11 +52,7 @@ def outcome_from_result(ok: bool, refresh_ok: bool, timed_out: bool) -> Outcome:
 
 
 def is_gio_timeout(error: GLib.Error) -> bool:
-    """True when a GLib.Error is G_IO_ERROR_TIMEOUT (g-io-error-quark, 5).
-
-    pygobject does not expose Gio.GIOError, so the quark+code check is
-    the usable test.
-    """
+    """True when a GLib.Error is G_IO_ERROR_TIMEOUT (g-io-error-quark, 7)."""
     return error.matches(GLib.quark_from_string("g-io-error-quark"), G_IO_ERROR_TIMEOUT)
 
 

@@ -28,6 +28,12 @@ MUTTER_ENV = "MUTTER_DEVICE_PREFERRED_PRIMARY"
 # with a /dev/dri device, so render-only devices are still excluded.
 DISPLAY_PCI_CLASSES = ("0x030000", "0x030200")
 
+# The numeric GError code of G_IO_ERROR_TIMEOUT in glib/gio/giotypes.h
+# (5 is G_IO_ERROR_IO, not a timeout). Both the app (outcome mapping) and
+# the helper (polkit timeout handling) match g-io-error-quark with this
+# code; pygobject does not expose the Gio.Error enum as a constant.
+G_IO_ERROR_TIMEOUT = 7
+
 # udev rule directories in load order; a base name that appears in an
 # earlier directory shadows the later one (the later copy is ignored),
 # mirroring udev's rule loading.

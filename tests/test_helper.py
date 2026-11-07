@@ -289,11 +289,13 @@ class Authorize(unittest.TestCase):
         # No cancel attempt for a non-timeout failure.
         self.assertEqual(conn.call_sync.call_count, 1)
 
-    def test_authorize_cancels_pending_check_when_polkit_times_out(self):
+    def test_authorize_returns_timeout_cancels_check_when_polkit_times_out(self):
+        # G_IO_ERROR_TIMEOUT is 7, not 5 (5 is G_IO_ERROR_IO): a real
+        # timeout must be detected and the pending check cancelled.
         def call_sync(*args):
             if args[3] == "CheckAuthorization":
                 raise GLib.Error.new_literal(
-                    GLib.quark_from_string("g-io-error-quark"), "timed out", 5
+                    GLib.quark_from_string("g-io-error-quark"), "timed out", 7
                 )
             return (True,)
 
@@ -305,6 +307,20 @@ class Authorize(unittest.TestCase):
         cancel = conn.call_sync.call_args_list[1][0]
         self.assertEqual(cancel[3], "CancelCheckAuthorization")
         self.assertEqual(cancel[4].unpack(), (check[4].unpack()[4],))
+
+    def test_authorize_returns_error_when_polkit_check_raises_io_error_code_5(self):
+        def call_sync(*args):
+            raise GLib.Error.new_literal(
+                GLib.quark_from_string("g-io-error-quark"), "io error", 5
+            )
+
+        conn = mock.Mock()
+        conn.call_sync.side_effect = call_sync
+        status, detail = h._authorize(conn, "sender", "en")
+        self.assertEqual(status, "error")
+        self.assertIn("io error", detail)
+        # No cancel attempt for a non-timeout failure.
+        self.assertEqual(conn.call_sync.call_count, 1)
 
 
 class SetPrimaryAuthorization(unittest.TestCase):

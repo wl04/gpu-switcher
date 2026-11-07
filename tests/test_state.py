@@ -43,11 +43,14 @@ class OutcomeMapping(unittest.TestCase):
             outcome_from_result(True, False, False), Outcome.success_refresh_failed
         )
 
-    def test_outcome_timeout_is_detected_via_gio_error_quark_code_5(self):
+    def test_is_gio_timeout_matches_quark_and_code_7_not_code_5(self):
+        # G_IO_ERROR_TIMEOUT is 7; 5 is G_IO_ERROR_IO.
         quark = GLib.quark_from_string("g-io-error-quark")
-        timeout = GLib.Error.new_literal(quark, "timed out", 5)
+        timeout = GLib.Error.new_literal(quark, "timed out", 7)
+        io_error = GLib.Error.new_literal(quark, "io error", 5)
         other = GLib.Error.new_literal(quark, "name has no owner", 8)
         self.assertTrue(is_gio_timeout(timeout))
+        self.assertFalse(is_gio_timeout(io_error))
         self.assertFalse(is_gio_timeout(other))
 
 

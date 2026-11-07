@@ -68,6 +68,7 @@ from gi.repository import Gio, GLib
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from udev_rules import (
     DISPLAY_PCI_CLASSES,
+    G_IO_ERROR_TIMEOUT,
     MANAGED_RULE,
     MUTTER_ENV,
     MUTTER_TAG,
@@ -315,7 +316,7 @@ def _authorize(connection, sender, locale):
             None,
         )
     except GLib.Error as exc:
-        if exc.matches(GLib.quark_from_string("g-io-error-quark"), 5):
+        if exc.matches(GLib.quark_from_string("g-io-error-quark"), G_IO_ERROR_TIMEOUT):
             # G_IO_ERROR_TIMEOUT: the check is still pending in polkitd,
             # cancel it so a stale dialog cannot linger.
             _log(f"polkit CheckAuthorization timed out: {exc}")
