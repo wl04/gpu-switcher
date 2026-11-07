@@ -40,14 +40,14 @@ MANAGED_RULE = "/etc/udev/rules.d/61-mutter-primary-gpu.rules"
 POLKIT_TIMEOUT_MS = 170_000
 # A single udevadm step (verify / reload-rules / trigger / tag check) fails
 # fast in practice; this is the fail-safe bound for one step.
-UDEVDADM_STEP_TIMEOUT_S = 30
+UDEVADM_STEP_TIMEOUT_S = 30
 # Number of udevadm steps on the SetPrimary path (verify, reload-rules,
 # trigger, tag check); keep this count honest when the steps change.
 SET_PRIMARY_STEP_COUNT = 4
 
 # The client's budget must exceed the helper's worst case plus slack.
 HELPER_TIMEOUT_MS = (
-    POLKIT_TIMEOUT_MS + SET_PRIMARY_STEP_COUNT * UDEVDADM_STEP_TIMEOUT_S * 1000 + 30_000
+    POLKIT_TIMEOUT_MS + SET_PRIMARY_STEP_COUNT * UDEVADM_STEP_TIMEOUT_S * 1000 + 30_000
 )
 
 # Mutter reads this tag from the udev database at session start; the ENV

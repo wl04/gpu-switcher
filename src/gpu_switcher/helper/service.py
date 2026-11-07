@@ -253,7 +253,7 @@ def _set_primary_plan(pci, tr):
         )
     resolved = resolve_gpu(pci)
     if resolved is None:
-        print(f"SetPrimary: invalid PCI {pci}", file=sys.stderr)
+        print(f"SetPrimary: invalid PCI {pci!r}", file=sys.stderr)
         raise HelperFailure(
             tr("Target PCI %s is not a valid display controller.") % pci
         )
@@ -274,7 +274,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
     invocation.return_value."""
     pci, locale = params
     tr = translator(locale)
-    print(f"SetPrimary: pci={pci} locale={locale} sender={sender}", file=sys.stderr)
+    print(f"SetPrimary: pci={pci!r} locale={locale!r} sender={sender}", file=sys.stderr)
     if not _claim_operation(invocation):
         print("SetPrimary: operation already in progress; rejecting", file=sys.stderr)
         invocation.return_dbus_error(
@@ -382,7 +382,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
     refresh completes via invocation.return_value."""
     locale = params[0]
     tr = translator(locale)
-    print(f"SetAuto: locale={locale} sender={sender}", file=sys.stderr)
+    print(f"SetAuto: locale={locale!r} sender={sender}", file=sys.stderr)
     if not _claim_operation(invocation):
         print("SetAuto: operation already in progress; rejecting", file=sys.stderr)
         invocation.return_dbus_error(

@@ -19,7 +19,7 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
-from gpu_switcher.core.udev import MUTTER_TAG, UDEVDADM_STEP_TIMEOUT_S
+from gpu_switcher.core.udev import MUTTER_TAG, UDEVADM_STEP_TIMEOUT_S
 
 
 class RefreshState(Enum):
@@ -37,7 +37,7 @@ class RefreshState(Enum):
 
 # Absolute path by policy: the hardening is explicit about what runs, and a
 # PATH change must not substitute another udevadm.
-UDEVDADM = "/usr/bin/udevadm"
+UDEVADM = "/usr/bin/udevadm"
 # Availability is checked once per process (in main) and cached.
 _udevadm_available = None
 
@@ -46,8 +46,8 @@ def check_udevadm() -> bool:
     """Whether udevadm is available; checked once per process."""
     global _udevadm_available
     if _udevadm_available is None:
-        _udevadm_available = os.path.exists(UDEVDADM)
-        print(f"udevadm at {UDEVDADM}: available={_udevadm_available}", file=sys.stderr)
+        _udevadm_available = os.path.exists(UDEVADM)
+        print(f"udevadm at {UDEVADM}: available={_udevadm_available}", file=sys.stderr)
     return _udevadm_available
 
 
@@ -91,7 +91,7 @@ def run_udev_async(argv, on_done, cancellable=None):
         return
     step_cancellable = Gio.Cancellable.new()
     timeout_source = GLib.timeout_add(
-        UDEVDADM_STEP_TIMEOUT_S * 1000, step_cancellable.cancel
+        UDEVADM_STEP_TIMEOUT_S * 1000, step_cancellable.cancel
     )
     try:
         proc = Gio.Subprocess.new(
@@ -153,7 +153,7 @@ def verify_rule_async(path, on_done, cancellable=None):
         else:
             on_done(RefreshState.VERIFIED)
 
-    run_udev_async([UDEVDADM, "verify", path], on_run, cancellable)
+    run_udev_async([UDEVADM, "verify", path], on_run, cancellable)
 
 
 def reload_rules_async(on_done, cancellable=None):
@@ -167,7 +167,7 @@ def reload_rules_async(on_done, cancellable=None):
             )
         on_done(rc == 0)
 
-    run_udev_async([UDEVDADM, "control", "--reload-rules"], on_run, cancellable)
+    run_udev_async([UDEVADM, "control", "--reload-rules"], on_run, cancellable)
 
 
 def trigger_drm_async(on_done, cancellable=None):
@@ -187,7 +187,7 @@ def trigger_drm_async(on_done, cancellable=None):
         on_done(rc == 0)
 
     run_udev_async(
-        [UDEVDADM, "trigger", "--subsystem-match=drm", "--settle"],
+        [UDEVADM, "trigger", "--subsystem-match=drm", "--settle"],
         on_run,
         cancellable,
     )
@@ -236,7 +236,7 @@ def card_has_tag_async(card, on_done, cancellable=None):
 
     run_udev_async(
         [
-            UDEVDADM,
+            UDEVADM,
             "info",
             "--query=property",
             f"--path=/sys/class/drm/{card}",

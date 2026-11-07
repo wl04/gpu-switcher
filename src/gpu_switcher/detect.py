@@ -291,7 +291,7 @@ def detect() -> Detection:
     names = lspci_names()
     for entry in entries:
         # Only real cards ("cardN"); connectors are "cardN-CONN".
-        if not re.match(r"^card[0-9]+$", entry):
+        if not re.fullmatch(r"card[0-9]+", entry):
             continue
         pci = os.path.basename(os.path.realpath(f"/sys/class/drm/{entry}/device"))
         # The shared display-GPU contract (display class, bound driver,

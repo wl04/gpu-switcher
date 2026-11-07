@@ -36,7 +36,7 @@ class TimeoutBudget(unittest.TestCase):
         worst_case_ms = (
             udev_rules.POLKIT_TIMEOUT_MS
             + udev_rules.SET_PRIMARY_STEP_COUNT
-            * udev_rules.UDEVDADM_STEP_TIMEOUT_S
+            * udev_rules.UDEVADM_STEP_TIMEOUT_S
             * 1000
         )
         self.assertGreater(bus.HELPER_TIMEOUT_MS, worst_case_ms)

@@ -593,6 +593,9 @@ class GpuSwitcherApp(Gtk.Application):
         self._detect_generation += 1
         generation = self._detect_generation
         if self.banner is not None:
+            # The rebuild replaces the buttons; keep the old ones inert so a
+            # click cannot act on stale state in the meantime.
+            self._set_busy(True)
             self._banner_show(i18n._("Detecting…"), BannerKind.INFO)
 
         def apply(result):
@@ -616,12 +619,13 @@ class GpuSwitcherApp(Gtk.Application):
                 def show_error():
                     if generation != self._detect_generation:
                         return
+                    self._pending_banner = None  # not shown after a failure
                     if self.banner is None:
                         # First detection: there is no banner widget yet,
                         # so the error replaces the loading box.
                         label = Gtk.Label(label=error_message)
                         label.set_wrap(True)
-                        label.add_css_class("destructive-action")
+                        label.add_css_class("error")
                         label.set_xalign(0.0)
                         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
                         box.set_margin_top(24)
@@ -631,6 +635,7 @@ class GpuSwitcherApp(Gtk.Application):
                         box.append(label)
                         self.window.set_child(box)
                         return
+                    self._set_busy(False)
                     self._banner_show(error_message, BannerKind.ERROR)
 
                 GLib.idle_add(show_error)
@@ -645,13 +650,8 @@ class GpuSwitcherApp(Gtk.Application):
         # A second start of the app must not build a second window:
         # present the existing one (single-instance via GApplication).
         if self.window is not None:
-            if self.window.is_destroyed():
-                # The window was closed; the app is still running, so
-                # fall through and build a new window.
-                self.window = None
-            else:
-                self.window.present()
-                return
+            self.window.present()
+            return
         self.window = Gtk.ApplicationWindow(application=self)
         self.window.set_title("gpu-switcher")
         # No fixed default size: the window sizes to its content and grows
@@ -661,7 +661,7 @@ class GpuSwitcherApp(Gtk.Application):
         self._start_detection()
 
 
-def run(argv) -> int:
+def run(argv: list[str]) -> int:
     app = GpuSwitcherApp()
     return app.run(argv)
 

@@ -148,13 +148,13 @@ def _invocation() -> Any:
     return mock.Mock(spec_set=["return_value", "return_dbus_error", "get_message"])
 
 
-RELOAD_ARGV = (hud.UDEVDADM, "control", "--reload-rules")
-TRIGGER_ARGV = (hud.UDEVDADM, "trigger", "--subsystem-match=drm", "--settle")
+RELOAD_ARGV = (hud.UDEVADM, "control", "--reload-rules")
+TRIGGER_ARGV = (hud.UDEVADM, "trigger", "--subsystem-match=drm", "--settle")
 TAGGED_INFO = "CURRENT_TAGS=:seat:mutter-device-preferred-primary:\nTAGS=:seat:\n"
 
 
 def _info_argv(card: str) -> tuple[Any, ...]:
-    return (hud.UDEVDADM, "info", "--query=property", f"--path=/sys/class/drm/{card}")
+    return (hud.UDEVADM, "info", "--query=property", f"--path=/sys/class/drm/{card}")
 
 
 def _ok_results(card: str | None = None) -> dict[Any, dict[str, Any]]:
@@ -541,17 +541,17 @@ class VerifyRule(unittest.TestCase):
     def test_verify_rule_returns_verified_when_udevadm_accepts(self) -> None:
         started: list[list[str]] = []
         with (
-            _fake_udev({(hud.UDEVDADM, "verify", "/tmp/r.rules"): {"rc": 0}}, started),
+            _fake_udev({(hud.UDEVADM, "verify", "/tmp/r.rules"): {"rc": 0}}, started),
             mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
             result: list[hud.RefreshState] = []
             hud.verify_rule_async("/tmp/r.rules", result.append)
             self.assertEqual(result, [hud.RefreshState.VERIFIED])
-        self.assertEqual(started, [[hud.UDEVDADM, "verify", "/tmp/r.rules"]])
+        self.assertEqual(started, [[hud.UDEVADM, "verify", "/tmp/r.rules"]])
 
     def test_verify_rule_returns_failed_when_udevadm_rejects(self) -> None:
         with (
-            _fake_udev({(hud.UDEVDADM, "verify", "/tmp/r.rules"): {"rc": 1}}, []),
+            _fake_udev({(hud.UDEVADM, "verify", "/tmp/r.rules"): {"rc": 1}}, []),
             mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
             result: list[hud.RefreshState] = []
@@ -561,9 +561,7 @@ class VerifyRule(unittest.TestCase):
     def test_verify_rule_returns_failed_when_step_times_out(self) -> None:
         error = GLib.Error.new_literal(_IO_QUARK, "Operation was cancelled", 8)
         with (
-            _fake_udev(
-                {(hud.UDEVDADM, "verify", "/tmp/r.rules"): {"error": error}}, []
-            ),
+            _fake_udev({(hud.UDEVADM, "verify", "/tmp/r.rules"): {"error": error}}, []),
             mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
             result: list[hud.RefreshState] = []
@@ -717,7 +715,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write('SUBSYSTEM=="drm", TAG="something-else"\n')
         results = {
-            (hud.UDEVDADM, "verify", "*"): {"rc": 0},
+            (hud.UDEVADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
         }
         with mock.patch.object(rule_store, "fsync_dir") as fsync_dir:
@@ -734,7 +732,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
 
     def test_set_primary_does_not_rename_when_verify_rejects(self) -> None:
         results = {
-            (hud.UDEVDADM, "verify", "*"): {"rc": 1},
+            (hud.UDEVADM, "verify", "*"): {"rc": 1},
             **_ok_results("card1"),
         }
         ok, message, backup, refresh_ok = self._run_set_primary(results)
@@ -746,7 +744,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
 
     def test_set_primary_does_not_rename_when_backup_fails(self) -> None:
         results = {
-            (hud.UDEVDADM, "verify", "*"): {"rc": 0},
+            (hud.UDEVADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
         }
         with open(self.rule, "w", encoding="utf-8") as f:
@@ -762,7 +760,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
 
     def test_set_primary_reports_failure_when_rename_fails(self) -> None:
         results = {
-            (hud.UDEVDADM, "verify", "*"): {"rc": 0},
+            (hud.UDEVADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
         }
         with mock.patch.object(os, "rename", side_effect=OSError("boom")):
@@ -796,7 +794,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
             ) as f:
                 f.write(f"backup {i}\n")
         results = {
-            (hud.UDEVDADM, "verify", "*"): {"rc": 0},
+            (hud.UDEVADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
         }
         ok, _message, backup, _refresh_ok = self._run_set_primary(results)
@@ -817,7 +815,7 @@ class SetPrimaryNonUtf8(SetPrimaryTransactionBase):
         with open(self.rule, "wb") as f:
             f.write(b'SUBSYSTEM=="drm", TAG\x80="x"\n')
         results = {
-            (hud.UDEVDADM, "verify", "*"): {"rc": 0},
+            (hud.UDEVADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
         }
         ok, _message, backup, _refresh_ok = self._run_set_primary(results)
