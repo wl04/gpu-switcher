@@ -66,11 +66,11 @@ offline and all dependencies are present, `sudo dpkg -i` works too.
 After installing, launch the app from the GNOME app grid
 (**gpu-switcher**); `man gpu-switcher` is also installed.
 
-When upgrading from an older version, stop a still-running helper first so
+When upgrading from an older version, restart the still-running helper so
 the fresh code takes over the D-Bus name:
 
 ```sh
-sudo pkill -f gpu_switcher_helper
+sudo systemctl restart gpu-switcher-helper.service
 ```
 
 ### From source
@@ -91,9 +91,10 @@ Remove the rule manually if you no longer need it.
 - Plain Python 3 + PyGObject (GTK 4); no compilation.
 - `.deb`: `tools/build-deb.sh` (plain `dpkg-deb`); `debian/` supports the
   `dpkg-buildpackage -us -uc` flow — both paths build the same package.
-- Release: `tools/release.sh <version> <changelog-bullets>` — bumps
-  `debian/control`, prepends the changelog entry, runs the checks, builds
-  and lints the `.deb`, commits, and creates the GitHub release.
+- Release: `tools/release.sh <version> <changelog-bullets>` — prepends the
+  changelog entry (the version's source of truth), syncs `pyproject.toml`,
+  runs the checks, builds and lints the `.deb`, commits, and creates the
+  GitHub release.
 - gettext catalogs (`po/`) compile with `msgfmt` (build-time `gettext`
   dependency).
 - Design notes (architecture, polkit, detection, packaging):
@@ -105,13 +106,15 @@ Remove the rule manually if you no longer need it.
   dependencies); test names follow `Operation_Behavior_Context`.
 - `make lint` — ruff lint and format check (dev tools, not package
   dependencies; install once, e.g. `uv tool install ruff mypy`).
-- `make typecheck` — mypy type check; the private GTK UI (`main.py`) is
-  intentionally not type-checked.
+- `make typecheck` — mypy over `src/` and `tests/`; `disallow_untyped_defs`
+  is enforced for the core modules and tests (the GTK UI is typed for errors
+  but not yet for untyped defs).
 - `make locale` — compile the gettext catalogs into the source tree.
 - `make package` — build the `.deb`.
-- End-to-end verification (no CI; on a real GNOME/Wayland machine): run
-  the app, apply a switch through the polkit prompt, then confirm after
-  restart with
+- CI (`.github/workflows/ci.yml`): test / lint / typecheck, both `.deb`
+  builds + lintian, and `systemd-analyze verify` on the systemd unit.
+- End-to-end verification (on a real GNOME/Wayland machine): run the app,
+  apply a switch through the polkit prompt, then confirm after restart with
   `journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'`.
 
 ## Roadmap
