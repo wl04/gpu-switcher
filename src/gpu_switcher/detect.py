@@ -107,6 +107,9 @@ def fallback_name(vendor: str, device: str) -> str:
 #   rule mode:  GPU /dev/dri/cardN selected primary given udev rule
 #   auto mode:  Boot VGA GPU /dev/dri/cardN selected as primary
 PRIMARY_LINE_RE = re.compile(r"GPU /dev/dri/(card[0-9]+) selected (?:as )?primary")
+# journalctl --grep filter for the selection lines (matches both the rule-mode
+# "selected primary" and auto-mode "selected as primary" forms).
+PRIMARY_GREP = "selected (as )?primary"
 
 
 def primary_card_from_line(line: str) -> str | None:
@@ -205,7 +208,16 @@ def running_primary() -> tuple[str | None, str | None]:
     pid = pids[0]
     try:
         out = subprocess.run(
-            ["journalctl", "-b", "-q", f"_PID={pid}", JOURNAL_UNIT],
+            [
+                "journalctl",
+                "-b",
+                f"_PID={pid}",
+                JOURNAL_UNIT,
+                "-o",
+                "cat",
+                "--grep",
+                PRIMARY_GREP,
+            ],
             capture_output=True,
             text=True,
             errors="replace",

@@ -193,6 +193,32 @@ class RunningPrimary(unittest.TestCase):
         self.assertIn("_PID=200", argv)
         self.assertNotIn("_PID=600", argv)
 
+    def test_running_primary_passes_grep_and_cat_to_journalctl(self):
+        # The filter (grep) and plain output (cat) are pushed to journalctl
+        # instead of the -q silence flag: the parser runs on bare message
+        # lines.
+        tree = {1: (0, "systemd", 0), 200: (1, "gnome-shell", 1000)}
+        result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="GPU /dev/dri/card2 selected primary given udev rule\n",
+            stderr="",
+        )
+        with (
+            self._stub(return_value=result) as run,
+            mock.patch.object(detect, "_process_tree", return_value=tree),
+            mock.patch("os.getuid", return_value=1000),
+        ):
+            card, error = detect.running_primary()
+        self.assertEqual(card, "card2")
+        self.assertIsNone(error)
+        argv = run.call_args[0][0]
+        self.assertIn("-o", argv)
+        self.assertIn("cat", argv)
+        self.assertIn("--grep", argv)
+        self.assertIn(detect.PRIMARY_GREP, argv)
+        self.assertNotIn("-q", argv)
+
     def test_running_primary_returns_no_error_when_journal_has_no_selection_line(self):
         result = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="noise\n", stderr=""
