@@ -1,0 +1,16 @@
+[Unit]
+Description=gpu-switcher helper (root D-Bus service for polkit-gated GPU switching)
+Documentation=man:gpu-switcher(1)
+
+[Service]
+# Type=simple is sufficient: activation happens on demand (D-Bus), and the
+# process owns its bus name before the first method call is answered.
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /usr/lib/gpu-switcher/helper/gpu_switcher_helper.py
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/udev/rules.d

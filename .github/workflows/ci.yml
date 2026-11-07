@@ -38,6 +38,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-gi libgtk-4-dev gettext \
             debhelper dpkg-dev lintian
+      - name: Verify the systemd unit
+        run: systemd-analyze verify debian/gpu-switcher-helper.service
       - name: Build with dpkg-buildpackage
         run: |
           dpkg-buildpackage -us -uc -b

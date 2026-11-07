@@ -10,5 +10,9 @@
 # default).
 [D-BUS Service]
 Name=com.github.wl04.gpu_switcher.Helper
+# On systemd systems the broker starts the helper as a systemd unit
+# (see debian/gpu-switcher-helper.service); the Exec line below remains
+# for non-systemd environments.
+SystemdService=gpu-switcher-helper.service
 Exec=/usr/bin/python3 /usr/lib/gpu-switcher/helper/gpu_switcher_helper.py
 User=root

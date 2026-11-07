@@ -20,6 +20,7 @@ mkdir -p \
   "$ROOT/usr/bin" \
   "$ROOT/usr/lib/gpu-switcher/gpu_switcher" \
   "$ROOT/usr/lib/gpu-switcher/helper" \
+  "$ROOT/usr/lib/systemd/system" \
   "$ROOT/usr/share/applications" \
   "$ROOT/usr/share/icons/hicolor/scalable/apps" \
   "$ROOT/usr/share/icons/hicolor/symbolic/apps" \
@@ -107,6 +108,9 @@ install -D -m 0644 data/dbus/com.github.wl04.gpu_switcher.Helper.service \
   "$ROOT/usr/share/dbus-1/system-services/com.github.wl04.gpu_switcher.Helper.service"
 install -D -m 0644 data/dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf \
   "$ROOT/usr/share/dbus-1/system.d/com.github.wl04.gpu_switcher.Helper.conf"
+# systemd unit for the helper (D-Bus activation via SystemdService=).
+install -D -m 0644 debian/gpu-switcher-helper.service \
+  "$ROOT/usr/lib/systemd/system/gpu-switcher-helper.service"
 # Debian docs and man page. Policy requires the installed changelog and
 # man page to be gzip-compressed; the copyright file stays plain text.
 # -n: no embedded name/timestamp, for reproducible builds.

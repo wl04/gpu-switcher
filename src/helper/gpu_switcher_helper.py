@@ -24,11 +24,10 @@ a per-invocation cancellation id lets a timed-out check be cancelled so
 no stale dialog lingers. The dialog message is localized from the policy
 file's <message> elements and the agent's session locale.
 
-Diagnostics: every significant step is written to stderr AND to
-/var/log/gpu-switcher-helper.log (created at runtime; the helper runs as
-root and can always write it). The log file is the reliable record of what
-happened: the journal does not reliably capture the stderr of D-Bus-
-activated services, so on any failure check the log file first.
+Diagnostics: significant steps are written to stderr. The helper runs as
+a systemd unit (see debian/gpu-switcher-helper.service) and D-Bus-activated
+services' stderr is captured by the journal, so `journalctl` is the
+reliable record of what happened.
 
 NOTE on the GDBus API: g_bus_own_name() takes exactly three callbacks -
 bus_acquired, name_acquired, name_lost - each (connection, name). There is
@@ -86,7 +85,6 @@ POLKIT_PATH = "/org/freedesktop/PolicyKit1/Authority"
 POLKIT_INTERACTIVE = 1  # CheckAuthorizationFlags: AllowUserInteraction
 
 LOCALE_BASE = "/usr/share/gpu-switcher/locale"
-LOG_PATH = "/var/log/gpu-switcher-helper.log"
 
 INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
   <interface name="{INTERFACE}">
@@ -114,21 +112,6 @@ INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
 """
 
 
-# One log line is capped: caller-supplied strings (pci, locale) arrive
-# unauthenticated and may be arbitrarily long; the line is also flattened
-# so embedded newlines cannot forge separate entries.
-_LOG_MAX_CHARS = 2000
-# The log is bounded: when it outgrows the cap it is rotated once
-# (overwriting the previous rotation), so at most two files exist.
-_LOG_MAX_BYTES = 1024 * 1024
-# A D-Bus client can invoke the helper without authorization, so per-call
-# logging is rate-limited per (sender, method) window.
-_METHOD_CALL_WINDOW_S = 60.0
-_METHOD_CALL_LIMIT = 20
-_method_call_counts: dict[
-    tuple[str, str], list
-] = {}  # (sender, method) -> [count, window_start, noted]
-
 # udevadm verification / refresh states. The distinction matters: a
 # refresh that could not be verified (udevadm missing) must be reported
 # as such and must never enable the fast-path logout as though the tags
@@ -138,86 +121,9 @@ REFRESH_UNSUPPORTED = "unsupported"  # udevadm unavailable; cannot verify
 REFRESH_FAILED = "failed"  # a step errored, timed out, or was rejected
 
 
-def _sanitize_log_text(message):
-    """One log line, bounded and flattened.
-
-    Newlines and carriage returns are rendered literally (an embedded
-    newline could otherwise forge a separate entry), other control
-    characters are dropped, and the line is capped at _LOG_MAX_CHARS so a
-    single call cannot grow the log file without bound.
-    """
-    text = message.replace("\r", "\\r").replace("\n", "\\n")
-    text = "".join(ch for ch in text if ch.isprintable())
-    if len(text) > _LOG_MAX_CHARS:
-        text = text[:_LOG_MAX_CHARS] + "…[truncated]"
-    return text
-
-
-def _maybe_rotate_log():
-    """Rotate the log once when it outgrows _LOG_MAX_BYTES (best effort)."""
-    try:
-        if os.path.getsize(LOG_PATH) > _LOG_MAX_BYTES:
-            os.replace(LOG_PATH, LOG_PATH + ".1")
-    except OSError:
-        pass
-
-
-def _log(message):
-    """Append one diagnostic line to stderr and /var/log/gpu-switcher-helper.log.
-
-    Best-effort by design: logging must never crash the helper itself.
-    The message is bounded and flattened first (see _sanitize_log_text).
-    """
-    line = "gpu-switcher-helper %s %s" % (
-        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        _sanitize_log_text(message),
-    )
-    try:
-        print(line, file=sys.stderr, flush=True)
-    except Exception:
-        pass
-    try:
-        _maybe_rotate_log()
-        with open(LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except OSError:
-        pass
-
-
-def _method_call_allowed(sender, method):
-    """Rate-limit the per-call diagnostic line for this (sender, method).
-
-    A client may invoke the helper repeatedly without authorization, so
-    after _METHOD_CALL_LIMIT calls in the window the line is suppressed;
-    the suppression is noted in the log once per window.
-    """
-    key = (sender, method)
-    now = time.monotonic()
-    entry = _method_call_counts.get(key)
-    if entry is None or now - entry[1] > _METHOD_CALL_WINDOW_S:
-        entry = [0, now, False]
-        _method_call_counts[key] = entry
-        for stale in [
-            k
-            for k, e in _method_call_counts.items()
-            if now - e[1] > _METHOD_CALL_WINDOW_S * 2
-        ]:
-            del _method_call_counts[stale]
-    if entry[0] >= _METHOD_CALL_LIMIT:
-        if not entry[2]:
-            _log(
-                "rate limit: suppressing further %s call logs from %s "
-                "for %ds" % (method, sender, int(_METHOD_CALL_WINDOW_S))
-            )
-            entry[2] = True
-        return False
-    entry[0] += 1
-    return True
-
-
 def _internal_error(invocation, detail):
     """Reply with a D-Bus error the caller can display, and log the detail."""
-    _log("error: " + detail)
+    print("error: " + detail, file=sys.stderr)
     invocation.return_gerror(
         GLib.Error.new_literal(
             GLib.quark_from_string("gpu-switcher-error"),
@@ -302,7 +208,10 @@ def _authorize(connection, sender, locale):
         GLib.Variant("u", POLKIT_INTERACTIVE),
         GLib.Variant("s", cancellation_id),
     )
-    _log(f"polkit CheckAuthorization: sender={sender} action={POLKIT_ACTION}")
+    print(
+        f"polkit CheckAuthorization: sender={sender} action={POLKIT_ACTION}",
+        file=sys.stderr,
+    )
     try:
         result = connection.call_sync(
             "org.freedesktop.PolicyKit1",
@@ -319,17 +228,18 @@ def _authorize(connection, sender, locale):
         if exc.matches(GLib.quark_from_string("g-io-error-quark"), G_IO_ERROR_TIMEOUT):
             # G_IO_ERROR_TIMEOUT: the check is still pending in polkitd,
             # cancel it so a stale dialog cannot linger.
-            _log(f"polkit CheckAuthorization timed out: {exc}")
+            print(f"polkit CheckAuthorization timed out: {exc}", file=sys.stderr)
             _cancel_check_authorization(connection, cancellation_id)
             return "timeout", ""
-        _log(f"polkit CheckAuthorization failed: {exc}")
+        print(f"polkit CheckAuthorization failed: {exc}", file=sys.stderr)
         return "error", str(exc)
     # Reply body is one struct (b b a{ss}):
     # (authorized, whether_challenge, details).
     authorized, whether_challenge, details = result[0]
-    _log(
+    print(
         f"polkit result: authorized={authorized} "
-        f"whether_challenge={whether_challenge} details={details!r}"
+        f"whether_challenge={whether_challenge} details={details!r}",
+        file=sys.stderr,
     )
     if not authorized:
         if details.get("polkit.dismissed"):
@@ -357,9 +267,9 @@ def _cancel_check_authorization(connection, cancellation_id):
             5000,
             None,
         )
-        _log(f"CancelCheckAuthorization: {cancellation_id}")
+        print(f"CancelCheckAuthorization: {cancellation_id}", file=sys.stderr)
     except GLib.Error as exc:
-        _log(f"CancelCheckAuthorization failed: {exc}")
+        print(f"CancelCheckAuthorization failed: {exc}", file=sys.stderr)
 
 
 def _authorized(invocation, connection, locale):
@@ -426,7 +336,7 @@ def _verify_rule(path):
     rejected the rule.
     """
     if shutil.which("udevadm") is None:
-        _log("udev verify: udevadm not available; rule not verified")
+        print("udev verify: udevadm not available; rule not verified", file=sys.stderr)
         return REFRESH_UNSUPPORTED
     try:
         out = subprocess.run(
@@ -437,10 +347,13 @@ def _verify_rule(path):
             timeout=30,
         )
     except (OSError, subprocess.SubprocessError):
-        _log("udev verify: udevadm verify failed to run")
+        print("udev verify: udevadm verify failed to run", file=sys.stderr)
         return REFRESH_FAILED
     if out.returncode != 0:
-        _log(f"udev verify: udevadm verify rejected the rule (rc={out.returncode})")
+        print(
+            f"udev verify: udevadm verify rejected the rule (rc={out.returncode})",
+            file=sys.stderr,
+        )
         return REFRESH_FAILED
     return REFRESH_VERIFIED
 
@@ -479,9 +392,10 @@ def _trigger_drm():
         )
     except (OSError, subprocess.SubprocessError):
         return False
-    _log(
+    print(
         f"udevadm trigger --subsystem-match=drm --settle rc={out.returncode} "
-        f"output={out.stdout.strip() or out.stderr.strip() or '-'}"
+        f"output={out.stdout.strip() or out.stderr.strip() or '-'}",
+        file=sys.stderr,
     )
     return out.returncode == 0
 
@@ -517,7 +431,10 @@ def _card_has_tag(card):
     query fails) - an unverifiable tag must not be treated as present.
     """
     if shutil.which("udevadm") is None:
-        _log(f"tag check: udevadm not available; cannot verify tag on {card}")
+        print(
+            f"tag check: udevadm not available; cannot verify tag on {card}",
+            file=sys.stderr,
+        )
         return False
     try:
         out = subprocess.run(
@@ -528,14 +445,16 @@ def _card_has_tag(card):
             timeout=30,
         )
     except (OSError, subprocess.SubprocessError):
-        _log(f"tag check: udevadm info failed on /sys/class/drm/{card}")
+        print(
+            f"tag check: udevadm info failed on /sys/class/drm/{card}", file=sys.stderr
+        )
         return False
     if out.returncode != 0:
-        _log(f"tag check: udevadm info rc={out.returncode} on {card}")
+        print(f"tag check: udevadm info rc={out.returncode} on {card}", file=sys.stderr)
         return False
     tags = parse_udev_current_tags(out.stdout)
     has = MUTTER_TAG in tags
-    _log(f"tag check: {card} current_tags={tags} has={has}")
+    print(f"tag check: {card} current_tags={tags} has={has}", file=sys.stderr)
     return has
 
 
@@ -553,18 +472,29 @@ def _refresh_udev(card=None):
     treated as fresh), and REFRESH_FAILED when a step failed.
     """
     if shutil.which("udevadm") is None:
-        _log("udev refresh: udevadm not available; refresh not verified")
+        print(
+            "udev refresh: udevadm not available; refresh not verified", file=sys.stderr
+        )
         return REFRESH_UNSUPPORTED
     if not _reload_rules():
-        _log("udev refresh: udevadm control --reload-rules failed")
+        print("udev refresh: udevadm control --reload-rules failed", file=sys.stderr)
         return REFRESH_FAILED
     if not _trigger_drm():
-        _log("udev refresh: udevadm trigger --subsystem-match=drm --settle failed")
+        print(
+            "udev refresh: udevadm trigger --subsystem-match=drm --settle failed",
+            file=sys.stderr,
+        )
         return REFRESH_FAILED
     if card is not None and not _card_has_tag(card):
-        _log(f"udev refresh: tag not present (or unverifiable) on {card} after refresh")
+        print(
+            f"udev refresh: tag not present (or unverifiable) on {card} after refresh",
+            file=sys.stderr,
+        )
         return REFRESH_FAILED
-    _log("udev refresh: reload-rules, DRM trigger and tag check succeeded")
+    print(
+        "udev refresh: reload-rules, DRM trigger and tag check succeeded",
+        file=sys.stderr,
+    )
     return REFRESH_VERIFIED
 
 
@@ -634,18 +564,18 @@ def handle_status(connection, sender, params, invocation) -> None:
 def handle_set_primary(connection, sender, params, invocation) -> None:
     pci, locale = params
     tr = _translator(locale)
-    _log(f"SetPrimary: pci={pci} locale={locale} sender={sender}")
+    print(f"SetPrimary: pci={pci} locale={locale} sender={sender}", file=sys.stderr)
     status, detail = _authorized(invocation, connection, locale)
     if status != "authorized":
         message = _authorization_message(tr, status, detail)
-        _log(f"SetPrimary: authorization {status}; nothing changed")
+        print(f"SetPrimary: authorization {status}; nothing changed", file=sys.stderr)
         invocation.return_value(GLib.Variant("(bssb)", (False, message, "", False)))
         return
-    _log("SetPrimary: authorized")
+    print("SetPrimary: authorized", file=sys.stderr)
     # Root cannot skip unreadable rules: they may set the tag.
     conflicts = rule_conflicts(on_unreadable="flag")
     if conflicts:
-        _log(f"SetPrimary: conflicts found: {conflicts}")
+        print(f"SetPrimary: conflicts found: {conflicts}", file=sys.stderr)
         invocation.return_value(
             GLib.Variant(
                 "(bssb)",
@@ -664,7 +594,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         return
     resolved = _resolve_gpu(pci)
     if resolved is None:
-        _log(f"SetPrimary: invalid PCI {pci}")
+        print(f"SetPrimary: invalid PCI {pci}", file=sys.stderr)
         invocation.return_value(
             GLib.Variant(
                 "(bssb)",
@@ -678,10 +608,13 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         )
         return
     _card, vendor, device = resolved
-    _log(f"SetPrimary: resolved {pci} -> card={_card} vendor={vendor} device={device}")
+    print(
+        f"SetPrimary: resolved {pci} -> card={_card} vendor={vendor} device={device}",
+        file=sys.stderr,
+    )
 
     if os.path.islink(MANAGED_RULE):
-        _log("SetPrimary: managed rule is a symlink; refusing")
+        print("SetPrimary: managed rule is a symlink; refusing", file=sys.stderr)
         invocation.return_value(
             GLib.Variant(
                 "(bssb)",
@@ -704,7 +637,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
     except OSError:
         existing = b""
     if existing == content.encode():
-        _log(f"SetPrimary: rule already set for {pci}; nothing to do")
+        print(f"SetPrimary: rule already set for {pci}; nothing to do", file=sys.stderr)
         state = _refresh_udev(_card)
         refresh_ok = state == REFRESH_VERIFIED
         message = _refresh_message(
@@ -726,7 +659,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         os.chmod(tmp_path, 0o644)
         if _verify_rule(tmp_path) == REFRESH_FAILED:
             os.unlink(tmp_path)
-            _log("SetPrimary: udevadm verify rejected the rule")
+            print("SetPrimary: udevadm verify rejected the rule", file=sys.stderr)
             invocation.return_value(
                 GLib.Variant(
                     "(bssb)",
@@ -743,7 +676,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
             backup = _backup_rule()
             if backup == "":
                 os.unlink(tmp_path)
-                _log("SetPrimary: backup of the existing rule failed")
+                print("SetPrimary: backup of the existing rule failed", file=sys.stderr)
                 invocation.return_value(
                     GLib.Variant(
                         "(bssb)",
@@ -763,7 +696,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         except OSError:
             os.unlink(tmp_path)
             tmp_path = ""
-            _log("SetPrimary: failed to move the rule into place")
+            print("SetPrimary: failed to move the rule into place", file=sys.stderr)
             invocation.return_value(
                 GLib.Variant(
                     "(bssb)",
@@ -777,7 +710,10 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
             )
             return
         tmp_path = ""
-        _log(f"SetPrimary: rule written for {pci} (backup: {backup or 'none'})")
+        print(
+            f"SetPrimary: rule written for {pci} (backup: {backup or 'none'})",
+            file=sys.stderr,
+        )
     finally:
         if tmp_path:
             try:
@@ -803,16 +739,16 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
 def handle_set_auto(connection, sender, params, invocation) -> None:
     locale = params[0]
     tr = _translator(locale)
-    _log(f"SetAuto: locale={locale} sender={sender}")
+    print(f"SetAuto: locale={locale} sender={sender}", file=sys.stderr)
     status, detail = _authorized(invocation, connection, locale)
     if status != "authorized":
         message = _authorization_message(tr, status, detail)
-        _log(f"SetAuto: authorization {status}; nothing changed")
+        print(f"SetAuto: authorization {status}; nothing changed", file=sys.stderr)
         invocation.return_value(GLib.Variant("(bsb)", (False, message, False)))
         return
-    _log("SetAuto: authorized")
+    print("SetAuto: authorized", file=sys.stderr)
     if os.path.islink(MANAGED_RULE):
-        _log("SetAuto: managed rule is a symlink; refusing")
+        print("SetAuto: managed rule is a symlink; refusing", file=sys.stderr)
         invocation.return_value(
             GLib.Variant(
                 "(bsb)",
@@ -825,7 +761,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
         )
         return
     if not os.path.exists(MANAGED_RULE):
-        _log("SetAuto: no managed rule; already auto")
+        print("SetAuto: no managed rule; already auto", file=sys.stderr)
         # A previous Reset may have removed the rule while its udev refresh
         # failed, so the stale tags persist; refresh udev on the
         # already-absent path too (as SetPrimary does for an unchanged rule).
@@ -841,7 +777,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
         return
     backup = _backup_rule()
     if backup == "":
-        _log("SetAuto: backup of the existing rule failed")
+        print("SetAuto: backup of the existing rule failed", file=sys.stderr)
         invocation.return_value(
             GLib.Variant(
                 "(bsb)",
@@ -856,7 +792,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
     try:
         os.unlink(MANAGED_RULE)
     except OSError:
-        _log("SetAuto: failed to remove the managed rule")
+        print("SetAuto: failed to remove the managed rule", file=sys.stderr)
         invocation.return_value(
             GLib.Variant(
                 "(bsb)",
@@ -868,7 +804,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
             )
         )
         return
-    _log(f"SetAuto: rule removed (backup: {backup})")
+    print(f"SetAuto: rule removed (backup: {backup})", file=sys.stderr)
     state = _refresh_udev()
     refresh_ok = state == REFRESH_VERIFIED
     message = _refresh_message(
@@ -898,7 +834,10 @@ def _reset_idle_timer():
         GLib.source_remove(_IDLE_SOURCE)
 
     def on_idle():
-        _log("idle timeout; exiting so the next call re-activates fresh code")
+        print(
+            "idle timeout; exiting so the next call re-activates fresh code",
+            file=sys.stderr,
+        )
         if _LOOP is not None:
             _LOOP.quit()
         return False
@@ -909,8 +848,7 @@ def _reset_idle_timer():
 def handle_method_call(
     connection, sender, object_path, interface_name, method_name, params, invocation
 ) -> None:
-    if _method_call_allowed(sender, method_name):
-        _log(f"method call: {method_name} from {sender}")
+    print(f"method call: {method_name} from {sender}", file=sys.stderr)
     try:
         if method_name == "Status":
             handle_status(connection, sender, params, invocation)
@@ -938,25 +876,25 @@ _LOOP = None
 
 
 def on_bus_acquired(connection, name) -> None:
-    _log(f"connected to system bus (name: {name})")
+    print(f"connected to system bus (name: {name})", file=sys.stderr)
 
 
 def on_name_acquired(connection, name) -> None:
-    _log(f"name acquired: {name}; ready to serve calls")
+    print(f"name acquired: {name}; ready to serve calls", file=sys.stderr)
 
 
 def on_name_lost(connection, name) -> None:
     where = (
         "on the owning connection" if connection is not None else "connection closed"
     )
-    _log(f"name lost: {name} {where}; exiting")
+    print(f"name lost: {name} {where}; exiting", file=sys.stderr)
     if _LOOP is not None:
         _LOOP.quit()
 
 
 def main() -> None:
     global _LOOP
-    _log(f"helper starting (uid={os.getuid()}, argv={sys.argv})")
+    print(f"helper starting (uid={os.getuid()}, argv={sys.argv})", file=sys.stderr)
     _LOOP = GLib.MainLoop.new(None, False)
     # Register the object on the bus connection BEFORE owning the name:
     # the broker retries a client's pending call the instant the name is
@@ -966,7 +904,10 @@ def main() -> None:
     connection.register_object(
         OBJECT_PATH, node.interfaces[0], handle_method_call, None, None
     )
-    _log(f"object {OBJECT_PATH} registered; requesting name {SERVICE_NAME}")
+    print(
+        f"object {OBJECT_PATH} registered; requesting name {SERVICE_NAME}",
+        file=sys.stderr,
+    )
     # g_bus_own_name(bus_type, name, flags, bus_acquired, name_acquired,
     # name_lost): three (connection, name) callbacks, no method handler.
     Gio.bus_own_name(
@@ -982,7 +923,7 @@ def main() -> None:
     # after IDLE_TIMEOUT_MS instead of owning the name forever.
     _reset_idle_timer()
     _LOOP.run()
-    _log("main loop ended")
+    print("main loop ended", file=sys.stderr)
 
 
 if __name__ == "__main__":

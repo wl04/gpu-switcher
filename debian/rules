@@ -31,6 +31,8 @@ override_dh_auto_install:
 	# plus the system-bus policy that lets root own the helper's name.
 	install -D -m 0644 data/dbus/com.github.wl04.gpu_switcher.Helper.service debian/gpu-switcher/usr/share/dbus-1/system-services/com.github.wl04.gpu_switcher.Helper.service
 	install -D -m 0644 data/dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf debian/gpu-switcher/usr/share/dbus-1/system.d/com.github.wl04.gpu_switcher.Helper.conf
+	# systemd unit for the helper (D-Bus activation via SystemdService=).
+	install -D -m 0644 debian/gpu-switcher-helper.service debian/gpu-switcher/usr/lib/systemd/system/gpu-switcher-helper.service
 	# Guard: every module under src/gpu_switcher must be installed above
 	# (hand-maintained list; the both-builds cross-check in release.sh
 	# converges this path with tools/build-deb.sh).
