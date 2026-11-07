@@ -416,6 +416,10 @@ def _resolve_gpu(pci):
             continue
         if not os.path.exists(f"/dev/dri/{entry}"):
             continue
+        # Exactly one card must bind to this PCI: a second card would make
+        # the binding ambiguous, so refuse rather than pick one.
+        if card is not None:
+            return None
         card = entry
     if card is None:
         return None

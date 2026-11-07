@@ -93,6 +93,30 @@ class ResolveGpu(unittest.TestCase):
                 h._resolve_gpu("0000:12:00.0"), ("card1", "0x1002", "0x7550")
             )
 
+    def test_resolve_gpu_returns_none_when_two_cards_bind_to_the_pci(self):
+        # Two DRM cards resolving to the same PCI: the binding is
+        # ambiguous, so SetPrimary must not guess which card to write.
+        with (
+            mock.patch("os.path.isdir", return_value=True),
+            mock.patch("os.path.islink", return_value=True),
+            mock.patch("os.path.realpath", return_value="/dev/pci/0000:12:00.0"),
+            mock.patch("os.listdir", return_value=["card1", "card2"]),
+            mock.patch("os.path.exists", return_value=True),
+            mock.patch(
+                "helper.gpu_switcher_helper.read_text",
+                side_effect=lambda path: (
+                    "0x030200"
+                    if path.endswith("/class")
+                    else "0x1002"
+                    if path.endswith("/vendor")
+                    else "0x7550"
+                    if path.endswith("/device")
+                    else ""
+                ),
+            ),
+        ):
+            self.assertIsNone(h._resolve_gpu("0000:12:00.0"))
+
 
 class Translator(unittest.TestCase):
     def test_translator_returns_identity_when_catalog_missing(self):
