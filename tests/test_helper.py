@@ -393,7 +393,7 @@ class SetPrimaryAuthorization(unittest.TestCase):
 
 class OperationInProgress(unittest.TestCase):
     """The in-progress lock: a second mutating call while an operation is
-    in flight gets the Busy D-Bus error, and Status stays responsive."""
+    in flight gets the Busy D-Bus error."""
 
     def setUp(self):
         service._operation_in_progress = False
@@ -440,18 +440,6 @@ class OperationInProgress(unittest.TestCase):
             self.assertEqual(
                 inv2.return_dbus_error.call_args[0][0], udev_rules.DBUS_ERROR_BUSY
             )
-
-    def test_status_stays_responsive_while_operation_in_progress(self):
-        service._operation_in_progress = True
-        try:
-            with mock.patch.object(service, "read_text", return_value=""):
-                invocation = _invocation()
-                service.handle_status(mock.Mock(), "sender", ("en",), invocation)
-            rule, message = invocation.return_value.call_args[0][0].unpack()
-            self.assertEqual(rule, "")
-            self.assertEqual(message, "No managed rule (auto selection).")
-        finally:
-            service._operation_in_progress = False
 
 
 class ErrorNames(unittest.TestCase):
@@ -914,7 +902,6 @@ class BusContract(unittest.TestCase):
             return sig
 
         expected = {
-            "Status": ("s", "ss"),
             "SetPrimary": ("ss", "bssb"),
             "SetAuto": ("s", "bsb"),
         }

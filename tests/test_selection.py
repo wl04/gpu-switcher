@@ -35,8 +35,10 @@ def _detection(gpus, preferred_pci=None, running_card=None, running_card_error=N
     )
 
 
-class InitialSelection(unittest.TestCase):
-    def test_initial_selection_returns_configured_card_when_gpu_preferred(self):
+class MirrorConfiguredState(unittest.TestCase):
+    def test_mirror_configured_state_returns_configured_card_when_gpu_preferred(
+        self,
+    ):
         detection = _detection(
             [
                 _gpu("card1", "0000:01:00.0"),
@@ -44,9 +46,9 @@ class InitialSelection(unittest.TestCase):
             ],
             preferred_pci="0000:12:00.0",
         )
-        self.assertEqual(selection.initial_selection(detection), "card2")
+        self.assertEqual(selection.mirror_configured_state(detection), "card2")
 
-    def test_initial_selection_returns_unavailable_state_when_configured_gpu_missing(
+    def test_mirror_configured_state_returns_unavailable_when_configured_gpu_missing(
         self,
     ):
         # The rule pins a PCI no detected GPU carries: a distinct state,
@@ -55,22 +57,26 @@ class InitialSelection(unittest.TestCase):
             [_gpu("card1", "0000:01:00.0")], preferred_pci="0000:99:00.0"
         )
         self.assertEqual(
-            selection.initial_selection(detection), selection.SELECTION_UNAVAILABLE
+            selection.mirror_configured_state(detection),
+            selection.SELECTION_UNAVAILABLE,
         )
 
-    def test_initial_selection_returns_unavailable_state_when_no_gpus_detected(self):
+    def test_mirror_configured_state_returns_unavailable_when_no_gpus_detected(
+        self,
+    ):
         detection = _detection([], preferred_pci="0000:99:00.0")
         self.assertEqual(
-            selection.initial_selection(detection), selection.SELECTION_UNAVAILABLE
+            selection.mirror_configured_state(detection),
+            selection.SELECTION_UNAVAILABLE,
         )
 
-    def test_initial_selection_returns_auto_when_no_rule(self):
+    def test_mirror_configured_state_returns_auto_when_no_rule(self):
         detection = _detection([_gpu("card1", "0000:01:00.0")])
-        self.assertEqual(selection.initial_selection(detection), "auto")
+        self.assertEqual(selection.mirror_configured_state(detection), "auto")
 
-    def test_initial_selection_returns_auto_when_no_gpus_detected_and_no_rule(self):
+    def test_mirror_configured_state_returns_auto_when_no_gpus_and_no_rule(self):
         detection = _detection([])
-        self.assertEqual(selection.initial_selection(detection), "auto")
+        self.assertEqual(selection.mirror_configured_state(detection), "auto")
 
 
 class ConfiguredUnavailablePci(unittest.TestCase):
@@ -94,32 +100,6 @@ class ConfiguredUnavailablePci(unittest.TestCase):
     def test_configured_unavailable_pci_returns_none_when_no_rule(self):
         detection = _detection([_gpu("card1", "0000:01:00.0")])
         self.assertIsNone(selection.configured_unavailable_pci(detection))
-
-
-class SelectionAfterFailure(unittest.TestCase):
-    def test_selection_after_failure_returns_configured_card_when_preferred_exists(
-        self,
-    ):
-        detection = _detection(
-            [_gpu("card1", "0000:01:00.0", preferred=True)],
-            preferred_pci="0000:01:00.0",
-        )
-        self.assertEqual(selection.selection_after_failure(detection), "card1")
-
-    def test_selection_after_failure_returns_unavailable_state_when_configured_gpu_missing(
-        self,
-    ):
-        detection = _detection(
-            [_gpu("card1", "0000:01:00.0")], preferred_pci="0000:99:00.0"
-        )
-        self.assertEqual(
-            selection.selection_after_failure(detection),
-            selection.SELECTION_UNAVAILABLE,
-        )
-
-    def test_selection_after_failure_returns_auto_when_no_rule(self):
-        detection = _detection([_gpu("card1", "0000:01:00.0")])
-        self.assertEqual(selection.selection_after_failure(detection), "auto")
 
 
 class ApplyTarget(unittest.TestCase):

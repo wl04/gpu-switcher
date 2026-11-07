@@ -57,47 +57,75 @@ SESSION_MANAGER_LOGOUT_MODE = 1
 LOGIN1_TIMEOUT_MS = 15000
 
 
+def _call_async(
+    bus_type: int,
+    name: str,
+    path: str,
+    iface: str,
+    method: str,
+    params: GLib.Variant,
+    reply_signature: str,
+    timeout_ms: int,
+    on_success,
+    on_error,
+    on_bus_error,
+) -> None:
+    """Issue one async D-Bus method call and dispatch to the handlers.
+
+    on_success(reply) runs when the method returns, with the unpacked tuple
+    of out-args (possibly empty); on_error(GLib.Error) runs on a method-level
+    error; on_bus_error(GLib.Error) runs when the bus connection itself cannot
+    be acquired. The reply is delivered on the GLib main loop, so the UI never
+    blocks while the interactive polkit dialog is open.
+    """
+    try:
+        connection = Gio.bus_get_sync(bus_type)
+    except GLib.Error as error:
+        on_bus_error(error)
+        return
+
+    def on_call(c, task):
+        try:
+            on_success(c.call_finish(task))
+        except GLib.Error as error:
+            on_error(error)
+
+    connection.call(
+        name,
+        path,
+        iface,
+        method,
+        params,
+        GLib.VariantType(reply_signature),
+        0,
+        timeout_ms,
+        None,
+        on_call,
+    )
+
+
 def set_primary(pci: str, locale: str, callback) -> None:
     """Ask the helper to write the managed rule for this PCI address.
 
     The helper also refreshes udev (reload-rules + scoped DRM trigger)
     under the same authorization, so the rule takes effect without a
-    second prompt. callback(ok, message, backup_path, refresh_ok,
-    timed_out) — timed_out is True when the client call timed out, in
-    which case the helper's outcome is unknown.
+    second prompt. callback(ok, message, refresh_ok, timed_out) — timed_out
+    is True when the client call timed out, in which case the helper's
+    outcome is unknown. The helper's backup path is not surfaced to the UI.
     """
-    try:
-        connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
-    except GLib.Error as error:
-        callback(
-            False,
-            i18n._("Could not reach the GPU helper: %s.") % error.message,
-            "",
-            False,
-            False,
-        )
-        return
-    params = GLib.Variant("(ss)", (pci, locale))
-
-    def on_call(c, task):
-        try:
-            ok, message, backup, refresh_ok = c.call_finish(task)
-        except GLib.Error as error:
-            callback(False, error.message, "", False, state.is_gio_timeout(error))
-            return
-        callback(bool(ok), message, backup, bool(refresh_ok), False)
-
-    connection.call(
+    helper_unreachable = i18n._("Could not reach the GPU helper: %s.")
+    _call_async(
+        Gio.BusType.SYSTEM,
         HELPER_NAME,
         HELPER_PATH,
         HELPER_IFACE,
         "SetPrimary",
-        params,
-        GLib.VariantType("(bssb)"),
-        0,
+        GLib.Variant("(ss)", (pci, locale)),
+        "(bssb)",
         HELPER_TIMEOUT_MS,
-        None,
-        on_call,
+        lambda r: callback(bool(r[0]), r[1], bool(r[3]), False),
+        lambda e: callback(False, e.message, False, state.is_gio_timeout(e)),
+        lambda e: callback(False, helper_unreachable % e.message, False, False),
     )
 
 
@@ -110,37 +138,19 @@ def set_auto(locale: str, callback) -> None:
     the client call timed out, in which case the helper's outcome is
     unknown.
     """
-    try:
-        connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
-    except GLib.Error as error:
-        callback(
-            False,
-            i18n._("Could not reach the GPU helper: %s.") % error.message,
-            False,
-            False,
-        )
-        return
-    params = GLib.Variant("(s)", (locale,))
-
-    def on_call(c, task):
-        try:
-            ok, message, refresh_ok = c.call_finish(task)
-        except GLib.Error as error:
-            callback(False, error.message, False, state.is_gio_timeout(error))
-            return
-        callback(bool(ok), message, bool(refresh_ok), False)
-
-    connection.call(
+    helper_unreachable = i18n._("Could not reach the GPU helper: %s.")
+    _call_async(
+        Gio.BusType.SYSTEM,
         HELPER_NAME,
         HELPER_PATH,
         HELPER_IFACE,
         "SetAuto",
-        params,
-        GLib.VariantType("(bsb)"),
-        0,
+        GLib.Variant("(s)", (locale,)),
+        "(bsb)",
         HELPER_TIMEOUT_MS,
-        None,
-        on_call,
+        lambda r: callback(bool(r[0]), r[1], bool(r[2]), False),
+        lambda e: callback(False, e.message, False, state.is_gio_timeout(e)),
+        lambda e: callback(False, helper_unreachable % e.message, False, False),
     )
 
 
@@ -150,31 +160,19 @@ def reboot(callback) -> None:
 
     callback(ok: bool, message: str)
     """
-    try:
-        connection = Gio.bus_get_sync(Gio.BusType.SYSTEM)
-    except GLib.Error as error:
-        callback(False, i18n._("Could not reach logind: %s.") % error.message)
-        return
-    params = GLib.Variant("(b)", (False,))
-
-    def on_call(c, task):
-        try:
-            c.call_finish(task)
-            callback(True, "")
-        except GLib.Error as error:
-            callback(False, error.message)
-
-    connection.call(
+    logind_unreachable = i18n._("Could not reach logind: %s.")
+    _call_async(
+        Gio.BusType.SYSTEM,
         LOGIN1_NAME,
         LOGIN1_PATH,
         LOGIN1_MANAGER_IFACE,
         "Reboot",
-        params,
-        GLib.VariantType("()"),
-        0,
+        GLib.Variant("(b)", (False,)),
+        "()",
         LOGIN1_TIMEOUT_MS,
-        None,
-        on_call,
+        lambda r: callback(True, ""),
+        lambda e: callback(False, e.message),
+        lambda e: callback(False, logind_unreachable % e.message),
     )
 
 
@@ -261,29 +259,17 @@ def logout(callback) -> None:
 
     callback(ok: bool, message: str)
     """
-    try:
-        connection = Gio.bus_get_sync(Gio.BusType.SESSION)
-    except GLib.Error as error:
-        callback(False, i18n._("Could not log out: %s.") % error.message)
-        return
-    params = GLib.Variant("(u)", (SESSION_MANAGER_LOGOUT_MODE,))
-
-    def on_call(c, task):
-        try:
-            c.call_finish(task)
-            callback(True, "")
-        except GLib.Error as error:
-            callback(False, i18n._("Could not log out: %s.") % error.message)
-
-    connection.call(
+    logout_failed = i18n._("Could not log out: %s.")
+    _call_async(
+        Gio.BusType.SESSION,
         SESSION_MANAGER_NAME,
         SESSION_MANAGER_PATH,
         SESSION_MANAGER_IFACE,
         "Logout",
-        params,
-        GLib.VariantType("()"),
-        0,
+        GLib.Variant("(u)", (SESSION_MANAGER_LOGOUT_MODE,)),
+        "()",
         LOGIN1_TIMEOUT_MS,
-        None,
-        on_call,
+        lambda r: callback(True, ""),
+        lambda e: callback(False, logout_failed % e.message),
+        lambda e: callback(False, logout_failed % e.message),
     )

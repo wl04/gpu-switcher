@@ -28,8 +28,7 @@ from .selection import (
     SELECTION_UNAVAILABLE,
     apply_target,
     configured_unavailable_pci,
-    initial_selection,
-    selection_after_failure,
+    mirror_configured_state,
 )
 from .state import (
     BannerKind,
@@ -58,10 +57,12 @@ class GpuSwitcherApp(Gtk.Application):
         self.unavailable_radio = (
             None  # disabled row for the configured-but-undetected GPU
         )
+        self.auto_radio = None
         self.unavailable_pci = None
         self.radios_by_gpu: dict = {}
         self.rows_box = None
         self.banner = None
+        self.banner_box = None
         self.banner_label = None
         self.apply_btn = None
         self.reset_btn = None
@@ -205,7 +206,13 @@ class GpuSwitcherApp(Gtk.Application):
         self.rows_box.append(
             self._gpu_row(self.auto_radio, i18n._("System default (auto)"), "", [])
         )
-        card = initial_selection(result)
+        # Initial build: mirror the managed rule on disk (auto when nothing
+        # is configured).
+        self._select_radio(mirror_configured_state(result))
+
+    def _select_radio(self, card: str) -> None:
+        """Point the radio group at card (auto, the unavailable sentinel,
+        or a real detected GPU)."""
         self.selected_card = card
         if card == SELECTION_AUTO:
             self.auto_radio.set_active(True)
@@ -437,14 +444,9 @@ class GpuSwitcherApp(Gtk.Application):
         changed, so the UI must show the real configured state, not the
         un-applied choice.
         """
-        card = selection_after_failure(self.detection)
-        self.selected_card = card
-        if card == SELECTION_AUTO:
-            self.auto_radio.set_active(True)
-        elif card == SELECTION_UNAVAILABLE:
-            self.unavailable_radio.set_active(True)
-        else:
-            self.radios_by_gpu[card].set_active(True)
+        # Revert: nothing on disk changed, so re-mirror the real configured
+        # state instead of the un-applied choice.
+        self._select_radio(mirror_configured_state(self.detection))
 
     def _do_apply(self, ok, target) -> None:
         if not ok:
@@ -453,25 +455,13 @@ class GpuSwitcherApp(Gtk.Application):
         self._set_busy(True)
         locale = i18n._requested_language()
         if target == SELECTION_AUTO:
-            bus.set_auto(locale, self._on_set_auto_done)
+            bus.set_auto(locale, self._on_apply_done)
         else:
-            bus.set_primary(target, locale, self._on_set_primary_done)
+            bus.set_primary(target, locale, self._on_apply_done)
 
-    def _on_set_primary_done(self, ok, message, _backup, refresh_ok, timed_out) -> None:
-        if timed_out:
-            self._on_helper_timeout()
-            return
-        self.outcome = outcome_from_result(ok, refresh_ok, False)
-        self._set_busy(False)
-        if ok:
-            # The rebuild replaces the banner widget, so the result is
-            # shown only after the rebuild (see _start_detection).
-            self._refresh(banner=(message, banner_kind(self.outcome)))
-        else:
-            self._banner_show(message, BannerKind.ERROR)
-            self._revert_selection()
-
-    def _on_set_auto_done(self, ok, message, refresh_ok, timed_out) -> None:
+    def _on_apply_done(self, ok, message, refresh_ok, timed_out) -> None:
+        """Shared SetPrimary/SetAuto result (both normalize to the same
+        callback)."""
         if timed_out:
             self._on_helper_timeout()
             return
@@ -488,9 +478,8 @@ class GpuSwitcherApp(Gtk.Application):
     def _on_helper_timeout(self) -> None:
         """The client call timed out: the helper's outcome is unknown.
 
-        Set the outcome, re-detect and reconcile with the rule on disk
-        (the helper's Status method would read the same world-readable
-        file), then report the unknown outcome.
+        Set the outcome, re-detect and reconcile with the rule on disk,
+        then report the unknown outcome.
         """
         self.outcome = Outcome.unknown
         self._set_busy(False)

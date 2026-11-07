@@ -4,7 +4,6 @@ dbus-broker starts this process on demand (via SystemdService= or Exec=)
 when an unprivileged client (the GUI app) calls one of its methods.
 
 Methods:
-  Status(locale)            -> (rule_on_disk, message)
   SetPrimary(pci, locale)   -> (ok, message, backup_path, refresh_ok)
   SetAuto(locale)           -> (ok, message, refresh_ok)
 
@@ -19,7 +18,7 @@ computed - what mutter reads when the session starts).
 Concurrency: each privileged operation claims an in-progress lock before
 it starts; a second mutating call arriving while an operation is in flight
 gets the com.github.wl04.gpu_switcher.Error.Busy D-Bus error (not queued).
-Status stays responsive at all times. All long-running work is
+All long-running work is
 asynchronous (polkit CheckAuthorization via connection.call, udevadm via
 Gio.Subprocess.communicate_async with a per-step timeout), so the main
 loop - and with it the D-Bus connection's keep-alive - stays alive for
@@ -64,7 +63,6 @@ from gpu_switcher.core.udev import (
     DBUS_ERROR_BUSY,
     DBUS_ERROR_INTERNAL,
     OnUnreadable,
-    read_text,
     rule_conflicts,
 )
 from gpu_switcher.helper import auth, rule_store
@@ -80,11 +78,6 @@ LOCALE_BASE = "/usr/share/gpu-switcher/locale"
 
 INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
   <interface name="{INTERFACE}">
-    <method name="Status">
-      <arg type="s" name="locale" direction="in"/>
-      <arg type="s" name="rule_on_disk" direction="out"/>
-      <arg type="s" name="message" direction="out"/>
-    </method>
     <method name="SetPrimary">
       <arg type="s" name="pci" direction="in"/>
       <arg type="s" name="locale" direction="in"/>
@@ -183,17 +176,6 @@ def authorization_message(tr, status, detail):
     if status is AuthStatus.TIMEOUT:
         return tr("The authorization check timed out. Nothing changed.")
     return tr("Could not check authorization (%s). Nothing changed.") % detail
-
-
-def handle_status(connection, sender, params, invocation) -> None:
-    locale = params[0]
-    tr = translator(locale)
-    rule = read_text(rule_store.MANAGED_RULE)
-    if rule:
-        message = tr("Managed rule present.")
-    else:
-        message = tr("No managed rule (auto selection).")
-    invocation.return_value(GLib.Variant("(ss)", (rule, message)))
 
 
 def _set_primary_plan(pci, tr):
@@ -384,9 +366,7 @@ def handle_method_call(
 ) -> None:
     print(f"method call: {method_name} from {sender}", file=sys.stderr)
     try:
-        if method_name == "Status":
-            handle_status(connection, sender, params, invocation)
-        elif method_name == "SetPrimary":
+        if method_name == "SetPrimary":
             handle_set_primary(connection, sender, params, invocation)
         elif method_name == "SetAuto":
             handle_set_auto(connection, sender, params, invocation)

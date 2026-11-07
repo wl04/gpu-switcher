@@ -86,7 +86,6 @@ class BusGuard(unittest.TestCase):
                 (
                     False,
                     "Could not reach the GPU helper: no system bus.",
-                    "",
                     False,
                     False,
                 )

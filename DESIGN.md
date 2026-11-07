@@ -67,8 +67,6 @@ Consequences:
 - Service `com.github.wl04.gpu_switcher.Helper` (D-Bus names cannot contain
   `-`), object `/com/github/wl04/gpu_switcher/Helper`.
 - Methods (all async from the app's point of view):
-  - `Status(locale: s) → (rule_on_disk: s, message: s)` — read-only view of
-    the managed rule.
   - `SetPrimary(pci: s, locale: s) → (ok: b, message: s, backup_path: s,
     refresh_ok: b)` — writes the rule (or confirms it is already in place),
     then runs the udev refresh under the same authorization.

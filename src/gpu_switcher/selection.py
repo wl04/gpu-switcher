@@ -4,9 +4,10 @@ The UI must always mirror the configured state. Three-way mirror: the
 selected card is the detected GPU matching the managed rule on disk; when
 the rule pins a PCI no detected GPU carries, the selection is the distinct
 configured-unavailable state (the rule still exists on disk, so this is not
-auto); and auto only when no rule pins a GPU. Two named entry points share
-the one rule - the initial UI build and the revert after a cancelled or
-failed action - so each call site documents why it selects.
+auto); and auto only when no rule pins a GPU. One entry point,
+mirror_configured_state, serves both the initial UI build and the revert
+after a cancelled or failed action; each call site documents why it
+selects.
 """
 
 from __future__ import annotations
@@ -58,28 +59,18 @@ def apply_target(
     return gpu.pci, None
 
 
-def _mirror_configured_state(detection: detect.Detection) -> str:
-    """Card mirroring the configured state: the matching detected card,
-    the unavailable sentinel when the rule pins an undetected GPU, or
-    auto when no rule pins a GPU."""
+def mirror_configured_state(detection: detect.Detection) -> str:
+    """The card mirroring the configured state: the detected card matching
+    the managed rule, the unavailable sentinel when the rule pins an
+    undetected GPU, or auto when no rule pins a GPU.
+
+    Both call sites rely on this single rule: the initial UI build and the
+    revert after a cancelled or failed action. Each call site in main.py
+    documents *why* it selects, since the logic here is intent-agnostic.
+    """
     card = _configured_card(detection)
     if card is not None:
         return card
     if configured_unavailable_pci(detection) is not None:
         return SELECTION_UNAVAILABLE
     return SELECTION_AUTO
-
-
-def initial_selection(detection: detect.Detection) -> str:
-    """Card to select when building the UI: the configured card when a
-    detected GPU matches the managed rule, the unavailable sentinel when
-    the rule pins an undetected GPU, otherwise auto."""
-    return _mirror_configured_state(detection)
-
-
-def selection_after_failure(detection: detect.Detection) -> str:
-    """Card to revert to when an action is cancelled or fails: the
-    configured card when a detected GPU matches the managed rule, the
-    unavailable sentinel when the rule pins an undetected GPU, otherwise
-    auto (nothing on disk changed)."""
-    return _mirror_configured_state(detection)
