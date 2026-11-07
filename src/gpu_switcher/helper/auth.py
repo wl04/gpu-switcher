@@ -126,24 +126,30 @@ def authorize(connection, sender, locale, on_done, cancellable=None):
 
 
 def cancel_check_authorization(connection, cancellation_id):
-    """Best-effort CancelCheckAuthorization after a timeout.
+    """Best-effort asynchronous CancelCheckAuthorization after a timeout.
 
     The result is logged and ignored: the check may already be finished
     (denied/cancelled between our timeout and the call), and the reply
-    carries no data (in-arg s only).
+    carries no data (in-arg s only). Asynchronous so the helper's main loop
+    is never blocked on polkitd.
     """
-    try:
-        connection.call_sync(
-            "org.freedesktop.PolicyKit1",
-            POLKIT_PATH,
-            POLKIT_IFACE,
-            "CancelCheckAuthorization",
-            GLib.Variant("(s)", (cancellation_id,)),
-            GLib.VariantType("()"),
-            0,
-            5000,
-            None,
-        )
-        print(f"CancelCheckAuthorization: {cancellation_id}", file=sys.stderr)
-    except GLib.Error as exc:
-        print(f"CancelCheckAuthorization failed: {exc}", file=sys.stderr)
+
+    def on_cancelled(conn, task):
+        try:
+            conn.call_finish(task)
+            print(f"CancelCheckAuthorization: {cancellation_id}", file=sys.stderr)
+        except GLib.Error as exc:
+            print(f"CancelCheckAuthorization failed: {exc}", file=sys.stderr)
+
+    connection.call(
+        "org.freedesktop.PolicyKit1",
+        POLKIT_PATH,
+        POLKIT_IFACE,
+        "CancelCheckAuthorization",
+        GLib.Variant("(s)", (cancellation_id,)),
+        GLib.VariantType("()"),
+        0,
+        5000,
+        None,
+        on_cancelled,
+    )

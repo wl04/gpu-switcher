@@ -336,8 +336,9 @@ class Authorize(unittest.TestCase):
         status, detail = _run_authorize(conn, cancellable=cancellable)
         self.assertEqual((status, detail), (AuthStatus.TIMEOUT, ""))
         self.assertTrue(cancellable.is_cancelled())
-        self.assertTrue(conn.call_sync.called)
-        self.assertEqual(conn.call_sync.call_args[0][3], "CancelCheckAuthorization")
+        methods = [c[0][3] for c in conn.call.call_args_list]
+        self.assertEqual(methods, ["CheckAuthorization", "CancelCheckAuthorization"])
+        self.assertFalse(conn.call_sync.called)
 
     def test_authorize_does_not_treat_io_error_code_5_as_timeout(self) -> None:
         conn = _polkit_conn(call_error=GLib.Error.new_literal(_IO_QUARK, "io", 5))
