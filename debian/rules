@@ -3,6 +3,15 @@
 %:
 	dh $@
 
+override_dh_auto_build:
+	# Pure Python: nothing to compile. File installation happens in
+	# dh_auto_install (the Makefile install target). Without this override,
+	# dh runs bare `make`, whose default goal is `test`.
+
+override_dh_auto_test:
+	# The test suite runs in CI (the check job) under a virtual display; the
+	# dh build does not need to run it (and the GUI tests need a display).
+
 override_dh_auto_install:
 	# The single package file list lives in the Makefile `install` target;
 	# calling it here keeps this dh path in sync with tools/build-deb.sh.
