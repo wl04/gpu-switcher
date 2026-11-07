@@ -54,6 +54,20 @@ SESSION_MANAGER_LOGOUT_MODE = 1
 LOGIN1_TIMEOUT_MS = 15000
 
 
+_REMOTE_ERROR_PREFIX = "GDBus.Error:"
+
+
+def _strip_remote_prefix(message: str) -> str:
+    """Drop the "GDBus.Error:<name>: " prefix GDBus adds to remote errors, so
+    the user sees the service's own message. (Gio.DBusError.strip_remote_error
+    edits the C GError in place and does not reach the Python exception.)"""
+    if message.startswith(_REMOTE_ERROR_PREFIX):
+        _name, separator, text = message.partition(": ")
+        if separator:
+            return text
+    return message
+
+
 def _call_async(
     bus_type: int,
     name: str,
@@ -83,9 +97,12 @@ def _call_async(
 
     def on_call(c, task):
         try:
-            on_success(c.call_finish(task))
+            reply = c.call_finish(task)
         except GLib.Error as error:
+            error.message = _strip_remote_prefix(error.message)
             on_error(error)
+            return
+        on_success(reply)
 
     connection.call(
         name,

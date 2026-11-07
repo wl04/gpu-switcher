@@ -111,3 +111,57 @@ class BusGuard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CallDispatch(unittest.TestCase):
+    def _call(
+        self, finish_result: object, on_success: object, on_error: object
+    ) -> None:
+        conn = mock.Mock()
+        conn.call_finish.side_effect = (
+            finish_result if isinstance(finish_result, Exception) else None
+        )
+        if not isinstance(finish_result, Exception):
+            conn.call_finish.return_value = finish_result
+        with mock.patch.object(Gio, "bus_get_sync", return_value=conn):
+            bus._call_async(
+                Gio.BusType.SYSTEM,
+                "n",
+                "/p",
+                "i",
+                "M",
+                GLib.Variant("()", ()),
+                "()",
+                1000,
+                on_success,
+                on_error,
+                mock.Mock(),
+            )
+        callback = conn.call.call_args[0][9]
+        callback(conn, None)
+
+    def test_call_async_does_not_report_error_when_success_handler_raises_glib_error(
+        self,
+    ) -> None:
+        on_error = mock.Mock()
+
+        def failing_success(_reply: object) -> None:
+            raise GLib.Error.new_literal(GLib.quark_from_string("x"), "late", 1)
+
+        with self.assertRaises(GLib.Error):
+            self._call((), failing_success, on_error)
+
+        on_error.assert_not_called()
+
+    def test_call_async_strips_remote_error_prefix_from_message(self) -> None:
+        on_error = mock.Mock()
+        remote = Gio.DBusError.new_for_dbus_error(
+            "com.github.wl04.gpu_switcher.Error.Busy",
+            "Another operation is in progress.",
+        )
+
+        self._call(remote, mock.Mock(), on_error)
+
+        self.assertEqual(
+            on_error.call_args[0][0].message, "Another operation is in progress."
+        )
