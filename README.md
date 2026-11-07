@@ -67,7 +67,7 @@ sudo systemctl restart gpu-switcher-helper.service
 ### Uninstalling
 
 ```sh
-sudo dpkg -r gpu-switcher
+sudo apt remove gpu-switcher
 ```
 
 This leaves the managed udev rule and its backups in place: they are your
