@@ -26,11 +26,18 @@ from . import bus, detect, i18n
 from .selection import (
     SELECTION_AUTO,
     SELECTION_UNAVAILABLE,
+    apply_target,
     configured_unavailable_pci,
     initial_selection,
     selection_after_failure,
 )
-from .state import Outcome, banner_kind, logout_enabled, outcome_from_result
+from .state import (
+    Outcome,
+    actions_enabled,
+    banner_kind,
+    logout_enabled,
+    outcome_from_result,
+)
 
 APP_ID = "com.github.wl04.gpu-switcher"
 
@@ -281,6 +288,13 @@ class GpuSwitcherApp(Gtk.Application):
         self.logout_btn.connect("clicked", self._on_logout)
         self.logout_btn.set_sensitive(logout_enabled(False, self.outcome))
         buttons.append(self.logout_btn)
+        # Outside a GNOME Wayland session no privileged action works
+        # (DESIGN.md: GNOME only); the warning banner explains why.
+        actions = actions_enabled(self.detection.gnome_wayland)
+        self.apply_btn.set_sensitive(actions)
+        self.reset_btn.set_sensitive(actions)
+        self.reboot_btn.set_sensitive(actions)
+        self.logout_btn.set_sensitive(actions and logout_enabled(False, self.outcome))
         return buttons
 
     def _build_verification_hint(self) -> Gtk.Expander:
@@ -340,9 +354,10 @@ class GpuSwitcherApp(Gtk.Application):
         """Busy state for the action buttons; Log out goes through the
         sensitivity rule (state.logout_enabled), so it is never
         re-enabled by un-busy alone."""
+        actions = actions_enabled(self.detection.gnome_wayland)
         for button in (self.apply_btn, self.reset_btn, self.reboot_btn):
-            button.set_sensitive(not busy)
-        self.logout_btn.set_sensitive(logout_enabled(busy, self.outcome))
+            button.set_sensitive(actions and not busy)
+        self.logout_btn.set_sensitive(actions and logout_enabled(busy, self.outcome))
 
     def _confirm(self, text: str, confirm_label: str, on_result) -> None:
         """Modal confirmation via Gtk.AlertDialog (GTK >= 4.10).
@@ -372,29 +387,31 @@ class GpuSwitcherApp(Gtk.Application):
     # ------------------------------------------------------------- actions
 
     def _on_apply(self, _button) -> None:
-        if self.selected_card == SELECTION_UNAVAILABLE:
-            # Nothing to apply: the configured GPU is not currently
-            # detected. Do not silently fall back to auto - tell the user
-            # the rule stays on disk and offer the explicit reset.
-            self._banner_show(
-                i18n._(
-                    "The configured GPU (PCI %s) is not currently "
-                    "detected, so there is nothing to apply. The rule "
-                    "stays on disk; use 'Reset to auto' to remove it."
+        target, error = apply_target(self.detection, self.selected_card)
+        if error is not None:
+            # Nothing to apply: the selected GPU is not currently
+            # detected. Do not silently fall back to auto - tell the
+            # user the rule stays on disk and offer the explicit reset.
+            if error == SELECTION_UNAVAILABLE:
+                self._banner_show(
+                    i18n._(
+                        "The configured GPU (PCI %s) is not currently "
+                        "detected, so there is nothing to apply. The rule "
+                        "stays on disk; use 'Reset to auto' to remove it."
+                    )
+                    % self.unavailable_pci,
+                    "warning",
                 )
-                % self.unavailable_pci,
-                "warning",
-            )
+            else:
+                # The card vanished since the row was built: re-check the
+                # world instead of applying a stale selection.
+                self._banner_show(
+                    i18n._("The selected GPU is no longer detected; re-checking…"),
+                    "warning",
+                )
+                self._refresh()
             return
-        if self.selected_card != SELECTION_AUTO:
-            gpu = next(
-                (g for g in self.detection.gpus if g.card == self.selected_card), None
-            )
-            if gpu is None:  # card vanished since selection; fall back to auto
-                self.selected_card = SELECTION_AUTO
-                self.auto_radio.set_active(True)
-        if self.selected_card == SELECTION_AUTO:
-            target = SELECTION_AUTO
+        if target == SELECTION_AUTO:
             text = i18n._(
                 "Apply removes the managed udev rule, returning to automatic "
                 "GPU selection.\n\n"
@@ -402,7 +419,7 @@ class GpuSwitcherApp(Gtk.Application):
                 "effect after a reboot, or after logging out and back in."
             )
         else:
-            target = gpu.pci
+            gpu = next(g for g in self.detection.gpus if g.pci == target)
             text = i18n._(
                 "Apply sets %s (PCI %s) as the primary display adapter.\n\n"
                 "The managed udev rule is written; if a rule is present, a "

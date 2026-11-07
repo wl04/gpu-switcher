@@ -56,6 +56,12 @@ def is_gio_timeout(error: GLib.Error) -> bool:
     return error.matches(GLib.quark_from_string("g-io-error-quark"), G_IO_ERROR_TIMEOUT)
 
 
+def actions_enabled(gnome_wayland: bool) -> bool:
+    """Privileged actions (Apply / Reset / Reboot / Log out) are enabled
+    only in a GNOME Wayland session; DESIGN.md supports GNOME only."""
+    return gnome_wayland
+
+
 def logout_enabled(busy: bool, outcome: Outcome) -> bool:
     """Sensitivity rule: Log out is enabled iff not busy AND the outcome
     is success_refreshed — the tags are fresh, so a logout/login switches

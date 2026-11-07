@@ -22,6 +22,7 @@ os.environ["LC_ALL"] = "en"
 
 from gpu_switcher.state import (
     Outcome,
+    actions_enabled,
     banner_kind,
     is_gio_timeout,
     logout_enabled,
@@ -69,6 +70,15 @@ class LogoutSensitivity(unittest.TestCase):
 
     def test_logout_disabled_when_idle(self):
         self.assertFalse(logout_enabled(False, Outcome.idle))
+
+
+class ActionsEnabled(unittest.TestCase):
+    """Outside a GNOME Wayland session the privileged actions must stay
+    disabled (DESIGN.md: GNOME is the only supported session)."""
+
+    def test_actions_enabled_only_in_gnome_wayland_session(self):
+        self.assertTrue(actions_enabled(True))
+        self.assertFalse(actions_enabled(False))
 
 
 class BannerRule(unittest.TestCase):
