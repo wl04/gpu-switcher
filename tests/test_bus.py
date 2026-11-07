@@ -19,8 +19,9 @@ from gi.repository import Gio, GLib
 # gpu_switcher.i18n binds its gettext function at import time, so the
 # locale must be pinned before the app import: the assertions below
 # compare English catalog strings and must hold under any developer
-# locale.
+# locale. LANGUAGE is cleared so it cannot override the LC_ALL pin.
 os.environ["LC_ALL"] = "en"
+os.environ.pop("LANGUAGE", None)
 
 import gpu_switcher.core.udev as udev_rules
 from gpu_switcher import bus

@@ -85,6 +85,11 @@ DATE="$(LC_ALL=C date '+%a, %d %b %Y %H:%M:%S %z')"
 } > "$CHANGELOG.new"
 mv "$CHANGELOG.new" "$CHANGELOG"
 
+# Keep pyproject.toml in sync with the changelog (the single source of
+# truth). pip metadata carries the upstream version (no Debian -N revision).
+UPSTREAM="${NEW_VERSION%-*}"
+sed -i "s/^version = \".*\"/version = \"$UPSTREAM\"/" pyproject.toml
+
 # --- checks, build, verify ----------------------------------------------------
 make test
 # Catalog consistency gate (reference compiler), one invocation per
@@ -103,7 +108,6 @@ DEB="../${PKG}_${NEW_VERSION}_all.deb"
 # same default path the canonical build used, so stage the canonical
 # build aside, compare contents (mtime columns dropped: the two builds
 # run seconds apart), and restore it.
-UPSTREAM="${NEW_VERSION%-*}"
 git archive --prefix="${PKG}_${UPSTREAM}/" HEAD | xz -c \
   > "../${PKG}_${UPSTREAM}.orig.tar.xz"
 mv "$DEB" "${DEB}.staged"

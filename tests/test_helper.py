@@ -201,7 +201,31 @@ class Translator(unittest.TestCase):
         self.assertEqual(service.translator("en")("Some text"), "Some text")
 
 
+class ShippedLocales(unittest.TestCase):
+    """SUPPORTED_LOCALES is derived from the locale tree, never hand-kept:"""
+
+    def test_shipped_locales_lists_catalog_dirs_and_always_includes_english(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "ru", "LC_MESSAGES"))
+            os.makedirs(os.path.join(tmp, "en", "LC_MESSAGES"))
+            # A stray non-directory entry must not count as a locale.
+            open(os.path.join(tmp, "README"), "w").close()
+            self.assertEqual(service._shipped_locales(tmp), ("en", "ru"))
+
+    def test_shipped_locales_falls_back_to_english_when_dir_missing(self):
+        self.assertEqual(service._shipped_locales("/nonexistent/locale"), ("en",))
+
+
 class NormalizeLocale(unittest.TestCase):
+    # SUPPORTED_LOCALES is derived from the installed locale tree at import
+    # time; pin it so the assertions hold regardless of what is installed.
+    def setUp(self):
+        self._patcher = mock.patch.object(service, "SUPPORTED_LOCALES", ("en", "ru"))
+        self._patcher.start()
+
+    def tearDown(self):
+        self._patcher.stop()
+
     def test_normalize_locale_maps_known_language(self):
         self.assertEqual(service.normalize_locale("ru_RU.UTF-8"), "ru")
 

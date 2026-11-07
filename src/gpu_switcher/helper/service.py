@@ -98,10 +98,24 @@ INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
 
 
 # The locale arguments arrive from an unauthenticated D-Bus caller. Only
-# the catalog languages shipped with the helper are accepted; anything else
-# (unknown language, path-shaped value, over-long value) falls back to
+# the catalog languages actually shipped with the helper are accepted; anything
+# else (unknown language, path-shaped value, over-long value) falls back to
 # English, so catalog lookups can never leave LOCALE_BASE.
-SUPPORTED_LOCALES = ("en", "ru")
+def _shipped_locales(localedir: str) -> tuple[str, ...]:
+    """The catalog languages shipped under localedir, always including the
+    English fallback. A missing or unreadable base yields just "en": the helper
+    still runs (translating nothing) but stays safe."""
+    try:
+        entries = os.listdir(localedir)
+    except OSError:
+        entries = []
+    locales = sorted(e for e in entries if os.path.isdir(os.path.join(localedir, e)))
+    return tuple(dict.fromkeys(["en", *locales]))
+
+
+# Derived from the installed locale tree, never hand-kept, so it cannot
+# drift from the packaged catalogs.
+SUPPORTED_LOCALES = _shipped_locales(LOCALE_BASE)
 _MAX_LOCALE_LEN = 32
 
 

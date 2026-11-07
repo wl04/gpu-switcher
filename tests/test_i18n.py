@@ -1,8 +1,8 @@
 """Unit tests for the gettext setup in i18n.py.
 
-Pins the locale variable precedence (LC_ALL > LC_MESSAGES > LANG > en),
-the catalog search order (installed location before the source tree),
-catalog completeness (every msgid has a translation in every shipped
+Pins the locale variable precedence (LANGUAGE > LC_ALL > LC_MESSAGES >
+LANG > en), the catalog search order (installed location before the source
+tree), catalog completeness (every msgid has a translation in every shipped
 locale), and the reference-compiler guards: catalog consistency
 (`msgfmt -c`) and readability of a msgfmt-built catalog by CPython's
 gettext.
@@ -19,8 +19,9 @@ from contextlib import contextmanager
 # gpu_switcher.i18n binds its gettext function at import time, so the
 # locale must be pinned before the app import: the assertions below
 # compare English catalog strings and must hold under any developer
-# locale.
+# locale. LANGUAGE is cleared so it cannot override the LC_ALL pin.
 os.environ["LC_ALL"] = "en"
+os.environ.pop("LANGUAGE", None)
 
 from gpu_switcher import i18n
 
@@ -53,6 +54,14 @@ class RequestedLanguage(unittest.TestCase):
             LC_ALL="ru_RU.UTF-8", LC_MESSAGES="de_DE.UTF-8", LANG="en_US.UTF-8"
         ):
             self.assertEqual(i18n._requested_language(), "ru_RU.UTF-8")
+
+    def test_requested_language_honors_language_variable(self):
+        # LANGUAGE is a colon-separated preference list; its first valid
+        # entry wins, ahead of LANG (the hand-rolled lookup ignored it).
+        with _locale_env(
+            LANGUAGE="ru:en", LC_ALL=None, LC_MESSAGES=None, LANG="en_US.UTF-8"
+        ):
+            self.assertEqual(i18n._requested_language(), "ru")
 
     def test_requested_language_uses_lc_messages_when_lc_all_unset(self):
         with _locale_env(LC_ALL=None, LC_MESSAGES="ru_RU.UTF-8", LANG="en_US.UTF-8"):

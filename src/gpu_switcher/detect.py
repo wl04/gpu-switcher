@@ -30,12 +30,6 @@ from gpu_switcher.core.udev import (
 
 JOURNAL_UNIT = "/usr/bin/gnome-shell"
 
-# Display names for when lspci is unavailable.
-_KNOWN_GPUS = {
-    ("1002", "13c0"): "AMD Radeon Graphics (integrated)",
-    ("1002", "7550"): "AMD Radeon RX 9070 XT",
-}
-
 
 @dataclasses.dataclass
 class Gpu:
@@ -104,9 +98,8 @@ def lspci_names() -> dict[str, str]:
 
 
 def fallback_name(vendor: str, device: str) -> str:
-    key = (vendor.lower(), device.lower())
-    if key in _KNOWN_GPUS:
-        return _KNOWN_GPUS[key]
+    # No hard-coded GPU table: names come from lspci, and without it the
+    # PCI vendor:device identifier is the only honest fallback.
     return f"PCI v0x{vendor} d0x{device}"
 
 
