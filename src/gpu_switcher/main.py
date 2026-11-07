@@ -90,14 +90,15 @@ class GpuSwitcherApp(Gtk.Application):
 
     def _gpu_row(self, radio, name: str, sub: str, badges: list) -> Gtk.Box:
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        row.append(radio)
-        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        # The name label is the radio's child: it becomes the radio's
+        # accessible name (Orca reads the row correctly) and clicking the
+        # label toggles the selection, not just the bare indicator.
         name_label = Gtk.Label(label=name)
         # A bare GtkLabel centers its text inside the box (default
-        # xalign is 0.5); the name must sit at the left edge like the
-        # PCI line below it.
+        # xalign is 0.5); the name must sit at the left edge.
         name_label.set_xalign(0.0)
-        text.append(name_label)
+        radio.set_child(name_label)
+        row.append(radio)
         lower = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         if sub:
             sub_label = Gtk.Label(label=sub)
@@ -105,8 +106,8 @@ class GpuSwitcherApp(Gtk.Application):
             lower.append(sub_label)
         for badge in badges:
             lower.append(_badge(badge))
-        text.append(lower)
-        row.append(text)
+        if len(lower.get_children()) > 0:
+            row.append(lower)
         return row
 
     def _build_content(self) -> None:
