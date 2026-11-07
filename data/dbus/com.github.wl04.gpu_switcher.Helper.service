@@ -14,5 +14,5 @@ Name=com.github.wl04.gpu_switcher.Helper
 # (see debian/gpu-switcher-helper.service); the Exec line below remains
 # for non-systemd environments.
 SystemdService=gpu-switcher-helper.service
-Exec=/usr/bin/python3 /usr/lib/gpu-switcher/helper/gpu_switcher_helper.py
+Exec=/usr/bin/python3 -I -B /usr/lib/gpu-switcher/helper/gpu_switcher_helper.py
 User=root
