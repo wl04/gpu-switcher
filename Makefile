@@ -12,10 +12,9 @@ lint:
 
 # Type-check (mypy; config in pyproject.toml). main.py is a private GTK UI
 # and is intentionally not type-checked: --exclude drops it from the file
-# list, and --follow-imports=silent silences the copy still pulled in via
-# gpu_switcher/__init__.py's `from .main import ...`.
+# list.
 typecheck:
-	mypy --exclude 'src/gpu_switcher/main.py' --follow-imports=silent
+	mypy --exclude 'src/gpu_switcher/main.py'
 
 # Compile the gettext catalogs in the source tree (used by dev runs).
 locale:

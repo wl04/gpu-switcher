@@ -29,9 +29,10 @@ gi.require_version("GLib", "2.0")
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib
 
-import helper.gpu_switcher_helper as h
-import udev_rules
 from gpu_switcher import bus
+from gpu_switcher.core import gpu
+from gpu_switcher.core import udev as udev_rules
+from gpu_switcher.helper import __main__ as h
 
 _IO_QUARK = GLib.quark_from_string("g-io-error-quark")
 
@@ -134,19 +135,19 @@ def _ok_results(card=None):
 
 class IsValidPciFormat(unittest.TestCase):
     def test_is_valid_pci_format_accepts_full_pci_address(self):
-        self.assertTrue(h.is_valid_pci_format("0000:12:00.0"))
+        self.assertTrue(gpu.is_valid_pci_format("0000:12:00.0"))
 
     def test_is_valid_pci_format_rejects_domain_omitted_address(self):
-        self.assertFalse(h.is_valid_pci_format("12:00.0"))
+        self.assertFalse(gpu.is_valid_pci_format("12:00.0"))
 
     def test_is_valid_pci_format_rejects_non_hex_address(self):
-        self.assertFalse(h.is_valid_pci_format("0000:GG:00.0"))
+        self.assertFalse(gpu.is_valid_pci_format("0000:GG:00.0"))
 
 
 class RuleText(unittest.TestCase):
     def test_rule_text_produces_reference_rule_line_for_valid_pci(self):
         self.assertEqual(
-            h._rule_text("0000:12:00.0", "0x1002", "0x7550"),
+            gpu.rule_text("0000:12:00.0", "0x1002", "0x7550"),
             "# Managed by gpu-switcher; selected PCI 0000:12:00.0\n"
             "# Mutter uses TAG; ENV is retained for compatibility "
             "with the previous local rule.\n"
@@ -161,17 +162,17 @@ class RuleText(unittest.TestCase):
 
 class ResolveGpu(unittest.TestCase):
     def test_resolve_gpu_returns_none_for_malformed_pci(self):
-        self.assertIsNone(h._resolve_gpu("12:00.0"))
+        self.assertIsNone(gpu.resolve_gpu("12:00.0"))
 
     def test_resolve_gpu_returns_none_when_pci_not_a_display_gpu(self):
-        with mock.patch.object(h, "is_display_gpu", return_value=None):
-            self.assertIsNone(h._resolve_gpu("0000:12:00.0"))
+        with mock.patch.object(gpu, "is_display_gpu", return_value=None):
+            self.assertIsNone(gpu.resolve_gpu("0000:12:00.0"))
 
     def test_resolve_gpu_reads_vendor_and_device_from_sys(self):
         with (
-            mock.patch.object(h, "is_display_gpu", return_value="card1"),
+            mock.patch.object(gpu, "is_display_gpu", return_value="card1"),
             mock.patch.object(
-                h,
+                gpu,
                 "read_text",
                 side_effect=lambda p: {
                     "vendor": "0x1002",
@@ -180,13 +181,13 @@ class ResolveGpu(unittest.TestCase):
             ),
         ):
             self.assertEqual(
-                h._resolve_gpu("0000:12:00.0"), ("card1", "0x1002", "0x7550")
+                gpu.resolve_gpu("0000:12:00.0"), ("card1", "0x1002", "0x7550")
             )
 
     def test_resolve_gpu_returns_none_when_two_cards_bound_to_same_pci(self):
         # Ambiguous binding: is_display_gpu already refuses it.
-        with mock.patch.object(h, "is_display_gpu", return_value=None):
-            self.assertIsNone(h._resolve_gpu("0000:12:00.0"))
+        with mock.patch.object(gpu, "is_display_gpu", return_value=None):
+            self.assertIsNone(gpu.resolve_gpu("0000:12:00.0"))
 
 
 class Translator(unittest.TestCase):
@@ -344,7 +345,7 @@ class SetPrimaryAuthorization(unittest.TestCase):
         with (
             mock.patch.object(h, "_authorize", _fake_authorize("authorized", "")),
             mock.patch.object(h, "rule_conflicts", return_value=[]),
-            mock.patch.object(h, "_resolve_gpu", return_value=None),
+            mock.patch.object(h, "resolve_gpu", return_value=None),
         ):
             h.handle_set_primary(
                 mock.Mock(), "sender", ("0000:12:00.0", "en"), invocation
@@ -568,7 +569,7 @@ class SetPrimaryTransactionBase(unittest.TestCase):
             mock.patch.object(h, "_authorize", _fake_authorize("authorized", "")),
             mock.patch.object(h, "rule_conflicts", return_value=[]),
             mock.patch.object(
-                h, "_resolve_gpu", return_value=("card1", "0x1002", "0x7550")
+                h, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
             ),
             mock.patch.object(h, "_check_udevadm", return_value=udevadm),
             mock.patch("os.chown"),
@@ -642,7 +643,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
         )
 
     def test_set_primary_idempotent_when_rule_already_matches(self):
-        content = h._rule_text("0000:12:00.0", "0x1002", "0x7550")
+        content = gpu.rule_text("0000:12:00.0", "0x1002", "0x7550")
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write(content)
         results = _ok_results("card1")  # no verify step on the idempotent path

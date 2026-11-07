@@ -321,7 +321,7 @@ class DetectClassFilter(unittest.TestCase):
             mock.patch("os.path.isdir", return_value=True),
             mock.patch("os.path.islink", return_value=driver_link),
             mock.patch(
-                "udev_rules.read_text",
+                "gpu_switcher.core.udev.read_text",
                 side_effect=lambda p: pci_class if p.endswith("/class") else "",
             ),
             mock.patch(

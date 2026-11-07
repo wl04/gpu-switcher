@@ -10,7 +10,7 @@ import os
 import tempfile
 import unittest
 
-from udev_rules import MUTTER_ENV, MUTTER_TAG, read_text, rule_conflicts
+from gpu_switcher.core.udev import MUTTER_ENV, MUTTER_TAG, read_text, rule_conflicts
 
 TAG_LINE = f'SUBSYSTEM=="drm", TAG+="{MUTTER_TAG}"\n'
 ENV_LINE = f'ENV{{{MUTTER_ENV}}}="1"\n'

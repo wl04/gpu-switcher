@@ -2,8 +2,6 @@
 """Entry point installed as /usr/bin/gpu-switcher."""
 import sys
 
-sys.path.insert(0, "/usr/lib/gpu-switcher")
-
-from gpu_switcher import main
+import gpu_switcher.main as main
 
 sys.exit(main.run(sys.argv))

@@ -12,15 +12,12 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	install -D -m 0755 src/wrapper/gpu-switcher debian/gpu-switcher/usr/bin/gpu-switcher
-	install -D -m 0644 src/gpu_switcher/__init__.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/__init__.py
-	install -D -m 0644 src/gpu_switcher/i18n.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/i18n.py
-	install -D -m 0644 src/gpu_switcher/main.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/main.py
-	install -D -m 0644 src/gpu_switcher/detect.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/detect.py
-	install -D -m 0644 src/gpu_switcher/selection.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/selection.py
-	install -D -m 0644 src/gpu_switcher/bus.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/bus.py
-	install -D -m 0644 src/gpu_switcher/state.py debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/state.py
-	install -D -m 0644 src/udev_rules.py debian/gpu-switcher/usr/lib/gpu-switcher/udev_rules.py
-	install -D -m 0755 src/helper/gpu_switcher_helper.py debian/gpu-switcher/usr/lib/gpu-switcher/helper/gpu_switcher_helper.py
+	# The whole package (including the core/ and helper/ subpackages) goes
+	# to the standard dist-packages location; /usr/bin/python3 finds it
+	# without any sys.path hack.
+	for f in $$(find src/gpu_switcher -name '*.py' | sort); do \
+	  install -D -m 0644 $$f debian/gpu-switcher/usr/lib/python3/dist-packages/$${f#src/}; \
+	done
 	install -D -m 0644 data/gpu-switcher.desktop debian/gpu-switcher/usr/share/applications/com.github.wl04.gpu-switcher.desktop
 	install -D -m 0644 data/icons/gpu-switcher.svg debian/gpu-switcher/usr/share/icons/hicolor/scalable/apps/com.github.wl04.gpu-switcher.svg
 	install -D -m 0644 data/icons/symbolic/gpu-switcher-symbolic.svg debian/gpu-switcher/usr/share/icons/hicolor/symbolic/apps/com.github.wl04.gpu-switcher-symbolic.svg
@@ -33,11 +30,10 @@ override_dh_auto_install:
 	install -D -m 0644 data/dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf debian/gpu-switcher/usr/share/dbus-1/system.d/com.github.wl04.gpu_switcher.Helper.conf
 	# systemd unit for the helper (D-Bus activation via SystemdService=).
 	install -D -m 0644 debian/gpu-switcher-helper.service debian/gpu-switcher/usr/lib/systemd/system/gpu-switcher-helper.service
-	# Guard: every module under src/gpu_switcher must be installed above
-	# (hand-maintained list; the both-builds cross-check in release.sh
-	# converges this path with tools/build-deb.sh).
-	for f in src/gpu_switcher/*.py; do \
-	  [ -f "debian/gpu-switcher/usr/lib/gpu-switcher/gpu_switcher/$$(basename $$f)" ] || { \
+	# Guard: every .py file under src/gpu_switcher must be installed above
+	# (the loop installs the whole tree; this verifies nothing was skipped).
+	for f in $$(find src/gpu_switcher -name '*.py'); do \
+	  [ -f "debian/gpu-switcher/usr/lib/python3/dist-packages/$${f#src/}" ] || { \
 	    echo "error: $$f is missing from the package file list" >&2; exit 1; \
 	  }; \
 	done

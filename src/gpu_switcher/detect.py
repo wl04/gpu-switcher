@@ -20,7 +20,12 @@ import re
 import shutil
 import subprocess
 
-from udev_rules import MANAGED_RULE, is_display_gpu, read_text, rule_conflicts
+from gpu_switcher.core.udev import (
+    MANAGED_RULE,
+    is_display_gpu,
+    read_text,
+    rule_conflicts,
+)
 
 JOURNAL_UNIT = "/usr/bin/gnome-shell"
 

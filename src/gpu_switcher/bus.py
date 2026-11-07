@@ -26,7 +26,7 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
-from udev_rules import HELPER_TIMEOUT_MS
+from gpu_switcher.core.udev import HELPER_TIMEOUT_MS
 
 from . import i18n, state
 
@@ -49,7 +49,8 @@ SESSION_MANAGER_LOGOUT_MODE = 1
 # ---------------------------------------------------------------------------
 # The D-Bus timeout budget constants (POLKIT_TIMEOUT_MS,
 # UDEVDADM_STEP_TIMEOUT_S, SET_PRIMARY_STEP_COUNT, HELPER_TIMEOUT_MS) are
-# defined in udev_rules.py — the shared module the helper can import — so
+# defined in gpu_switcher/core/udev.py — the shared module the helper can
+# import — so
 # the client's budget is always derived from the helper's worst case, not
 # from a duplicated literal.
 

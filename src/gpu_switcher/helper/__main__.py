@@ -56,7 +56,6 @@ same conflict scan, and udevadm verify before the rule is moved into place.
 
 import gettext
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -70,21 +69,15 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
-# The shared udev rule module (src/udev_rules.py in the source tree,
-# /usr/lib/gpu-switcher/udev_rules.py installed) lives next to this
-# package; add the parent directory to sys.path so it can be imported
-# without pulling in the GUI package.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from udev_rules import (
+from gpu_switcher.core.gpu import resolve_gpu, rule_text
+from gpu_switcher.core.udev import (
     DBUS_ERROR_BUSY,
     DBUS_ERROR_INTERNAL,
     G_IO_ERROR_TIMEOUT,
     MANAGED_RULE,
-    MUTTER_ENV,
     MUTTER_TAG,
     POLKIT_TIMEOUT_MS,
     UDEVDADM_STEP_TIMEOUT_S,
-    is_display_gpu,
     read_text,
     rule_conflicts,
 )
@@ -325,50 +318,6 @@ def _cancel_check_authorization(connection, cancellation_id):
         print(f"CancelCheckAuthorization: {cancellation_id}", file=sys.stderr)
     except GLib.Error as exc:
         print(f"CancelCheckAuthorization failed: {exc}", file=sys.stderr)
-
-
-_PCI_ADDRESS_RE = re.compile(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9]")
-
-
-def is_valid_pci_format(pci: str) -> bool:
-    """Full `DDDD:BB:DD.D` PCI address (domain included, lowercase hex).
-
-    The exact form the managed rule and udev KERNELS== matching use;
-    domain-omitted or non-hex addresses are rejected before any /sys read.
-    """
-    return _PCI_ADDRESS_RE.fullmatch(pci) is not None
-
-
-def _resolve_gpu(pci):
-    """(card, vendor, device) for a valid display controller, else None.
-
-    Thin wrapper over the shared is_display_gpu contract (display class,
-    bound driver, exactly one /dev/dri card for this PCI); the PCI address
-    itself is validated first so no /sys read happens on bad input.
-    """
-    if not is_valid_pci_format(pci):
-        return None
-    card = is_display_gpu(pci)
-    if card is None:
-        return None
-    pdir = f"/sys/bus/pci/devices/{pci}"
-    vendor = read_text(f"{pdir}/vendor")
-    device = read_text(f"{pdir}/device")
-    return card, vendor, device
-
-
-def _rule_text(pci, vendor, device):
-    # Same rule line format as the reference script mutter-primary-gpu.sh.
-    return (
-        f"# Managed by gpu-switcher; selected PCI {pci}\n"
-        "# Mutter uses TAG; ENV is retained for compatibility with the previous local rule.\n"
-        'SUBSYSTEM=="drm", ENV{DEVTYPE}=="drm_minor", KERNEL=="card[0-9]*", '
-        'KERNEL!="card*-*", SUBSYSTEMS=="pci", KERNELS=="' + pci + '",'
-        ' ATTRS{vendor}=="' + vendor + '",'
-        ' ATTRS{device}=="' + device + '",'
-        f' ENV{{{MUTTER_ENV}}}="1",'
-        f' TAG+="{MUTTER_TAG}"\n'
-    )
 
 
 def _check_udevadm() -> bool:
@@ -841,7 +790,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
                 % conflicts[0]
             )
             return
-        resolved = _resolve_gpu(pci)
+        resolved = resolve_gpu(pci)
         if resolved is None:
             print(f"SetPrimary: invalid PCI {pci}", file=sys.stderr)
             on_error(tr("Target PCI %s is not a valid display controller.") % pci)
@@ -855,7 +804,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
             print("SetPrimary: managed rule is a symlink; refusing", file=sys.stderr)
             on_error(tr("The managed rule is a symlink; refusing to modify it."))
             return
-        content = _rule_text(pci, vendor, device)
+        content = rule_text(pci, vendor, device)
         # Read as bytes: the existing rule may hold invalid UTF-8 (a broken
         # hand edit); comparing bytes keeps the overwrite path working.
         try:

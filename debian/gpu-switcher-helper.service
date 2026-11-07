@@ -7,7 +7,7 @@ Documentation=man:gpu-switcher(1)
 # process owns its bus name before the first method call is answered.
 Type=simple
 User=root
-ExecStart=/usr/bin/python3 -I -B /usr/lib/gpu-switcher/helper/gpu_switcher_helper.py
+ExecStart=/usr/bin/python3 -I -B -m gpu_switcher.helper
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes

@@ -22,7 +22,7 @@ from gi.repository import Gio, GLib
 # locale.
 os.environ["LC_ALL"] = "en"
 
-import udev_rules
+import gpu_switcher.core.udev as udev_rules
 from gpu_switcher import bus
 
 

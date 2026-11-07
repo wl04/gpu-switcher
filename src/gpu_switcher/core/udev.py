@@ -1,12 +1,12 @@
-"""Shared udev rule constants and conflict scanning.
+"""Shared udev rule constants, the display-GPU contract, and conflict scanning.
 
 Used by both the unprivileged app (gpu_switcher/detect.py) and the root
-helper (helper/gpu_switcher_helper.py): the same managed rule file, the
-same mutter tag, and the same conflict rule — any *other* udev rule that
-sets the preferred-GPU tag blocks the switch.
+helper (gpu_switcher/helper): the same managed rule file, the same mutter
+tag, and the same conflict rule — any *other* udev rule that sets the
+preferred-GPU tag blocks the switch.
 
 Pure stdlib, no `gi`: the root helper can import this without pulling in
-the GUI package (`gpu_switcher/__init__` imports Gtk).
+the GUI module (which imports Gtk).
 """
 
 from __future__ import annotations

@@ -18,8 +18,7 @@ ROOT="$STAGE/${PKG}_${VERSION}"
 
 mkdir -p \
   "$ROOT/usr/bin" \
-  "$ROOT/usr/lib/gpu-switcher/gpu_switcher" \
-  "$ROOT/usr/lib/gpu-switcher/helper" \
+  "$ROOT/usr/lib/python3/dist-packages/gpu_switcher" \
   "$ROOT/usr/lib/systemd/system" \
   "$ROOT/usr/share/applications" \
   "$ROOT/usr/share/icons/hicolor/scalable/apps" \
@@ -86,15 +85,12 @@ print(f"polkit policy OK: {len(actions)} action(s)")
 PY
 
 install -D -m 0755 src/wrapper/gpu-switcher "$ROOT/usr/bin/gpu-switcher"
-install -D -m 0644 src/gpu_switcher/__init__.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/__init__.py"
-install -D -m 0644 src/gpu_switcher/i18n.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/i18n.py"
-install -D -m 0644 src/gpu_switcher/main.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/main.py"
-install -D -m 0644 src/gpu_switcher/detect.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/detect.py"
-install -D -m 0644 src/gpu_switcher/selection.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/selection.py"
-install -D -m 0644 src/gpu_switcher/bus.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/bus.py"
-install -D -m 0644 src/gpu_switcher/state.py "$ROOT/usr/lib/gpu-switcher/gpu_switcher/state.py"
-install -D -m 0644 src/udev_rules.py "$ROOT/usr/lib/gpu-switcher/udev_rules.py"
-install -D -m 0755 src/helper/gpu_switcher_helper.py "$ROOT/usr/lib/gpu-switcher/helper/gpu_switcher_helper.py"
+# The whole package (including the core/ and helper/ subpackages) goes to
+# the standard dist-packages location; /usr/bin/python3 finds it without
+# any sys.path hack.
+for f in $(find src/gpu_switcher -name '*.py' | sort); do
+  install -D -m 0644 "$f" "$ROOT/usr/lib/python3/dist-packages/${f#src/}"
+done
 install -D -m 0644 data/gpu-switcher.desktop "$ROOT/usr/share/applications/com.github.wl04.gpu-switcher.desktop"
 install -D -m 0644 data/icons/gpu-switcher.svg "$ROOT/usr/share/icons/hicolor/scalable/apps/com.github.wl04.gpu-switcher.svg"
 install -D -m 0644 data/icons/symbolic/gpu-switcher-symbolic.svg "$ROOT/usr/share/icons/hicolor/symbolic/apps/com.github.wl04.gpu-switcher-symbolic.svg"
@@ -132,11 +128,10 @@ mkdir -p "$ROOT/DEBIAN"
   awk '/^Package: /{found = 1; next} found {print}' debian/control
 } > "$ROOT/DEBIAN/control"
 
-# Guard: every module under src/gpu_switcher must be installed above
-# (hand-maintained list; the both-builds cross-check in release.sh
-# converges the debhelper path).
-for f in src/gpu_switcher/*.py; do
-  [ -f "$ROOT/usr/lib/gpu-switcher/gpu_switcher/$(basename "$f")" ] || {
+# Guard: every .py file under src/gpu_switcher must be installed above
+# (the loop installs the whole tree; this verifies nothing was skipped).
+for f in $(find src/gpu_switcher -name '*.py'); do
+  [ -f "$ROOT/usr/lib/python3/dist-packages/${f#src/}" ] || {
     echo "error: $f is missing from the package file list" >&2
     exit 1
   }

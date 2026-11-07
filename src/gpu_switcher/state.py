@@ -16,7 +16,7 @@ import gi
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib
 
-from udev_rules import G_IO_ERROR_TIMEOUT
+from gpu_switcher.core.udev import G_IO_ERROR_TIMEOUT
 
 
 class Outcome(Enum):
