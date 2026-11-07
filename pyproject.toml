@@ -34,3 +34,29 @@ ignore_missing_imports = true
 # Resolve the package as gpu_switcher.* (via mypy_path) rather than as a
 # duplicate top-level module.
 explicit_package_bases = true
+
+# disallow_untyped_defs is rolled out gradually (plan F4): the pure core
+# modules and the test suite are enforced now; the helper package and the
+# GTK UI (main.py) are typed for errors but not yet for untyped defs.
+[tool."mypy-gpu_switcher.core.*"]
+disallow_untyped_defs = true
+[tool."mypy-gpu_switcher.selection"]
+disallow_untyped_defs = true
+[tool."mypy-gpu_switcher.state"]
+disallow_untyped_defs = true
+[tool."mypy-gpu_switcher.detect"]
+disallow_untyped_defs = true
+[tool."mypy-test_bus"]
+disallow_untyped_defs = true
+[tool."mypy-test_detect"]
+disallow_untyped_defs = true
+[tool."mypy-test_helper"]
+disallow_untyped_defs = true
+[tool."mypy-test_i18n"]
+disallow_untyped_defs = true
+[tool."mypy-test_selection"]
+disallow_untyped_defs = true
+[tool."mypy-test_state"]
+disallow_untyped_defs = true
+[tool."mypy-test_udev_rules"]
+disallow_untyped_defs = true

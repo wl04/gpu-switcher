@@ -14,7 +14,9 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from collections.abc import Generator
 from contextlib import contextmanager
+from typing import Any
 
 # gpu_switcher.i18n binds its gettext function at import time, so the
 # locale must be pinned before the app import: the assertions below
@@ -27,7 +29,7 @@ from gpu_switcher import i18n
 
 
 @contextmanager
-def _locale_env(**variables):
+def _locale_env(**variables: Any) -> Generator[None, None, None]:
     """Set locale variables for the test; a None value removes the variable.
 
     The previous environment is restored on exit.
@@ -49,13 +51,13 @@ def _locale_env(**variables):
 
 
 class RequestedLanguage(unittest.TestCase):
-    def test_requested_language_prefers_lc_all_over_lc_messages_and_lang(self):
+    def test_requested_language_prefers_lc_all_over_lc_messages_and_lang(self) -> None:
         with _locale_env(
             LC_ALL="ru_RU.UTF-8", LC_MESSAGES="de_DE.UTF-8", LANG="en_US.UTF-8"
         ):
             self.assertEqual(i18n._requested_language(), "ru_RU.UTF-8")
 
-    def test_requested_language_honors_language_variable(self):
+    def test_requested_language_honors_language_variable(self) -> None:
         # LANGUAGE is a colon-separated preference list; its first valid
         # entry wins, ahead of LANG (the hand-rolled lookup ignored it).
         with _locale_env(
@@ -63,17 +65,17 @@ class RequestedLanguage(unittest.TestCase):
         ):
             self.assertEqual(i18n._requested_language(), "ru")
 
-    def test_requested_language_uses_lc_messages_when_lc_all_unset(self):
+    def test_requested_language_uses_lc_messages_when_lc_all_unset(self) -> None:
         with _locale_env(LC_ALL=None, LC_MESSAGES="ru_RU.UTF-8", LANG="en_US.UTF-8"):
             self.assertEqual(i18n._requested_language(), "ru_RU.UTF-8")
 
-    def test_requested_language_falls_back_to_english_when_no_locale_set(self):
+    def test_requested_language_falls_back_to_english_when_no_locale_set(self) -> None:
         with _locale_env(LC_ALL=None, LC_MESSAGES=None, LANG=None):
             self.assertEqual(i18n._requested_language(), "en")
 
 
 class Localedirs(unittest.TestCase):
-    def test_localedirs_lists_installed_dir_before_source_tree(self):
+    def test_localedirs_lists_installed_dir_before_source_tree(self) -> None:
         installed = "/usr/share/gpu-switcher/locale"
         src = os.path.abspath(
             os.path.join(os.path.dirname(i18n.__file__), "..", "..", "data", "locale")
@@ -98,7 +100,7 @@ def _unquote(value: str) -> str:
     return value
 
 
-def _po_entries(path: str):
+def _po_entries(path: str) -> list[tuple[str, str, bool]]:
     """Parse a flat .po file into (msgid, msgstr, fuzzy) entries.
 
     Minimal parser for the flat catalogs shipped here: quoted values may
@@ -146,16 +148,17 @@ class MsgfmtBuild(unittest.TestCase):
     compiler's consistency check, and a msgfmt-built catalog must be
     readable by CPython's gettext."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         self._msgfmt = shutil.which("msgfmt")
         if self._msgfmt is None:
             self.skipTest("msgfmt (gettext-tools) is not installed")
 
-    def test_msgfmt_checks_catalogs_are_consistent(self):
+    def test_msgfmt_checks_catalogs_are_consistent(self) -> None:
         # One msgfmt invocation per catalog: multiple .po files would be
         # parsed as one merged catalog and every msgid would duplicate.
         # -o /dev/null: GNU msgfmt's -c still writes the default
         # messages.mo to the CWD without an explicit output file.
+        assert self._msgfmt is not None  # setUp skips when msgfmt is missing
         for name in ("gpu-switcher-en.po", "gpu-switcher-ru.po"):
             out = subprocess.run(
                 [self._msgfmt, "-c", "-o", "/dev/null", _po(name)],
@@ -165,7 +168,7 @@ class MsgfmtBuild(unittest.TestCase):
             )
             self.assertEqual(out.returncode, 0, out.stderr)
 
-    def test_msgfmt_built_catalog_is_readable_by_gettext(self):
+    def test_msgfmt_built_catalog_is_readable_by_gettext(self) -> None:
         # Language-agnostic probe (EN is the primary language): every
         # shipped catalog must be built by msgfmt and readable by
         # CPython's gettext. The en catalog is the identity catalog, so
@@ -173,6 +176,7 @@ class MsgfmtBuild(unittest.TestCase):
         # translate it (gettext falls back to the msgid when a
         # translation is missing, so a fallback is a failure here). No
         # language-specific text is pinned.
+        assert self._msgfmt is not None  # setUp skips when msgfmt is missing
         for name, must_translate in (
             ("gpu-switcher-en.po", False),
             ("gpu-switcher-ru.po", True),
@@ -202,7 +206,7 @@ class CatalogCompleteness(unittest.TestCase):
     can never silently fall back to the English msgid in a shipped
     locale. No translated text is pinned."""
 
-    def test_every_string_has_a_translation_in_each_catalog(self):
+    def test_every_string_has_a_translation_in_each_catalog(self) -> None:
         for name in ("gpu-switcher-en.po", "gpu-switcher-ru.po"):
             for msgid, msgstr, fuzzy in _po_entries(_po(name)):
                 self.assertFalse(fuzzy, f"{name}: fuzzy entry: {msgid!r}")

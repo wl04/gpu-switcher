@@ -14,6 +14,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from typing import Any
 from unittest import mock
 
 # gpu_switcher.i18n binds its gettext function at import time, so the
@@ -27,23 +28,27 @@ from gpu_switcher import detect
 
 
 class PrimaryCardFromLine(unittest.TestCase):
-    def test_primary_card_from_line_extracts_card_from_rule_mode_journal_line(self):
+    def test_primary_card_from_line_extracts_card_from_rule_mode_journal_line(
+        self,
+    ) -> None:
         line = "GPU /dev/dri/card2 selected primary given udev rule"
         self.assertEqual(detect.primary_card_from_line(line), "card2")
 
-    def test_primary_card_from_line_extracts_card_from_auto_mode_journal_line(self):
+    def test_primary_card_from_line_extracts_card_from_auto_mode_journal_line(
+        self,
+    ) -> None:
         line = "Boot VGA GPU /dev/dri/card1 selected as primary"
         self.assertEqual(detect.primary_card_from_line(line), "card1")
 
     def test_primary_card_from_line_returns_none_when_line_has_no_primary_selection(
         self,
-    ):
+    ) -> None:
         line = "Added device '/dev/dri/card1' (amdgpu) using atomic mode setting."
         self.assertIsNone(detect.primary_card_from_line(line))
 
 
 class LastPrimaryCard(unittest.TestCase):
-    def test_last_primary_card_returns_card_from_last_matching_line(self):
+    def test_last_primary_card_returns_card_from_last_matching_line(self) -> None:
         lines = [
             "GPU /dev/dri/card1 selected primary given udev rule",
             "noise",
@@ -51,17 +56,19 @@ class LastPrimaryCard(unittest.TestCase):
         ]
         self.assertEqual(detect.last_primary_card(lines), "card2")
 
-    def test_last_primary_card_returns_none_when_no_line_matches(self):
+    def test_last_primary_card_returns_none_when_no_line_matches(self) -> None:
         lines = ["noise", "more noise"]
         self.assertIsNone(detect.last_primary_card(lines))
 
 
 class ManagedRulePciFromText(unittest.TestCase):
-    def test_managed_rule_pci_from_text_extracts_pci_from_rule_text(self):
+    def test_managed_rule_pci_from_text_extracts_pci_from_rule_text(self) -> None:
         text = 'KERNELS=="0000:12:00.0", ATTRS{vendor}=="0x1002"\n'
         self.assertEqual(detect.managed_rule_pci_from_text(text), "0000:12:00.0")
 
-    def test_managed_rule_pci_from_text_returns_none_when_rule_text_absent(self):
+    def test_managed_rule_pci_from_text_returns_none_when_rule_text_absent(
+        self,
+    ) -> None:
         self.assertIsNone(detect.managed_rule_pci_from_text(""))
 
 
@@ -70,7 +77,7 @@ class ParseLspciMm(unittest.TestCase):
     display-controller classes and strips the trailing [id] from the vendor
     and device fields so the name matches the `lspci -nn` text."""
 
-    def test_parse_lspci_mm_parses_machine_format(self):
+    def test_parse_lspci_mm_parses_machine_format(self) -> None:
         output = (
             '0000:03:00.0 "3D controller [0302]" '
             '"Advanced Micro Devices, Inc. [AMD/ATI] [1002]" '
@@ -93,23 +100,29 @@ class ParseLspciMm(unittest.TestCase):
 
 
 class IsGnomeWayland(unittest.TestCase):
-    def test_is_gnome_wayland_returns_true_when_wayland_session_and_gnome_desktop(self):
+    def test_is_gnome_wayland_returns_true_when_wayland_session_and_gnome_desktop(
+        self,
+    ) -> None:
         self.assertTrue(detect.is_gnome_wayland("wayland", "GNOME", True))
 
-    def test_is_gnome_wayland_returns_true_when_wayland_case_is_mixed(self):
+    def test_is_gnome_wayland_returns_true_when_wayland_case_is_mixed(self) -> None:
         self.assertTrue(detect.is_gnome_wayland("WAYLAND", "GNOME", True))
 
-    def test_is_gnome_wayland_returns_false_when_x11_session(self):
+    def test_is_gnome_wayland_returns_false_when_x11_session(self) -> None:
         self.assertFalse(detect.is_gnome_wayland("x11", "GNOME", True))
 
-    def test_is_gnome_wayland_returns_false_when_shell_missing(self):
+    def test_is_gnome_wayland_returns_false_when_shell_missing(self) -> None:
         # XDG_CURRENT_DESKTOP unset: gnome-shell presence is the fallback.
         self.assertFalse(detect.is_gnome_wayland("wayland", "", False))
 
-    def test_is_gnome_wayland_returns_false_for_kde_wayland_with_gnome_installed(self):
+    def test_is_gnome_wayland_returns_false_for_kde_wayland_with_gnome_installed(
+        self,
+    ) -> None:
         self.assertFalse(detect.is_gnome_wayland("wayland", "KDE", True))
 
-    def test_is_gnome_wayland_falls_back_to_shell_presence_when_desktop_unset(self):
+    def test_is_gnome_wayland_falls_back_to_shell_presence_when_desktop_unset(
+        self,
+    ) -> None:
         self.assertTrue(detect.is_gnome_wayland("wayland", "", True))
 
 
@@ -120,7 +133,7 @@ class GnomeShellPidsForUid(unittest.TestCase):
     The scoping key is the uid (not a logind session leader).
     """
 
-    def _tree(self):
+    def _tree(self) -> dict[int, tuple[int, str, int | None]]:
         return {
             1: (0, "systemd", 0),
             200: (1, "gnome-shell", 1000),
@@ -128,12 +141,12 @@ class GnomeShellPidsForUid(unittest.TestCase):
             400: (1, "gnome-shell", 999),
         }
 
-    def test_gnome_shell_pids_for_uid_collects_only_that_users_shells(self):
+    def test_gnome_shell_pids_for_uid_collects_only_that_users_shells(self) -> None:
         self.assertEqual(
             detect.gnome_shell_pids_for_uid(self._tree(), 1000), [200, 300]
         )
 
-    def test_gnome_shell_pids_for_uid_excludes_pids_with_unknown_uid(self):
+    def test_gnome_shell_pids_for_uid_excludes_pids_with_unknown_uid(self) -> None:
         tree = {200: (1, "gnome-shell", None), 400: (1, "gnome-shell", 1000)}
         self.assertEqual(detect.gnome_shell_pids_for_uid(tree, 1000), [400])
 
@@ -143,7 +156,7 @@ class ProcessTree(unittest.TestCase):
     binary that wrote an invalid byte to its comm must be skipped, not
     kill the detection thread."""
 
-    def test_process_tree_skips_non_utf8_comm(self):
+    def test_process_tree_skips_non_utf8_comm(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             os.makedirs(os.path.join(root, "100"))
             with open(os.path.join(root, "100", "stat"), "wb") as f:
@@ -175,10 +188,10 @@ class RunningPrimary(unittest.TestCase):
         200: (100, "gnome-shell", 1000),
     }
 
-    def _stub(self, **kwargs):
+    def _stub(self, **kwargs: Any) -> Any:
         return mock.patch("gpu_switcher.detect.subprocess.run", **kwargs)
 
-    def test_running_primary_returns_card_when_journal_has_selection_line(self):
+    def test_running_primary_returns_card_when_journal_has_selection_line(self) -> None:
         result = subprocess.CompletedProcess(
             args=[],
             returncode=0,
@@ -194,7 +207,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertEqual(card, "card2")
         self.assertIsNone(error)
 
-    def test_running_primary_scopes_by_uid_without_logind(self):
+    def test_running_primary_scopes_by_uid_without_logind(self) -> None:
         # Two gnome-shell pids from two users; only ours (uid 1000) may
         # reach the journal. No logind session-leader round trip involved.
         tree = {
@@ -220,7 +233,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertIn("_PID=200", argv)
         self.assertNotIn("_PID=600", argv)
 
-    def test_running_primary_passes_grep_and_cat_to_journalctl(self):
+    def test_running_primary_passes_grep_and_cat_to_journalctl(self) -> None:
         # The filter (grep) and plain output (cat) are pushed to journalctl
         # instead of the -q silence flag: the parser runs on bare message
         # lines.
@@ -246,7 +259,9 @@ class RunningPrimary(unittest.TestCase):
         self.assertIn(detect.PRIMARY_GREP, argv)
         self.assertNotIn("-q", argv)
 
-    def test_running_primary_returns_no_error_when_journal_has_no_selection_line(self):
+    def test_running_primary_returns_no_error_when_journal_has_no_selection_line(
+        self,
+    ) -> None:
         result = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="noise\n", stderr=""
         )
@@ -259,7 +274,7 @@ class RunningPrimary(unittest.TestCase):
         self.assertIsNone(card)
         self.assertIsNone(error)
 
-    def test_running_primary_returns_error_when_journal_read_fails(self):
+    def test_running_primary_returns_error_when_journal_read_fails(self) -> None:
         with (
             self._stub(side_effect=FileNotFoundError("journalctl")),
             mock.patch.object(detect, "_process_tree", return_value=self._TREE),
@@ -269,7 +284,9 @@ class RunningPrimary(unittest.TestCase):
         self.assertIsNone(card)
         self.assertIsNotNone(error)
 
-    def test_running_primary_returns_error_when_journal_exit_code_is_non_zero(self):
+    def test_running_primary_returns_error_when_journal_exit_code_is_non_zero(
+        self,
+    ) -> None:
         result = subprocess.CompletedProcess(
             args=[], returncode=1, stdout="", stderr=""
         )
@@ -282,7 +299,9 @@ class RunningPrimary(unittest.TestCase):
         self.assertIsNone(card)
         self.assertIsNotNone(error)
 
-    def test_running_primary_returns_unknown_when_no_shell_owned_by_our_uid(self):
+    def test_running_primary_returns_unknown_when_no_shell_owned_by_our_uid(
+        self,
+    ) -> None:
         # A shell of another user only: it never counts, and with no
         # in-scope pid the journal is never queried.
         tree = {
@@ -299,7 +318,9 @@ class RunningPrimary(unittest.TestCase):
         self.assertIsNone(error)
         run.assert_not_called()
 
-    def test_running_primary_returns_unknown_when_multiple_shells_of_our_uid(self):
+    def test_running_primary_returns_unknown_when_multiple_shells_of_our_uid(
+        self,
+    ) -> None:
         # Two concurrent shells owned by our uid: the attribution is
         # ambiguous, so the result stays unknown and the journal is never
         # queried.
@@ -324,7 +345,7 @@ class DetectClassFilter(unittest.TestCase):
     class (VGA 0x030000 / 3D 0x030200), a bound driver, and the DRM card
     with a /dev/dri device; every other PCI is skipped."""
 
-    def _run_detect(self, pci_class, driver_link=True):
+    def _run_detect(self, pci_class: str, driver_link: bool = True) -> detect.Detection:
         with (
             mock.patch(
                 "os.listdir",
@@ -352,19 +373,19 @@ class DetectClassFilter(unittest.TestCase):
         ):
             return detect.detect()
 
-    def test_detect_accepts_vga_compatible_class(self):
+    def test_detect_accepts_vga_compatible_class(self) -> None:
         result = self._run_detect("0x030000")
         self.assertEqual([g.pci for g in result.gpus], ["0000:12:00.0"])
 
-    def test_detect_accepts_3d_controller_class(self):
+    def test_detect_accepts_3d_controller_class(self) -> None:
         result = self._run_detect("0x030200")
         self.assertEqual([g.pci for g in result.gpus], ["0000:12:00.0"])
 
-    def test_detect_skips_pci_class_outside_display_controllers(self):
+    def test_detect_skips_pci_class_outside_display_controllers(self) -> None:
         result = self._run_detect("0x080000")  # system peripheral
         self.assertEqual(result.gpus, [])
 
-    def test_detect_excludes_card_without_bound_driver(self):
+    def test_detect_excludes_card_without_bound_driver(self) -> None:
         # Display-class PCI, but the driver symlink is absent (unbound):
         # the shared is_display_gpu contract excludes it.
         result = self._run_detect("0x030000", driver_link=False)

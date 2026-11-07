@@ -25,6 +25,7 @@ import contextlib
 import os
 import tempfile
 import unittest
+from typing import Any
 from unittest import mock
 
 import gi
@@ -43,18 +44,18 @@ from gpu_switcher.helper.auth import AuthStatus
 _IO_QUARK = GLib.quark_from_string("g-io-error-quark")
 
 
-def _polkit_conn(reply=None, call_error=None):
+def _polkit_conn(reply: Any = None, call_error: Any = None) -> Any:
     """A fake connection delivering the CheckAuthorization reply inline."""
     conn = mock.Mock()
 
-    def call_finish(_task):
+    def call_finish(_task: Any) -> Any:
         if call_error is not None:
             raise call_error
         return reply
 
     conn.call_finish.side_effect = call_finish
 
-    def call(*args):
+    def call(*args: Any) -> None:
         # (dest, path, iface, method, params, type, flags, timeout,
         #  cancellable, callback, user_data)
         callback = args[9]
@@ -64,10 +65,12 @@ def _polkit_conn(reply=None, call_error=None):
     return conn
 
 
-def _run_authorize(conn, sender=":1.29", locale="en", cancellable=None):
-    result = []
+def _run_authorize(
+    conn: Any, sender: str = ":1.29", locale: str = "en", cancellable: Any = None
+) -> Any:
+    result: list[Any] = []
 
-    def capture(*args):
+    def capture(*args: Any) -> None:
         result.append(args)
 
     auth.authorize(conn, sender, locale, capture, cancellable)
@@ -75,11 +78,11 @@ def _run_authorize(conn, sender=":1.29", locale="en", cancellable=None):
     return result[0]
 
 
-def _fake_udev(results, started):
+def _fake_udev(results: dict[Any, Any], started: list[list[Any]]) -> Any:
     """Patch Gio.Subprocess.new: `results` maps argv-tuple to rc/out/err or
     a GLib.Error that communicate_finish raises (step timeout/cancel)."""
 
-    def factory(argv, _flags):
+    def factory(argv: Any, _flags: Any) -> Any:
         key = tuple(argv)
         spec = None
         for k, v in results.items():  # "*" matches any element (e.g. temp path)
@@ -90,7 +93,9 @@ def _fake_udev(results, started):
             raise AssertionError(f"unexpected udev command: {key}")
         proc = mock.Mock()
 
-        def communicate_async(_stdin, _cancellable, callback, ud):
+        def communicate_async(
+            _stdin: Any, _cancellable: Any, callback: Any, ud: Any
+        ) -> None:
             callback(proc, None, ud)
 
         proc.communicate_async.side_effect = communicate_async
@@ -110,14 +115,20 @@ def _fake_udev(results, started):
     return mock.patch.object(Gio.Subprocess, "new", factory)
 
 
-def _fake_authorize(status, detail):
-    def fake(_connection, _sender, _locale, on_done, _cancellable=None):
+def _fake_authorize(status: AuthStatus, detail: str) -> Any:
+    def fake(
+        _connection: Any,
+        _sender: Any,
+        _locale: Any,
+        on_done: Any,
+        _cancellable: Any = None,
+    ) -> None:
         on_done(status, detail)
 
     return fake
 
 
-def _invocation():
+def _invocation() -> Any:
     inv = mock.Mock()
     inv.get_cancellable.return_value = Gio.Cancellable.new()
     return inv
@@ -128,30 +139,33 @@ TRIGGER_ARGV = (hud.UDEVDADM, "trigger", "--subsystem-match=drm", "--settle")
 TAGGED_INFO = "CURRENT_TAGS=:seat:mutter-device-preferred-primary:\nTAGS=:seat:\n"
 
 
-def _info_argv(card):
+def _info_argv(card: str) -> tuple[Any, ...]:
     return (hud.UDEVDADM, "info", "--query=property", f"--path=/sys/class/drm/{card}")
 
 
-def _ok_results(card=None):
-    results = {RELOAD_ARGV: {"rc": 0}, TRIGGER_ARGV: {"rc": 0}}
+def _ok_results(card: str | None = None) -> dict[Any, dict[str, Any]]:
+    results: dict[Any, dict[str, Any]] = {
+        RELOAD_ARGV: {"rc": 0},
+        TRIGGER_ARGV: {"rc": 0},
+    }
     if card is not None:
         results[_info_argv(card)] = {"rc": 0, "out": TAGGED_INFO}
     return results
 
 
 class IsValidPciFormat(unittest.TestCase):
-    def test_is_valid_pci_format_accepts_full_pci_address(self):
+    def test_is_valid_pci_format_accepts_full_pci_address(self) -> None:
         self.assertTrue(gpu.is_valid_pci_format("0000:12:00.0"))
 
-    def test_is_valid_pci_format_rejects_domain_omitted_address(self):
+    def test_is_valid_pci_format_rejects_domain_omitted_address(self) -> None:
         self.assertFalse(gpu.is_valid_pci_format("12:00.0"))
 
-    def test_is_valid_pci_format_rejects_non_hex_address(self):
+    def test_is_valid_pci_format_rejects_non_hex_address(self) -> None:
         self.assertFalse(gpu.is_valid_pci_format("0000:GG:00.0"))
 
 
 class RuleText(unittest.TestCase):
-    def test_rule_text_produces_reference_rule_line_for_valid_pci(self):
+    def test_rule_text_produces_reference_rule_line_for_valid_pci(self) -> None:
         self.assertEqual(
             gpu.rule_text("0000:12:00.0", "0x1002", "0x7550"),
             "# Managed by gpu-switcher; selected PCI 0000:12:00.0\n"
@@ -167,14 +181,14 @@ class RuleText(unittest.TestCase):
 
 
 class ResolveGpu(unittest.TestCase):
-    def test_resolve_gpu_returns_none_for_malformed_pci(self):
+    def test_resolve_gpu_returns_none_for_malformed_pci(self) -> None:
         self.assertIsNone(gpu.resolve_gpu("12:00.0"))
 
-    def test_resolve_gpu_returns_none_when_pci_not_a_display_gpu(self):
+    def test_resolve_gpu_returns_none_when_pci_not_a_display_gpu(self) -> None:
         with mock.patch.object(gpu, "is_display_gpu", return_value=None):
             self.assertIsNone(gpu.resolve_gpu("0000:12:00.0"))
 
-    def test_resolve_gpu_reads_vendor_and_device_from_sys(self):
+    def test_resolve_gpu_reads_vendor_and_device_from_sys(self) -> None:
         with (
             mock.patch.object(gpu, "is_display_gpu", return_value="card1"),
             mock.patch.object(
@@ -190,21 +204,23 @@ class ResolveGpu(unittest.TestCase):
                 gpu.resolve_gpu("0000:12:00.0"), ("card1", "0x1002", "0x7550")
             )
 
-    def test_resolve_gpu_returns_none_when_two_cards_bound_to_same_pci(self):
+    def test_resolve_gpu_returns_none_when_two_cards_bound_to_same_pci(self) -> None:
         # Ambiguous binding: is_display_gpu already refuses it.
         with mock.patch.object(gpu, "is_display_gpu", return_value=None):
             self.assertIsNone(gpu.resolve_gpu("0000:12:00.0"))
 
 
 class Translator(unittest.TestCase):
-    def test_translator_returns_identity_when_catalog_is_missing(self):
+    def test_translator_returns_identity_when_catalog_is_missing(self) -> None:
         self.assertEqual(service.translator("en")("Some text"), "Some text")
 
 
 class ShippedLocales(unittest.TestCase):
     """SUPPORTED_LOCALES is derived from the locale tree, never hand-kept:"""
 
-    def test_shipped_locales_lists_catalog_dirs_and_always_includes_english(self):
+    def test_shipped_locales_lists_catalog_dirs_and_always_includes_english(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             os.makedirs(os.path.join(tmp, "ru", "LC_MESSAGES"))
             os.makedirs(os.path.join(tmp, "en", "LC_MESSAGES"))
@@ -212,37 +228,37 @@ class ShippedLocales(unittest.TestCase):
             open(os.path.join(tmp, "README"), "w").close()
             self.assertEqual(service._shipped_locales(tmp), ("en", "ru"))
 
-    def test_shipped_locales_falls_back_to_english_when_dir_missing(self):
+    def test_shipped_locales_falls_back_to_english_when_dir_missing(self) -> None:
         self.assertEqual(service._shipped_locales("/nonexistent/locale"), ("en",))
 
 
 class NormalizeLocale(unittest.TestCase):
     # SUPPORTED_LOCALES is derived from the installed locale tree at import
     # time; pin it so the assertions hold regardless of what is installed.
-    def setUp(self):
+    def setUp(self) -> None:
         self._patcher = mock.patch.object(service, "SUPPORTED_LOCALES", ("en", "ru"))
         self._patcher.start()
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self._patcher.stop()
 
-    def test_normalize_locale_maps_known_language(self):
+    def test_normalize_locale_maps_known_language(self) -> None:
         self.assertEqual(service.normalize_locale("ru_RU.UTF-8"), "ru")
 
-    def test_normalize_locale_falls_back_to_english_for_unknown_language(self):
+    def test_normalize_locale_falls_back_to_english_for_unknown_language(self) -> None:
         self.assertEqual(service.normalize_locale("de_DE.UTF-8"), "en")
 
-    def test_normalize_locale_rejects_path_shaped_values(self):
+    def test_normalize_locale_rejects_path_shaped_values(self) -> None:
         self.assertEqual(service.normalize_locale("../evil"), "en")
         self.assertEqual(service.normalize_locale("/etc/passwd"), "en")
         self.assertEqual(service.normalize_locale(".."), "en")
 
-    def test_normalize_locale_rejects_overlong_values(self):
+    def test_normalize_locale_rejects_overlong_values(self) -> None:
         self.assertEqual(service.normalize_locale("a" * 40), "en")
 
 
 class TranslatorLocale(unittest.TestCase):
-    def test_translator_uses_normalized_locale_for_catalog_lookup(self):
+    def test_translator_uses_normalized_locale_for_catalog_lookup(self) -> None:
         with (
             mock.patch.object(service, "normalize_locale", return_value="en"),
             mock.patch("gettext.translation") as translation,
@@ -257,7 +273,7 @@ class Authorize(unittest.TestCase):
     """polkit authorization: subject bound to the caller's bus name, a
     unique cancellation id, the result statuses, and timeout cancellation."""
 
-    def test_authorize_builds_system_bus_name_subject_from_message_sender(self):
+    def test_authorize_builds_system_bus_name_subject_from_message_sender(self) -> None:
         conn = _polkit_conn(reply=((True, False, {}),))
         _run_authorize(conn, sender=":1.29")
         args = conn.call.call_args[0]
@@ -270,7 +286,7 @@ class Authorize(unittest.TestCase):
         self.assertEqual(action, auth.POLKIT_ACTION)
         self.assertEqual(flags, auth.POLKIT_INTERACTIVE)
 
-    def test_authorize_passes_unique_cancellation_id_per_invocation(self):
+    def test_authorize_passes_unique_cancellation_id_per_invocation(self) -> None:
         ids = []
         for _ in range(2):
             conn = _polkit_conn(reply=((True, False, {}),))
@@ -278,19 +294,19 @@ class Authorize(unittest.TestCase):
             ids.append(conn.call.call_args[0][4][4])
         self.assertEqual(len(set(ids)), 2)
 
-    def test_authorize_reports_authorized(self):
+    def test_authorize_reports_authorized(self) -> None:
         conn = _polkit_conn(reply=((True, False, {}),))
         self.assertEqual(_run_authorize(conn), (AuthStatus.AUTHORIZED, ""))
 
-    def test_authorize_reports_denied(self):
+    def test_authorize_reports_denied(self) -> None:
         conn = _polkit_conn(reply=((False, False, {}),))
         self.assertEqual(_run_authorize(conn), (AuthStatus.DENIED, ""))
 
-    def test_authorize_reports_cancelled_when_dialog_dismissed(self):
+    def test_authorize_reports_cancelled_when_dialog_dismissed(self) -> None:
         conn = _polkit_conn(reply=((False, False, {"polkit.dismissed": True}),))
         self.assertEqual(_run_authorize(conn), (AuthStatus.CANCELLED, ""))
 
-    def test_authorize_reports_error_on_check_authorization_failure(self):
+    def test_authorize_reports_error_on_check_authorization_failure(self) -> None:
         conn = _polkit_conn(
             call_error=GLib.Error.new_literal(_IO_QUARK, "polkitd is not running", 8)
         )
@@ -298,7 +314,9 @@ class Authorize(unittest.TestCase):
             _run_authorize(conn), (AuthStatus.ERROR, "polkitd is not running")
         )
 
-    def test_authorize_returns_timeout_cancels_check_when_polkit_times_out(self):
+    def test_authorize_returns_timeout_cancels_check_when_polkit_times_out(
+        self,
+    ) -> None:
         conn = _polkit_conn(
             call_error=GLib.Error.new_literal(_IO_QUARK, "timed out", 7)
         )
@@ -309,7 +327,7 @@ class Authorize(unittest.TestCase):
         self.assertTrue(conn.call_sync.called)
         self.assertEqual(conn.call_sync.call_args[0][3], "CancelCheckAuthorization")
 
-    def test_authorize_does_not_treat_io_error_code_5_as_timeout(self):
+    def test_authorize_does_not_treat_io_error_code_5_as_timeout(self) -> None:
         conn = _polkit_conn(call_error=GLib.Error.new_literal(_IO_QUARK, "io", 5))
         status, detail = _run_authorize(conn)
         self.assertEqual(status, AuthStatus.ERROR)
@@ -318,14 +336,16 @@ class Authorize(unittest.TestCase):
 
 
 class SetPrimaryAuthorization(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         service._operation_in_progress = False
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         service._operation_in_progress = False
 
-    def test_set_primary_returns_distinct_messages_for_denial_vs_service_error(self):
-        def run(status, detail):
+    def test_set_primary_returns_distinct_messages_for_denial_vs_service_error(
+        self,
+    ) -> None:
+        def run(status: AuthStatus, detail: str) -> Any:
             invocation = _invocation()
             with (
                 mock.patch.object(auth, "authorize", _fake_authorize(status, detail)),
@@ -356,7 +376,7 @@ class SetPrimaryAuthorization(unittest.TestCase):
             ),
         )
 
-    def test_set_primary_reports_conflict_when_other_rule_sets_tag(self):
+    def test_set_primary_reports_conflict_when_other_rule_sets_tag(self) -> None:
         invocation = _invocation()
         with (
             mock.patch.object(
@@ -386,7 +406,7 @@ class SetPrimaryAuthorization(unittest.TestCase):
             ),
         )
 
-    def test_set_primary_reports_invalid_pci(self):
+    def test_set_primary_reports_invalid_pci(self) -> None:
         invocation = _invocation()
         with (
             mock.patch.object(
@@ -419,14 +439,20 @@ class OperationInProgress(unittest.TestCase):
     """The in-progress lock: a second mutating call while an operation is
     in flight gets the Busy D-Bus error."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         service._operation_in_progress = False
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         service._operation_in_progress = False
 
-    def test_set_primary_rejects_concurrent_second_call_as_busy(self):
-        def never_authorize(_connection, _sender, _locale, _on_done, _cancellable=None):
+    def test_set_primary_rejects_concurrent_second_call_as_busy(self) -> None:
+        def never_authorize(
+            _connection: Any,
+            _sender: Any,
+            _locale: Any,
+            _on_done: Any,
+            _cancellable: Any = None,
+        ) -> None:
             pass  # the operation stays in flight
 
         with (
@@ -451,8 +477,14 @@ class OperationInProgress(unittest.TestCase):
             inv1.return_value.assert_not_called()
             inv2.return_value.assert_not_called()
 
-    def test_set_auto_rejects_concurrent_second_call_as_busy(self):
-        def never_authorize(_connection, _sender, _locale, _on_done, _cancellable=None):
+    def test_set_auto_rejects_concurrent_second_call_as_busy(self) -> None:
+        def never_authorize(
+            _connection: Any,
+            _sender: Any,
+            _locale: Any,
+            _on_done: Any,
+            _cancellable: Any = None,
+        ) -> None:
             pass
 
         with mock.patch.object(auth, "authorize", never_authorize):
@@ -469,7 +501,7 @@ class OperationInProgress(unittest.TestCase):
 class ErrorNames(unittest.TestCase):
     """The D-Bus error names are a stable contract shared by both sides."""
 
-    def test_error_names_are_valid_and_shared(self):
+    def test_error_names_are_valid_and_shared(self) -> None:
         self.assertIs(service.DBUS_ERROR_BUSY, udev_rules.DBUS_ERROR_BUSY)
         self.assertIs(service.DBUS_ERROR_INTERNAL, udev_rules.DBUS_ERROR_INTERNAL)
         for name in (service.DBUS_ERROR_BUSY, service.DBUS_ERROR_INTERNAL):
@@ -477,27 +509,27 @@ class ErrorNames(unittest.TestCase):
 
 
 class VerifyRule(unittest.TestCase):
-    def test_verify_rule_returns_verified_when_udevadm_accepts(self):
-        started = []
+    def test_verify_rule_returns_verified_when_udevadm_accepts(self) -> None:
+        started: list[list[str]] = []
         with (
             _fake_udev({(hud.UDEVDADM, "verify", "/tmp/r.rules"): {"rc": 0}}, started),
             mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
-            result = []
+            result: list[hud.RefreshState] = []
             hud.verify_rule_async("/tmp/r.rules", result.append)
             self.assertEqual(result, [hud.RefreshState.VERIFIED])
         self.assertEqual(started, [[hud.UDEVDADM, "verify", "/tmp/r.rules"]])
 
-    def test_verify_rule_returns_failed_when_udevadm_rejects(self):
+    def test_verify_rule_returns_failed_when_udevadm_rejects(self) -> None:
         with (
             _fake_udev({(hud.UDEVDADM, "verify", "/tmp/r.rules"): {"rc": 1}}, []),
             mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
-            result = []
+            result: list[hud.RefreshState] = []
             hud.verify_rule_async("/tmp/r.rules", result.append)
             self.assertEqual(result, [hud.RefreshState.FAILED])
 
-    def test_verify_rule_returns_failed_when_step_times_out(self):
+    def test_verify_rule_returns_failed_when_step_times_out(self) -> None:
         error = GLib.Error.new_literal(_IO_QUARK, "Operation was cancelled", 8)
         with (
             _fake_udev(
@@ -505,36 +537,38 @@ class VerifyRule(unittest.TestCase):
             ),
             mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
-            result = []
+            result: list[hud.RefreshState] = []
             hud.verify_rule_async("/tmp/r.rules", result.append)
             self.assertEqual(result, [hud.RefreshState.FAILED])
 
-    def test_verify_rule_returns_unsupported_when_udevadm_missing(self):
-        started = []
+    def test_verify_rule_returns_unsupported_when_udevadm_missing(self) -> None:
+        started: list[list[str]] = []
         with mock.patch.object(hud, "check_udevadm", return_value=False):
-            result = []
+            result: list[hud.RefreshState] = []
             hud.verify_rule_async("/tmp/r.rules", result.append)
             self.assertEqual(result, [hud.RefreshState.UNSUPPORTED])
         self.assertEqual(started, [])
 
 
 class RefreshUdev(unittest.TestCase):
-    def setUp(self):
-        self.started = []
+    def setUp(self) -> None:
+        self.started: list[list[str]] = []
 
-    def _run(self, results, card):
+    def _run(
+        self, results: dict[Any, dict[str, Any]], card: str | None
+    ) -> hud.RefreshState:
         with (
             _fake_udev(results, self.started),
             mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
-            out = []
+            out: list[hud.RefreshState] = []
             hud.refresh_udev_async(card, out.append)
             self.assertEqual(len(out), 1)
             return out[0]
 
     def test_refresh_udev_returns_verified_when_every_step_succeeds_and_tag_present(
         self,
-    ):
+    ) -> None:
         self.assertEqual(
             self._run(_ok_results("card1"), "card1"), hud.RefreshState.VERIFIED
         )
@@ -547,37 +581,37 @@ class RefreshUdev(unittest.TestCase):
             ],
         )
 
-    def test_refresh_udev_returns_failed_when_reload_fails(self):
+    def test_refresh_udev_returns_failed_when_reload_fails(self) -> None:
         results = {RELOAD_ARGV: {"rc": 1}, TRIGGER_ARGV: {"rc": 0}}
         self.assertEqual(self._run(results, None), hud.RefreshState.FAILED)
         self.assertEqual(len(self.started), 1)
 
-    def test_refresh_udev_returns_failed_when_trigger_fails(self):
+    def test_refresh_udev_returns_failed_when_trigger_fails(self) -> None:
         results = {RELOAD_ARGV: {"rc": 0}, TRIGGER_ARGV: {"rc": 1}}
         self.assertEqual(self._run(results, None), hud.RefreshState.FAILED)
         self.assertEqual(len(self.started), 2)
 
-    def test_refresh_udev_returns_failed_when_tag_absent(self):
+    def test_refresh_udev_returns_failed_when_tag_absent(self) -> None:
         results = _ok_results("card1")
         results[_info_argv("card1")] = {"rc": 0, "out": "CURRENT_TAGS=:seat:\n"}
         self.assertEqual(self._run(results, "card1"), hud.RefreshState.FAILED)
 
-    def test_refresh_udev_returns_failed_when_tag_query_fails(self):
+    def test_refresh_udev_returns_failed_when_tag_query_fails(self) -> None:
         results = _ok_results("card1")
         results[_info_argv("card1")] = {"rc": 1}
         self.assertEqual(self._run(results, "card1"), hud.RefreshState.FAILED)
 
-    def test_refresh_udev_returns_unsupported_when_udevadm_missing(self):
+    def test_refresh_udev_returns_unsupported_when_udevadm_missing(self) -> None:
         with (
             _fake_udev({}, self.started),
             mock.patch.object(hud, "check_udevadm", return_value=False),
         ):
-            out = []
+            out: list[hud.RefreshState] = []
             hud.refresh_udev_async(None, out.append)
             self.assertEqual(out, [hud.RefreshState.UNSUPPORTED])
         self.assertEqual(self.started, [])
 
-    def test_refresh_udev_without_card_skips_tag_check(self):
+    def test_refresh_udev_without_card_skips_tag_check(self) -> None:
         self.assertEqual(self._run(_ok_results(None), None), hud.RefreshState.VERIFIED)
         self.assertEqual(len(self.started), 2)
 
@@ -585,7 +619,7 @@ class RefreshUdev(unittest.TestCase):
 class ParseUdevCurrentTags(unittest.TestCase):
     def test_parse_udev_current_tags_extracts_current_tag_list_from_property_output(
         self,
-    ):
+    ) -> None:
         # udev prints CURRENT_TAGS colon-separated with a leading and
         # trailing colon, alongside the cumulative TAGS line.
         out = (
@@ -599,7 +633,9 @@ class ParseUdevCurrentTags(unittest.TestCase):
             ["seat", "mutter-device-preferred-primary", "uaccess"],
         )
 
-    def test_parse_udev_current_tags_returns_empty_list_when_no_current_tags(self):
+    def test_parse_udev_current_tags_returns_empty_list_when_no_current_tags(
+        self,
+    ) -> None:
         self.assertEqual(hud.parse_udev_current_tags("CURRENT_TAGS=:\n"), [])
         self.assertEqual(hud.parse_udev_current_tags("SUBSYSTEM=drm\n"), [])
 
@@ -607,17 +643,22 @@ class ParseUdevCurrentTags(unittest.TestCase):
 class SetPrimaryTransactionBase(unittest.TestCase):
     """Shared setup for the SetPrimary write-path tests."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="gpu-switcher-sp-")
         self.addCleanup(self._tmp.cleanup)
         self.rules_dir = self._tmp.name
         self.rule = os.path.join(self.rules_dir, "61-mutter-primary-gpu.rules")
         service._operation_in_progress = False
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         service._operation_in_progress = False
 
-    def _run_set_primary(self, results, invocation=None, udevadm=True):
+    def _run_set_primary(
+        self,
+        results: dict[Any, dict[str, Any]],
+        invocation: Any = None,
+        udevadm: bool = True,
+    ) -> Any:
         inv = invocation or _invocation()
         patches = [
             _fake_udev(results, []),
@@ -643,7 +684,7 @@ class SetPrimaryTransactionBase(unittest.TestCase):
 
 
 class SetPrimaryTransaction(SetPrimaryTransactionBase):
-    def test_set_primary_writes_rule_backs_up_and_refreshes_udev(self):
+    def test_set_primary_writes_rule_backs_up_and_refreshes_udev(self) -> None:
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write('SUBSYSTEM=="drm", TAG="something-else"\n')
         results = {
@@ -662,7 +703,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
             self.assertIn('KERNELS=="0000:12:00.0"', f.read())
         fsync_dir.assert_called_once_with(self.rules_dir)
 
-    def test_set_primary_does_not_rename_when_verify_rejects(self):
+    def test_set_primary_does_not_rename_when_verify_rejects(self) -> None:
         results = {
             (hud.UDEVDADM, "verify", "*"): {"rc": 1},
             **_ok_results("card1"),
@@ -674,7 +715,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
         )
         self.assertFalse(os.path.exists(self.rule))
 
-    def test_set_primary_does_not_rename_when_backup_fails(self):
+    def test_set_primary_does_not_rename_when_backup_fails(self) -> None:
         results = {
             (hud.UDEVDADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
@@ -690,7 +731,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
         with open(self.rule, encoding="utf-8") as f:
             self.assertEqual(f.read(), "old rule\n")
 
-    def test_set_primary_reports_failure_when_rename_fails(self):
+    def test_set_primary_reports_failure_when_rename_fails(self) -> None:
         results = {
             (hud.UDEVDADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
@@ -702,7 +743,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
             (False, "Failed to write the managed rule; nothing changed.", "", False),
         )
 
-    def test_set_primary_idempotent_when_rule_already_matches(self):
+    def test_set_primary_idempotent_when_rule_already_matches(self) -> None:
         content = gpu.rule_text("0000:12:00.0", "0x1002", "0x7550")
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write(content)
@@ -717,7 +758,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
         )
         fsync_dir.assert_not_called()
 
-    def test_set_primary_retains_only_the_newest_backups(self):
+    def test_set_primary_retains_only_the_newest_backups(self) -> None:
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write("old rule\n")
         for i in range(rule_store.BACKUP_KEEP + 2):
@@ -741,7 +782,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
 
 
 class SetPrimaryNonUtf8(SetPrimaryTransactionBase):
-    def test_set_primary_overwrites_non_utf8_existing_rule(self):
+    def test_set_primary_overwrites_non_utf8_existing_rule(self) -> None:
         # A broken hand edit may leave invalid UTF-8 in the rule; the read
         # is byte-based so the comparison and overwrite must not crash.
         with open(self.rule, "wb") as f:
@@ -761,7 +802,7 @@ class SetPrimaryUnsupported(SetPrimaryTransactionBase):
     """udevadm missing: verification is impossible, and a refresh cannot
     be reported as fresh - the user must be told a reboot is required."""
 
-    def test_set_primary_reports_unsupported_when_udevadm_missing(self):
+    def test_set_primary_reports_unsupported_when_udevadm_missing(self) -> None:
         results = _ok_results("card1")
         ok, message, _backup, refresh_ok = self._run_set_primary(results, udevadm=False)
         self.assertTrue(ok)  # the rule was still written
@@ -772,17 +813,22 @@ class SetPrimaryUnsupported(SetPrimaryTransactionBase):
 
 
 class SetAutoTransactionBase(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="gpu-switcher-sa-")
         self.addCleanup(self._tmp.cleanup)
         self.rules_dir = self._tmp.name
         self.rule = os.path.join(self.rules_dir, "61-mutter-primary-gpu.rules")
         service._operation_in_progress = False
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         service._operation_in_progress = False
 
-    def _run_set_auto(self, results=None, invocation=None, udevadm=True):
+    def _run_set_auto(
+        self,
+        results: dict[Any, dict[str, Any]] | None = None,
+        invocation: Any = None,
+        udevadm: bool = True,
+    ) -> Any:
         inv = invocation or _invocation()
         patches = [
             _fake_udev(results or _ok_results(None), []),
@@ -802,7 +848,7 @@ class SetAutoTransactionBase(unittest.TestCase):
 
 
 class SetAutoTransaction(SetAutoTransactionBase):
-    def test_set_auto_removes_rule_backs_up_and_refreshes(self):
+    def test_set_auto_removes_rule_backs_up_and_refreshes(self) -> None:
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write('SUBSYSTEM=="drm", TAG="x"\n')
         ok, message, refresh_ok = self._run_set_auto()
@@ -822,7 +868,7 @@ class SetAutoTransaction(SetAutoTransactionBase):
             1,
         )
 
-    def test_set_auto_refuses_symlink(self):
+    def test_set_auto_refuses_symlink(self) -> None:
         os.symlink("/nonexistent-target", self.rule)
         ok, message, refresh_ok = self._run_set_auto()
         self.assertEqual(
@@ -831,7 +877,7 @@ class SetAutoTransaction(SetAutoTransactionBase):
         )
         self.assertTrue(os.path.islink(self.rule))
 
-    def test_set_auto_reports_failure_when_backup_fails(self):
+    def test_set_auto_reports_failure_when_backup_fails(self) -> None:
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write("old rule\n")
         with mock.patch.object(rule_store, "backup_rule", return_value=""):
@@ -843,7 +889,7 @@ class SetAutoTransaction(SetAutoTransactionBase):
         with open(self.rule, encoding="utf-8") as f:
             self.assertEqual(f.read(), "old rule\n")
 
-    def test_set_auto_reports_failure_when_unlink_fails(self):
+    def test_set_auto_reports_failure_when_unlink_fails(self) -> None:
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write("old rule\n")
         with (
@@ -861,7 +907,7 @@ class SetAutoTransaction(SetAutoTransactionBase):
 
 
 class SetAutoAlreadyAuto(SetAutoTransactionBase):
-    def test_set_auto_is_idempotent_when_rule_is_absent(self):
+    def test_set_auto_is_idempotent_when_rule_is_absent(self) -> None:
         ok, message, refresh_ok = self._run_set_auto()
         self.assertTrue(ok)
         self.assertTrue(refresh_ok)
@@ -870,7 +916,9 @@ class SetAutoAlreadyAuto(SetAutoTransactionBase):
             "No managed rule (auto selection already in effect). Udev rules reloaded.",
         )
 
-    def test_set_auto_reports_unsupported_when_rule_absent_and_udevadm_missing(self):
+    def test_set_auto_reports_unsupported_when_rule_absent_and_udevadm_missing(
+        self,
+    ) -> None:
         ok, message, refresh_ok = self._run_set_auto(udevadm=False)
         self.assertTrue(ok)
         self.assertFalse(refresh_ok)
@@ -880,7 +928,7 @@ class SetAutoAlreadyAuto(SetAutoTransactionBase):
 class SetAutoUnsupported(SetAutoTransactionBase):
     """udevadm missing: a removal refresh must be reported as unverifiable."""
 
-    def test_set_auto_reports_unsupported_when_udevadm_missing(self):
+    def test_set_auto_reports_unsupported_when_udevadm_missing(self) -> None:
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write("old rule\n")
         ok, message, refresh_ok = self._run_set_auto(udevadm=False)
@@ -892,7 +940,7 @@ class SetAutoUnsupported(SetAutoTransactionBase):
 
 
 class IdleTimerInMain(unittest.TestCase):
-    def test_main_arms_idle_timer_without_any_handled_call(self):
+    def test_main_arms_idle_timer_without_any_handled_call(self) -> None:
         # A D-Bus-answered call (gdbus introspect) must not keep the
         # helper alive: the idle timer is armed as soon as the name is
         # owned, so 60 s after the last real call the process exits.
@@ -909,12 +957,14 @@ class IdleTimerInMain(unittest.TestCase):
 
 
 class BusContract(unittest.TestCase):
-    def test_bus_contract_matches_helper_service_name_and_path_and_interface(self):
+    def test_bus_contract_matches_helper_service_name_and_path_and_interface(
+        self,
+    ) -> None:
         self.assertEqual(bus.HELPER_NAME, service.SERVICE_NAME)
         self.assertEqual(bus.HELPER_PATH, service.OBJECT_PATH)
         self.assertEqual(bus.HELPER_IFACE, service.INTERFACE)
 
-    def test_bus_contract_matches_introspection_methods_and_signatures(self):
+    def test_bus_contract_matches_introspection_methods_and_signatures(self) -> None:
         """INTROSPECTION_XML must declare the signatures the app side
         (bus.py) actually sends and expects, method for method."""
 
