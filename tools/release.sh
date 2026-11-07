@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Release gpu-switcher: bump the version in debian/control, prepend the
-# changelog entry, run the checks, build + lintian the .deb, commit, push,
-# and create the GitHub release (tag v<version>, .deb as the asset).
+# Release gpu-switcher: prepend the debian/changelog entry (the version's
+# source of truth), sync pyproject.toml, run the checks, build + lintian the
+# .deb, commit, push, and create the GitHub release (tag v<version>, .deb as
+# the asset).
 #
 # Usage: tools/release.sh <new-version> <changelog-bullets-file> [--dry-run]
 #
@@ -12,7 +13,12 @@
 #         * First bullet.
 #         * Second bullet.
 #   --dry-run
-#       Do everything except git commit/push and the gh release step.
+#       Do everything except git commit/push and the gh release step;
+#       debian/changelog and pyproject.toml are restored afterwards (the built
+#       .deb is kept in the parent directory).
+#
+# Environment:
+#   URGENCY   changelog urgency (default: low)
 #
 # The working tree must be clean before running (commit your changes first).
 set -euo pipefail
@@ -73,9 +79,15 @@ if [ "$DRY" -eq 0 ]; then
 fi
 
 # --- prepend the changelog entry (establishes the new version) --------------
+if [ "$DRY" -eq 1 ]; then
+  BACKUP="$(mktemp -d)"
+  cp "$CHANGELOG" "$BACKUP/changelog"
+  cp pyproject.toml "$BACKUP/pyproject.toml"
+  trap 'cp "$BACKUP/changelog" "$CHANGELOG"; cp "$BACKUP/pyproject.toml" pyproject.toml; rm -rf "$BACKUP"' EXIT
+fi
 DATE="$(LC_ALL=C date '+%a, %d %b %Y %H:%M:%S %z')"
 {
-  echo "$PKG ($NEW_VERSION) unstable; urgency=low"
+  echo "$PKG ($NEW_VERSION) unstable; urgency=${URGENCY:-low}"
   echo
   cat "$BULLETS_FILE"
   echo
@@ -92,6 +104,8 @@ sed -i "s/^version = \".*\"/version = \"$UPSTREAM\"/" pyproject.toml
 
 # --- checks, build, verify ----------------------------------------------------
 make test
+make lint
+make typecheck
 # Catalog consistency gate (reference compiler), one invocation per
 # catalog. -o /dev/null: GNU msgfmt -c still writes the default
 # messages.mo to the CWD without an explicit output file.
@@ -128,8 +142,12 @@ fi
   echo "apt resolves any missing dependencies from the repository; offline, with"
   echo "all dependencies present, \`sudo dpkg -i\` also works."
   echo
-  echo "Upgrading from an older version: stop a still-running helper first —"
-  echo '`sudo pkill -f gpu_switcher_helper`.'
+  echo "Upgrading from an older version: restart the still-running helper so the"
+  echo "new code takes over:"
+  echo
+  echo '```sh'
+  echo "sudo systemctl restart gpu-switcher-helper.service"
+  echo '```'
   echo
   echo "Requires: python3 (>= 3.12), python3-gi, gir1.2-gtk-4.0 (>= 4.10),"
   echo "libgtk-4-1 (>= 4.10), polkitd, dbus, udev, systemd, pciutils."

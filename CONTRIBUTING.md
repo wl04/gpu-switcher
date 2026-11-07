@@ -48,8 +48,9 @@ journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
 ## Releasing
 
 `tools/release.sh <version> <changelog-bullets-file> [--dry-run]` prepends the
-changelog entry (the version's source of truth), syncs `pyproject.toml`, runs
-the checks, builds and lints the `.deb`, commits, pushes and creates the GitHub
+changelog entry (the version's source of truth; urgency from `$URGENCY`,
+default `low`), syncs `pyproject.toml`, runs the tests, lint and type checks,
+builds and lints the `.deb`, commits, pushes and creates the GitHub
 release. Each changelog bullet must be a single line starting with `  * `.
 Run with `--dry-run` first; the working tree must be clean.
 

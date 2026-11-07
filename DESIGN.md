@@ -234,19 +234,19 @@ gpu-switcher/
   `com.github.wl04.gpu-switcher`; the D-Bus service name uses `gpu_switcher`
   (hyphens are not allowed in D-Bus names).
 - `tools/build-deb.sh` (plain `dpkg-deb`, no debhelper required) is the
-  canonical build; `debian/` (control, rules, manpages, changelog,
-  copyright, postrm, `gpu-switcher-helper.service`; source format `3.0 (quilt)`) supports the
-  `dpkg-buildpackage -us -uc` flow — `release.sh` generates the orig
-  tarball from git and cross-checks that both builds produce identical
-  contents. Both paths compile the catalogs with `msgfmt` and install
-  the same file list; the `.deb` version is read from the top entry of
-  `debian/changelog` (single source of truth).
+  canonical build; `debian/` (control, rules, manpages, changelog, copyright,
+  postrm, `gpu-switcher-helper.service`; source format `3.0 (quilt)`) supports
+  the `dpkg-buildpackage -us -uc` flow. Both paths call the same
+  `make install` target (the single file list), which also compiles the
+  catalogs with `msgfmt`, so their contents are identical by construction. The
+  `.deb` version is read from the top entry of `debian/changelog` (single
+  source of truth).
 - Installed docs: `changelog.Debian.gz` (gzip-compressed per Debian policy),
   plain `copyright`, gzipped man page.
 - `postrm` leaves the managed rule and its `.bak.*` backups in place on
   `apt remove` — they are the user's primary-GPU choice, not package data.
 - Quality gates: `lintian` clean on the built `.deb`, `dpkg-deb --info` /
-  `--contents` sanity, install/remove tested (see README).
+  `--contents` sanity, `systemd-analyze verify` on the helper unit (CI).
 
 ## Versioning
 

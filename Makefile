@@ -29,7 +29,7 @@ package:
 # packaging root, e.g. `make install DESTDIR=debian/gpu-switcher` (dh path)
 # or `make install DESTDIR=$$(mktemp -d)` (tools/build-deb.sh). This is the
 # single source of truth for the package file list; both build paths call
-# it, so they stay in sync and the cross-check guard is unnecessary.
+# it, so they stay in sync.
 install:
 	@test -n "$(DESTDIR)" || { echo "error: install requires DESTDIR=…"; exit 1; }
 	msgfmt -o data/locale/en/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-en.po
@@ -65,6 +65,6 @@ install:
 # Remove the installed package (the managed udev rule is left behind on
 # purpose: it is the user's primary-GPU choice, not package data).
 uninstall:
-	sudo dpkg -r gpu-switcher
+	sudo apt remove gpu-switcher
 
 .PHONY: test lint typecheck locale package install uninstall
