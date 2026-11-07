@@ -348,14 +348,15 @@ class GpuSwitcherApp(Gtk.Application):
             self.selected_card = card
 
     def _banner_show(self, text: str, kind: BannerKind) -> None:
-        for css_class in ("suggested-action", "destructive-action", "dim-label"):
+        # Adwaita status classes for the three result kinds; info stays the
+        # neutral dim-label. The old button classes (suggested-action /
+        # destructive-action) are not status styling and are dropped.
+        for css_class in ("success", "warning", "error", "dim-label"):
             self.banner_box.remove_css_class(css_class)
-        if kind is BannerKind.WARNING:
+        if kind is BannerKind.INFO:
             self.banner_box.add_css_class("dim-label")
-        elif kind is BannerKind.ERROR:
-            self.banner_box.add_css_class("destructive-action")
         else:
-            self.banner_box.add_css_class("suggested-action")
+            self.banner_box.add_css_class(kind.value)
         self.banner_label.set_label(text)
         self.banner.set_reveal_child(True)
 
