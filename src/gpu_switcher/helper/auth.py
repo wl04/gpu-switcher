@@ -119,8 +119,9 @@ def authorize(connection, sender, locale, on_done, cancellable=None):
         0,
         POLKIT_TIMEOUT_MS,
         cancellable,
+        # No user_data: pygobject hands it to the callback, and on_result
+        # takes only (connection, task). Omitting it keeps the callback at 2 args.
         on_result,
-        None,
     )
 
 

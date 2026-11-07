@@ -57,9 +57,15 @@ def _polkit_conn(reply: Any = None, call_error: Any = None) -> Any:
 
     def call(*args: Any) -> None:
         # (dest, path, iface, method, params, type, flags, timeout,
-        #  cancellable, callback, user_data)
+        #  cancellable, callback[, user_data])
+        # Model real pygobject: it hands the callback an extra user_data
+        # argument iff one was passed, so a 2-parameter callback only works
+        # when user_data is omitted.
         callback = args[9]
-        callback(conn, None)
+        if len(args) >= 11:
+            callback(conn, None, args[10])
+        else:
+            callback(conn, None)
 
     conn.call.side_effect = call
     return conn
