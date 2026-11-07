@@ -10,11 +10,10 @@ lint:
 	ruff check src tests
 	ruff format --check src tests
 
-# Type-check (mypy; config in pyproject.toml). main.py is a private GTK UI
-# and is intentionally not type-checked: --exclude drops it from the file
-# list.
+# Type-check (mypy; config in pyproject.toml). GTK widgets are declared with
+# their concrete (Any) type in main.py since PyGObject ships no stubs.
 typecheck:
-	mypy --exclude 'src/gpu_switcher/main.py'
+	mypy
 
 # Compile the gettext catalogs in the source tree (used by dev runs).
 locale:

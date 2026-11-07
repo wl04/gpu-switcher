@@ -51,26 +51,29 @@ def _badge(text: str) -> Gtk.Label:
 class GpuSwitcherApp(Gtk.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID)
-        self.window = None
-        self.detection = None
-        self.selected_card = SELECTION_AUTO  # card name or a SELECTION_* sentinel
-        self.unavailable_radio = (
-            None  # disabled row for the configured-but-undetected GPU
+        # GTK widgets are declared with their concrete type (PyGObject ships no
+        # stubs, so these resolve to Any); each is None until the matching
+        # _build_* method assigns it, and is only used after the build.
+        self.window: Gtk.ApplicationWindow = None
+        self.detection: detect.Detection | None = None
+        self.selected_card: str = SELECTION_AUTO  # card name or a SELECTION_* sentinel
+        self.unavailable_radio: Gtk.CheckButton = None  # configured-but-undetected row
+        self.auto_radio: Gtk.CheckButton = None
+        self.unavailable_pci: str | None = None
+        self.radios_by_gpu: dict[str, Gtk.CheckButton] = {}
+        self.rows_box: Gtk.Box = None
+        self.banner: Gtk.Revealer = None
+        self.banner_box: Gtk.Box = None
+        self.banner_label: Gtk.Label = None
+        self.apply_btn: Gtk.Button = None
+        self.reset_btn: Gtk.Button = None
+        self.reboot_btn: Gtk.Button = None
+        self.logout_btn: Gtk.Button = None
+        self.outcome: Outcome = Outcome.idle  # explicit state of the last operation
+        self._detect_generation: int = 0  # discards stale detection results
+        self._pending_banner: tuple[str, BannerKind] | None = (
+            None  # shown after a rebuild
         )
-        self.auto_radio = None
-        self.unavailable_pci = None
-        self.radios_by_gpu: dict = {}
-        self.rows_box = None
-        self.banner = None
-        self.banner_box = None
-        self.banner_label = None
-        self.apply_btn = None
-        self.reset_btn = None
-        self.reboot_btn = None
-        self.logout_btn = None
-        self.outcome = Outcome.idle  # explicit state of the last operation
-        self._detect_generation = 0  # discards stale detection results
-        self._pending_banner = None  # (text, kind) shown after a rebuild
 
     # ------------------------------------------------------------------ UI
 
@@ -281,6 +284,7 @@ class GpuSwitcherApp(Gtk.Application):
             )
 
     def _build_buttons(self) -> Gtk.Box:
+        assert self.detection is not None  # the window is built only after detection
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.apply_btn = Gtk.Button(label=i18n._("Apply"))
         self.apply_btn.add_css_class("suggested-action")
@@ -364,6 +368,7 @@ class GpuSwitcherApp(Gtk.Application):
         """Busy state for the action buttons; Log out goes through the
         sensitivity rule (state.logout_enabled), so it is never
         re-enabled by un-busy alone."""
+        assert self.detection is not None  # actions are only reachable after detection
         actions = actions_enabled(self.detection.gnome_wayland)
         for button in (self.apply_btn, self.reset_btn, self.reboot_btn):
             button.set_sensitive(actions and not busy)
@@ -397,6 +402,7 @@ class GpuSwitcherApp(Gtk.Application):
     # ------------------------------------------------------------- actions
 
     def _on_apply(self, _button) -> None:
+        assert self.detection is not None  # Apply is only enabled after detection
         target, error = apply_target(self.detection, self.selected_card)
         if error is not None:
             # Nothing to apply: the selected GPU is not currently
@@ -448,6 +454,7 @@ class GpuSwitcherApp(Gtk.Application):
         """
         # Revert: nothing on disk changed, so re-mirror the real configured
         # state instead of the un-applied choice.
+        assert self.detection is not None
         self._select_radio(mirror_configured_state(self.detection))
 
     def _do_apply(self, ok, target) -> None:
