@@ -1,19 +1,15 @@
 """App-side D-Bus clients.
 
-The GUI talks to two services:
+Talks to three services:
 
-* the gpu-switcher helper on the system bus — a root, D-Bus-activated
-  service that performs the polkit-gated privileged work (writing /
-  removing the managed udev rule, reloading and re-triggering udev
-  rules);
-* login1 (systemd-logind) on the system bus — for Reboot; and the GNOME
-  session manager on the session bus — for Log out (the session manager
-  performs the logout with its own handling; inhibitors are honored).
+* the gpu-switcher helper (system bus): the polkit-gated privileged work;
+* login1 (system bus): Reboot;
+* the GNOME session manager (session bus): Log out.
 
-All calls are asynchronous: the callback is delivered on the GLib main
-loop, so the UI never blocks while the interactive polkit dialog is open.
-The `locale` arguments are passed explicitly because the helper runs as a
-root-activated process with no user locale of its own.
+All calls are asynchronous; callbacks run on the GLib main loop, so the UI
+never blocks (the interactive polkit dialog can stay open for minutes). The
+`locale` is passed explicitly because the root-activated helper has no user
+locale of its own.
 """
 
 from __future__ import annotations
@@ -39,17 +35,11 @@ LOGIN1_MANAGER_IFACE = "org.freedesktop.login1.Manager"
 SESSION_MANAGER_NAME = "org.gnome.SessionManager"
 SESSION_MANAGER_PATH = "/org/gnome/SessionManager"
 SESSION_MANAGER_IFACE = "org.gnome.SessionManager"
-# Logout mode: 1 = no confirmation interface. The app has already
-# confirmed; mode 0 would show GNOME's own dialog again.
+# Logout mode 1: no GNOME confirmation dialog (the app already confirmed).
 SESSION_MANAGER_LOGOUT_MODE = 1
 
-# ---------------------------------------------------------------------------
-# The D-Bus timeout budget constants (POLKIT_TIMEOUT_MS,
-# UDEVADM_STEP_TIMEOUT_S, SET_PRIMARY_STEP_COUNT, HELPER_TIMEOUT_MS) are
-# defined in gpu_switcher/core/udev.py — the shared module the helper can
-# import — so the client's budget is always derived from the helper's worst
-# case, not from a duplicated literal.
-
+# The helper's call timeout (HELPER_TIMEOUT_MS) comes from core/udev.py, where
+# it is derived from the helper's worst case.
 LOGIN1_TIMEOUT_MS = 15000
 
 
@@ -120,11 +110,10 @@ def _call_async(
 def set_primary(pci: str, locale: str, callback) -> None:
     """Ask the helper to write the managed rule for this PCI address.
 
-    The helper also refreshes udev (reload-rules + scoped DRM trigger)
-    under the same authorization, so the rule takes effect without a
-    second prompt. callback(ok, message, refresh_ok, timed_out) — timed_out
-    is True when the client call timed out, in which case the helper's
-    outcome is unknown. The helper's backup path is not surfaced to the UI.
+    The helper also refreshes udev under the same authorization, so no second
+    prompt is needed. callback(ok, message, refresh_ok, timed_out): timed_out
+    means the client call timed out and the helper's outcome is unknown. The
+    helper's backup path is not passed on to the UI.
     """
     helper_unreachable = i18n._("Could not reach the GPU helper: %s.")
     _call_async(
@@ -145,11 +134,9 @@ def set_primary(pci: str, locale: str, callback) -> None:
 def set_auto(locale: str, callback) -> None:
     """Ask the helper to remove the managed rule (auto selection).
 
-    The helper also refreshes udev under the same authorization, so the
-    auto selection takes effect without a second prompt.
-    callback(ok, message, refresh_ok, timed_out) — timed_out is True when
-    the client call timed out, in which case the helper's outcome is
-    unknown.
+    The helper also refreshes udev under the same authorization.
+    callback(ok, message, refresh_ok, timed_out): timed_out means the client
+    call timed out and the helper's outcome is unknown.
     """
     helper_unreachable = i18n._("Could not reach the GPU helper: %s.")
     _call_async(
@@ -168,8 +155,8 @@ def set_auto(locale: str, callback) -> None:
 
 
 def reboot(callback) -> None:
-    """login1 Manager.Reboot(interactive) — standard polkit action, no
-    custom policy. interactive=False: no interactive logind prompt.
+    """login1 Manager.Reboot(interactive=False): logind's own polkit action
+    applies; no extra prompt is requested.
 
     callback(ok: bool, message: str)
     """
@@ -192,12 +179,11 @@ def reboot(callback) -> None:
 def logout(callback) -> None:
     """GNOME session manager Logout for our own session (the fast path).
 
-    Calls org.gnome.SessionManager.Logout(mode) on the session bus: the
-    session manager performs the logout with its own handling (inhibitors
-    are honored) instead of the forceful logind Session.Terminate. Mode 1:
-    no confirmation dialog — the app already confirms. The session manager
-    only exists inside a running GNOME session, so a failed call doubles
-    as the non-GNOME guard.
+    Calls org.gnome.SessionManager.Logout(mode) on the session bus, so the
+    session manager ends the session itself and honors inhibitors. Mode 1
+    skips its confirmation dialog (the app already confirmed). The session
+    manager exists only in a GNOME session, so a failed call also covers the
+    non-GNOME case.
 
     callback(ok: bool, message: str)
     """

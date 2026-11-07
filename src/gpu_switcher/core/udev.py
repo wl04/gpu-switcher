@@ -1,12 +1,9 @@
 """Shared udev rule constants, the display-GPU contract, and conflict scanning.
 
-Used by both the unprivileged app (gpu_switcher/detect.py) and the root
-helper (gpu_switcher/helper): the same managed rule file, the same mutter
-tag, and the same conflict rule — any *other* udev rule that sets the
-preferred-GPU tag blocks the switch.
+Shared by the unprivileged app and the root helper, so both agree on the
+managed rule file, the mutter tag and what counts as a conflicting rule.
 
-Pure stdlib, no `gi`: the root helper can import this without pulling in
-the GUI module (which imports Gtk).
+Pure stdlib, no `gi`: the helper can import it without the GUI stack.
 """
 
 from __future__ import annotations
@@ -24,25 +21,20 @@ DBUS_ERROR_NAMESPACE = "com.github.wl04.gpu_switcher.Error"
 DBUS_ERROR_INTERNAL = f"{DBUS_ERROR_NAMESPACE}.Internal"
 DBUS_ERROR_BUSY = f"{DBUS_ERROR_NAMESPACE}.Busy"
 
-# The udev rule file managed by gpu-switcher (the same file the reference
-# script mutter-primary-gpu.sh writes).
+# The udev rule file managed by gpu-switcher (also written by the
+# mutter-primary-gpu.sh script, so the two interoperate).
 MANAGED_RULE = "/etc/udev/rules.d/61-mutter-primary-gpu.rules"
 
-# ---------------------------------------------------------------------------
-# D-Bus timeout budget: one source of truth shared by the helper (server
-# side) and the app (client side), so the client's budget always exceeds
-# the helper's worst case (interactive polkit dialog + every udevadm step)
-# plus slack. Without that, the helper's own error is lost to a
-# client-side timeout.
-# ---------------------------------------------------------------------------
-# The polkit interactive dialog (AllowUserInteraction) dominates the worst
-# case: the user decides for up to this long.
+# D-Bus timeout budget, shared by the helper and the app: the client's call
+# timeout must exceed the helper's worst case (interactive polkit dialog plus
+# every udevadm step), or the helper's own error is lost to a client timeout.
+#
+# The interactive polkit dialog dominates the worst case.
 POLKIT_TIMEOUT_MS = 170_000
-# A single udevadm step (verify / reload-rules / trigger / tag check) fails
-# fast in practice; this is the fail-safe bound for one step.
+# Upper bound for one udevadm step (verify / reload-rules / trigger / tag check).
 UDEVADM_STEP_TIMEOUT_S = 30
-# Number of udevadm steps on the SetPrimary path (verify, reload-rules,
-# trigger, tag check); keep this count honest when the steps change.
+# udevadm steps on the SetPrimary path (verify, reload-rules, trigger, tag
+# check); keep in step with the code.
 SET_PRIMARY_STEP_COUNT = 4
 
 # The client's budget must exceed the helper's worst case plus slack.
@@ -61,15 +53,12 @@ MUTTER_ENV = "MUTTER_DEVICE_PREFERRED_PRIMARY"
 # with a /dev/dri device, so render-only devices are still excluded.
 DISPLAY_PCI_CLASSES = ("0x030000", "0x030200")
 
-# The numeric GError code of G_IO_ERROR_TIMEOUT in glib/gio/giotypes.h
-# (5 is G_IO_ERROR_IO, not a timeout). Both the app (outcome mapping) and
-# the helper (polkit timeout handling) match g-io-error-quark with this
-# code; pygobject does not expose the Gio.Error enum as a constant.
+# GError code of G_IO_ERROR_TIMEOUT (glib/gio/giotypes.h), matched against
+# g-io-error-quark by the app and the helper; pygobject exposes no constant.
 G_IO_ERROR_TIMEOUT = 7
 
-# udev rule directories in load order; a base name that appears in an
-# earlier directory shadows the later one (the later copy is ignored),
-# mirroring udev's rule loading.
+# udev rule directories in load order; a rule name in an earlier directory
+# shadows the same name in a later one, as in udev itself.
 RULE_DIRS = (
     "/etc/udev/rules.d",
     "/run/udev/rules.d",
@@ -89,12 +78,9 @@ class OnUnreadable(Enum):
 def is_display_gpu(pci: str) -> str | None:
     """The DRM card bound to this PCI, when it is a display GPU.
 
-    The shared display-GPU contract used by both the unprivileged app
-    (detection) and the root helper (SetPrimary): the PCI must be a
-    display class (DISPLAY_PCI_CLASSES), have a bound driver, and exactly
-    one /dev/dri card (card[0-9]+) in /sys/class/drm must resolve to it
-    with a /dev/dri/<card> node. No bound driver, no card, or two cards
-    (ambiguous binding) all yield None.
+    The PCI must be a display class (DISPLAY_PCI_CLASSES) with a bound driver,
+    and exactly one card[0-9]+ in /sys/class/drm with a /dev/dri node must
+    resolve to it. No driver, no card, or two cards (ambiguous) yield None.
     """
     pdir = f"/sys/bus/pci/devices/{pci}"
     if not os.path.isdir(pdir):
@@ -183,18 +169,15 @@ def rule_conflicts(
 ) -> list[str]:
     """Paths of the other udev rules that set the preferred-GPU tag.
 
-    Scans `*.rules` files in `rule_dirs` in the given order, skipping
-    comment lines; a rule conflicts when any line assigns the mutter tag
-    or the legacy ENV variable (assignment forms only: TAG+=/TAG=/ENV{}=;
-    unassign TAG-= and match expressions TAG==/ENV{}!= do not count). The managed rule file itself is never a
-    conflict. A base name seen in an earlier directory shadows the later
-    one (the later copy is ignored).
+    Scans `*.rules` in `rule_dirs` in order, skipping comment lines. A file
+    conflicts when a line assigns the mutter tag or the ENV variable (see
+    _sets_preferred_gpu). The managed rule itself never conflicts, and a base
+    name in an earlier directory shadows the same name in a later one.
 
-    `on_unreadable`: OnUnreadable.SKIP ignores files that cannot be read
-    (app side: the authoritative check runs in the root helper);
-    OnUnreadable.FLAG reports them as conflicts (helper side: a rule root
-    cannot read must block). An unknown value raises ValueError instead
-    of silently behaving like SKIP.
+    `on_unreadable`: SKIP ignores unreadable files (the app side; the helper
+    check is authoritative); FLAG reports them as conflicts (the helper side:
+    a rule root cannot read may still set the tag). Any other value raises
+    ValueError.
     """
     if not isinstance(on_unreadable, OnUnreadable):
         # ValueError (not TypeError): an unknown mode is an invalid argument

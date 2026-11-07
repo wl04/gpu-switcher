@@ -1,10 +1,10 @@
 """Managed-rule file operations and reply composition for the helper.
 
-All changes to the managed rule go through here: the atomic write with
-fsync (temp file -> udevadm verify -> backup -> rename -> directory
-fsync -> udev refresh), backup + retention, removal, and the symlink
-refusal. A failure here is either a HelperFailure (for the user) or a
-callback with ok=False (mid-transaction).
+All changes to the managed rule go through here: the atomic write (temp file,
+udevadm verify, backup, rename, directory fsync, udev refresh), backup
+retention, removal and the symlink refusal. A failure is either a
+HelperFailure (before anything changed) or a callback with ok=False
+(mid-transaction).
 """
 
 import contextlib
@@ -90,12 +90,10 @@ def unlink_managed_rule() -> None:
 def refresh_message(tr, state, *, leading, backup="", verified_sentence):
     """Full localized reply after a udev refresh.
 
-    The reply is composed of the site's leading sentence, the optional
-    backup sentence, and the sentence describing the refresh outcome,
-    joined by single spaces. The catalog entries (po/) are the sentence
-    fragments chosen so the composition reproduces the full localized
-    sentence exactly in every shipped language. `state` is a RefreshState
-    constant; `backup` is '' when there is no backup.
+    Joins, with single spaces, the caller's leading sentence, the optional
+    backup sentence and the sentence for the refresh outcome. The po/
+    entries are whole sentences, so the result reads naturally in every
+    shipped language. `backup` is '' when there is none.
     """
     prefix = leading
     if backup:
@@ -117,10 +115,10 @@ def refresh_message(tr, state, *, leading, backup="", verified_sentence):
 def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
     """Write the managed rule transactionally, then refresh udev.
 
-    Steps: temp file in the same directory (fsynced before the rename),
-    udevadm verify (async), back up the existing rule and retain the
-    newest BACKUP_KEEP, rename into place, fsync the directory, then the
-    async udev refresh. on_done(ok, message, backup_path, refresh_ok).
+    Steps: temp file in the same directory (fsynced), udevadm verify, back up
+    the existing rule and keep the newest BACKUP_KEEP, rename into place,
+    fsync the directory, refresh udev. on_done(ok, message, backup_path,
+    refresh_ok).
     """
 
     def move_into_place(tmp_path, backup):

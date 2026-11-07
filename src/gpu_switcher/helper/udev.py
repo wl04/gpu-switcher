@@ -1,10 +1,7 @@
 """udevadm verification / refresh steps for the helper.
 
-Every step runs as a Gio.Subprocess with a per-step timeout (the shared
-budget from core.udev) under a per-step cancellable. The RefreshState
-outcome distinguishes a refresh that could not be verified (udevadm
-missing) from one that confirmed the tags: the former must never enable
-the fast-path logout as though the tags were fresh.
+Every step runs as a Gio.Subprocess under a per-step timeout (from
+core.udev) and cancellable, and its output goes to the journal.
 """
 
 import os
@@ -23,11 +20,10 @@ from gpu_switcher.core.udev import MUTTER_TAG, UDEVADM_STEP_TIMEOUT_S
 
 
 class RefreshState(Enum):
-    """Verification / refresh state of the udevadm steps.
+    """Outcome of a verify / refresh run.
 
-    The distinction matters: a refresh that could not be verified (udevadm
-    missing) must be reported as such and must never enable the fast-path
-    logout as though the tags were confirmed fresh.
+    UNSUPPORTED is kept apart from VERIFIED so an unverified refresh never
+    enables the fast-path logout as though the tags were fresh.
     """
 
     VERIFIED = "verified"  # every step succeeded; tags confirmed
@@ -35,10 +31,9 @@ class RefreshState(Enum):
     FAILED = "failed"  # a step errored, timed out, or was rejected
 
 
-# Absolute path by policy: the hardening is explicit about what runs, and a
-# PATH change must not substitute another udevadm.
+# Absolute path, so a changed PATH cannot substitute another udevadm.
 UDEVADM = "/usr/bin/udevadm"
-# Availability is checked once per process (in main) and cached.
+# Checked once per process by check_udevadm().
 _udevadm_available = None
 
 
@@ -66,10 +61,10 @@ def report_callback_error(detail: str) -> None:
 
 
 def _decode(stream) -> str:
-    """Decode a subprocess output stream to text.
+    """Decode a subprocess stream to text.
 
-    communicate_finish hands back GLib.Bytes (or None for an empty stream),
-    never Python bytes; normalize both to a str before decoding.
+    communicate_finish returns GLib.Bytes (None for an empty stream), not
+    Python bytes.
     """
     if stream is None:
         return ""
@@ -80,11 +75,9 @@ def _decode(stream) -> str:
 def run_udev_async(argv, on_done, cancellable=None):
     """Run one udevadm step asynchronously under the per-step timeout.
 
-    on_done(rc, stdout, stderr) is called when the step finishes; rc is
-    the exit status, or 1 (with an explanatory stderr) when the step could
-    not run or timed out (the per-step cancellable is then cancelled and
-    the child killed). The output is logged to the journal (the helper's
-    stderr) for diagnostics.
+    on_done(rc, stdout, stderr) runs when the step finishes. rc is the exit
+    status, or 1 (with an explanation in stderr) when the step could not run
+    or timed out; a timed-out child is killed.
     """
     if cancellable is not None and cancellable.is_cancelled():
         on_done(1, "", "cancelled before start")
@@ -136,11 +129,10 @@ def run_udev_async(argv, on_done, cancellable=None):
 
 
 def verify_rule_async(path, on_done, cancellable=None):
-    """Run udevadm verify on the given path and report the verification
-    state: RefreshState.VERIFIED when it ran and accepted the rule,
-    RefreshState.UNSUPPORTED when udevadm cannot run (not a rejection, but the
-    rule is also not confirmed), RefreshState.FAILED when it errored, timed
-    out, or rejected the rule."""
+    """Run `udevadm verify` on path; on_done(RefreshState).
+
+    VERIFIED: accepted. UNSUPPORTED: udevadm cannot run (not a rejection, but
+    not confirmed either). FAILED: errored, timed out or rejected the rule."""
     if not check_udevadm():
         print("udev verify: udevadm not available; rule not verified", file=sys.stderr)
         on_done(RefreshState.UNSUPPORTED)
@@ -171,12 +163,10 @@ def reload_rules_async(on_done, cancellable=None):
 
 
 def trigger_drm_async(on_done, cancellable=None):
-    """Re-emit DRM kernel events so udev re-runs the rules and refreshes
-    the persistent device database with the new tags. Scoped to the DRM
-    subsystem: only display devices are touched, nothing else is
-    re-probed. --settle waits for the triggered events to be processed
-    before returning, so the tag is queryable right after the trigger.
-    on_done(ok)."""
+    """Re-emit the DRM uevents so udev recomputes every card's tags under the
+    current rules. --settle waits for the events to be processed, so the tags
+    can be queried right after. Scoped to the drm subsystem so nothing else is
+    re-probed. on_done(ok)."""
 
     def on_run(rc, _out, _err):
         if rc != 0:
@@ -196,12 +186,10 @@ def trigger_drm_async(on_done, cancellable=None):
 def parse_udev_current_tags(output: str) -> list[str]:
     """The CURRENT_TAGS of a udevadm info --query=property dump as a list.
 
-    The dump is KEY=VALUE lines; CURRENT_TAGS is colon-separated with a
-    leading and trailing colon (e.g. CURRENT_TAGS=:seat:uaccess:) and empty
-    when the device's last uevent set no tags. These are the tags mutter
-    reads when the session starts; the cumulative TAGS line may still carry
-    a tag no rule currently matches and is ignored here. Lines other than
-    CURRENT_TAGS are ignored.
+    CURRENT_TAGS is colon-separated with leading and trailing colons
+    (CURRENT_TAGS=:seat:uaccess:), empty when the last uevent set no tags.
+    These are the tags mutter reads at session start; the cumulative TAGS line
+    can keep a stale tag and is ignored, as is every other line.
     """
     tags = []
     for line in output.splitlines():
@@ -214,14 +202,10 @@ def parse_udev_current_tags(output: str) -> list[str]:
 def card_has_tag_async(card, on_done, cancellable=None):
     """Whether the card's current udev tags carry the mutter tag.
 
-    Runs udevadm info --query=property on /sys/class/drm/<card> and checks
-    CURRENT_TAGS - the tags the last uevent computed, which is what mutter
-    reads when the session starts. (The cumulative TAGS line may still show
-    a stale tag from a previous rule; it is irrelevant to mutter.) This is
-    the check that makes "refresh ok" true: without the tag, mutter will
-    not select the primary even after a relogin. on_done(has) reports
-    False when the tag is absent OR when it cannot be verified (the query
-    fails) - an unverifiable tag must not be treated as present.
+    Reads CURRENT_TAGS (see parse_udev_current_tags) of /sys/class/drm/<card>.
+    Without the tag mutter will not pick this card even after a re-login, so
+    this decides "refresh ok". on_done(has) is False when the tag is absent or
+    the query fails: an unverifiable tag is not treated as present.
     """
 
     def on_run(rc, out, _err):
@@ -247,18 +231,12 @@ def card_has_tag_async(card, on_done, cancellable=None):
 
 
 def refresh_udev_async(card, on_done, cancellable=None):
-    """Reload the udev rules, re-trigger (settled) the DRM devices, and
-    verify the new rule's tag is present in the card's current udev tags
-    (what mutter reads after a re-login).
+    """Reload the udev rules, re-trigger the DRM devices (settled) and, for
+    SetPrimary, check that `card` carries the mutter tag.
 
-    Scoped to the DRM subsystem: only display devices are touched, nothing
-    else is re-probed. When `card` is given (SetPrimary), the tag is
-    checked on that card after the settled trigger; SetAuto passes no
-    card, since other rules may legitimately set the tag. on_done(state)
-    reports RefreshState.VERIFIED only when every step succeeded,
-    RefreshState.UNSUPPORTED when udevadm is unavailable (the refresh could not
-    be verified, so it must not be treated as fresh), and RefreshState.FAILED
-    when a step failed.
+    SetAuto passes card=None: other rules may legitimately set the tag.
+    on_done(RefreshState): VERIFIED only when every step succeeded;
+    UNSUPPORTED when udevadm is unavailable; FAILED when a step failed.
     """
     if not check_udevadm():
         print(

@@ -1,13 +1,11 @@
 """Unprivileged primary-GPU detection.
 
-Everything here only reads /sys, the gnome-shell journal, udev properties
-and the managed udev rule file; no privileged operation is required. The
-parsing steps are pure (text in, data out) so they are unit-testable
-without the real binaries; the thin wrappers are the I/O boundary.
+Read-only: /sys, /proc, `lspci`, the gnome-shell journal and the managed
+rule file; nothing here needs privileges. Parsing is pure (text in, data out)
+so it is testable without the real tools; the thin wrappers do the I/O.
 
-The running primary is attributed to a single gnome-shell pid owned by our
-uid (read from /proc/<pid>/status). Shells of other users and sessions
-never count. Without exactly one in-scope pid, the attribution is
+The running primary is read from the journal of the single gnome-shell pid
+owned by our uid. With zero or several such pids the attribution is
 ambiguous and the running primary is unknown.
 """
 
@@ -62,11 +60,10 @@ _LSPCI_ID_TAIL_RE = re.compile(r"\s*\[[0-9a-fA-F]{4}\]$")
 def parse_lspci_mm(output: str) -> dict[str, str]:
     """Map PCI address -> display name from `lspci -Dmmnn` machine output.
 
-        Each line is `ADDR "CLASS [code]" "VENDOR [id]" "DEVICE [id]" ...` (the
-        address is a bare leading token; the fields are quoted). Only
+    Each line is `ADDR "CLASS [code]" "VENDOR [id]" "DEVICE [id]" ...`. Only
     display-controller classes (0x0300 VGA, 0x0302 3D) are kept; the trailing
-    `[id]` on the vendor and device fields is stripped so the name matches the
-    `lspci -nn` text (vendor + device).
+    `[id]` is stripped from the vendor and device so the name is
+    "<vendor> <device>".
     """
     names: dict[str, str] = {}
     for line in output.splitlines():
@@ -109,8 +106,7 @@ def lspci_names() -> dict[str, str]:
 
 
 def fallback_name(vendor: str, device: str) -> str:
-    # No hard-coded GPU table: names come from lspci, and without it the
-    # PCI vendor:device identifier is the only honest fallback.
+    # Without lspci only the PCI vendor/device ids are known.
     return f"PCI v0x{vendor} d0x{device}"
 
 

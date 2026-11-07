@@ -35,33 +35,26 @@ POLKIT_INTERACTIVE = 1  # CheckAuthorizationFlags: AllowUserInteraction
 
 
 def authorize(connection, sender, locale, on_done, cancellable=None):
-    """polkit CheckAuthorization bound to the caller's bus connection.
+    """Ask polkit whether the caller may perform the action (interactive).
 
-    The subject is ("system-bus-name", {"name": <unique bus name>}); polkitd
-    maps the connection to the session and user. The unique name is stable
-    for the life of the connection, so the identity checked is the one that
-    made the call (no pid-lookup race). The 5th in-arg is the
-    cancellation_id (per the current CheckAuthorization signature:
-    in (sa{sv})sa{ss}us), not a locale; the localized dialog text comes
-    from the policy file's <message> elements and the agent's session
-    locale. Out is one struct (bba{ss}) (authorized, whether_challenge,
-    details), so the reply body type is ((bba{ss})).
+    The subject is the caller's unique bus name, which stays fixed for the
+    life of the connection, so the identity checked is the one that made the
+    call. The 5th CheckAuthorization argument is the cancellation id, not a
+    locale: the dialog text comes from the policy file and the agent's own
+    locale (`locale` is therefore not used here).
 
-    Asynchronous: on_done(status, detail) is called from the reply
-    callback; status is an AuthStatus member; detail describes a
-    failed check
-    and is empty otherwise. The check is issued with the shared
-    POLKIT_TIMEOUT_MS budget (the client's budget exceeds it, so this
-    timeout always resolves first).
+    Asynchronous: on_done(status, detail) runs from the reply callback with an
+    AuthStatus; detail describes a failed check and is empty otherwise. The
+    call uses POLKIT_TIMEOUT_MS, which is shorter than the client's budget,
+    so this timeout always resolves first.
     """
     cancellation_id = uuid.uuid4().hex
     subject = GLib.Variant.new_tuple(
         GLib.Variant("s", "system-bus-name"),
         GLib.Variant("a{sv}", {"name": GLib.Variant("s", sender)}),
     )
-    # pygobject's GLib.Variant cannot nest an a{sv} inside a tuple literal
-    # (the creator iterates it as an array); build the tuple with
-    # GLib.Variant.new_tuple instead.
+    # pygobject cannot build a tuple containing an a{sv} from a literal, so
+    # the tuples are assembled with GLib.Variant.new_tuple.
     params = GLib.Variant.new_tuple(
         subject,
         GLib.Variant("s", POLKIT_ACTION),
@@ -119,8 +112,7 @@ def authorize(connection, sender, locale, on_done, cancellable=None):
         0,
         POLKIT_TIMEOUT_MS,
         cancellable,
-        # No user_data: pygobject hands it to the callback, and on_result
-        # takes only (connection, task). Omitting it keeps the callback at 2 args.
+        # No user_data: pygobject would pass it to on_result as a 3rd argument.
         on_result,
     )
 

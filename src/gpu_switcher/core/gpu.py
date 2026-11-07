@@ -49,8 +49,8 @@ def resolve_gpu(pci: str) -> tuple[str, str, str] | None:
     pdir = f"/sys/bus/pci/devices/{pci}"
     vendor = read_text(f"{pdir}/vendor")
     device = read_text(f"{pdir}/device")
-    # An unreadable attribute reads as "": a rule built from it would never
-    # match while the switch is reported as done.
+    # An unreadable attribute reads as "", which would yield a rule that never
+    # matches while the switch is reported as done.
     if not (_PCI_ID_RE.fullmatch(vendor) and _PCI_ID_RE.fullmatch(device)):
         return None
     return card, vendor, device

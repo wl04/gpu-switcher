@@ -1,50 +1,25 @@
-"""gpu-switcher helper: systemd/D-Bus-activated system-bus service (root).
-
-dbus-broker starts this process on demand (via SystemdService= or Exec=)
-when an unprivileged client (the GUI app) calls one of its methods.
+"""gpu-switcher helper: root, D-Bus-activated system-bus service.
 
 Methods:
-  SetPrimary(pci, locale)   -> (ok, message, backup_path, refresh_ok)
-  SetAuto(locale)           -> (ok, message, refresh_ok)
+  SetPrimary(pci, locale) -> (ok, message, backup_path, refresh_ok)
+  SetAuto(locale)         -> (ok, message, refresh_ok)
 
-SetPrimary and SetAuto also refresh udev (udevadm control --reload-rules
-plus a settled, scoped udevadm trigger for the DRM subsystem) under the
-SAME authorization, so activating the rule needs no second prompt; a
-failed refresh is reported per call (refresh_ok is false) and leaves
-reboot as the fallback. SetPrimary additionally verifies that the tag is
-present in the chosen card's current udev tags (the tags its last uevent
-computed - what mutter reads when the session starts).
+Each call authorizes through polkit (auth.py), changes the managed rule, then
+refreshes udev under the same authorization. A failed refresh sets
+refresh_ok to False and leaves reboot as the fallback. SetPrimary also checks
+that the chosen card's current udev tags carry the mutter tag.
 
-Concurrency: each privileged operation claims an in-progress lock before
-it starts; a second mutating call arriving while an operation is in flight
-gets the com.github.wl04.gpu_switcher.Error.Busy D-Bus error (not queued).
-All long-running work is
-asynchronous (polkit CheckAuthorization via connection.call, udevadm via
-Gio.Subprocess.communicate_async with a per-step timeout), so the main
-loop - and with it the D-Bus connection's keep-alive - stays alive for
-the whole operation. Expected, user-facing failures are HelperFailure:
-the dispatcher catches them once and replies with the operation-failure
-tuple. Unhandled exceptions are reported as the
-com.github.wl04.gpu_switcher.Error.Internal D-Bus error; the detail is
-logged to the journal.
+Concurrency: one mutating call runs at a time; a concurrent one gets the Busy
+D-Bus error. All long work is asynchronous, so the main loop stays
+responsive. Expected failures are HelperFailure and reply with the failure
+tuple; anything else becomes the Internal D-Bus error, with the detail logged
+to stderr (the journal).
 
-Authorization: polkit CheckAuthorization over raw D-Bus with the
-INTERACTIVE flag, so the standard agent dialog authenticates the caller
-(see auth.py).
-
-Diagnostics: significant steps are written to stderr. The helper runs as
-a systemd unit (see debian/gpu-switcher-helper.service) and its stderr is
-captured by the journal, so `journalctl` is the reliable record of what
-happened.
-
-NOTE on the GDBus API: g_bus_own_name() takes exactly three callbacks -
-bus_acquired, name_acquired, name_lost - each (connection, name). There is
-NO method-call parameter; method calls are served by the object registered
-via connection.register_object(), whose vtable handler is called with
-(connection, sender, path, interface, method, params, invocation).
-The object must be registered on the bus connection BEFORE g_bus_own_name():
-the broker retries a client's pending call the instant the name is acquired,
-so the object must already exist (cold-start activation race).
+GDBus: method calls are served by the object registered with
+connection.register_object(); its handler is called with (connection, sender,
+path, interface, method, params, invocation). The object is registered before
+g_bus_own_name() because the broker retries a client's pending call the
+instant the name is acquired.
 """
 
 import gettext
