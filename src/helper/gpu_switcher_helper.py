@@ -716,12 +716,14 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         return
 
     content = _rule_text(pci, vendor, device)
+    # Read as bytes: the existing rule may hold invalid UTF-8 (a broken
+    # hand edit); comparing bytes keeps the overwrite path working.
     try:
-        with open(MANAGED_RULE, encoding="utf-8") as f:
+        with open(MANAGED_RULE, "rb") as f:
             existing = f.read()
     except OSError:
-        existing = ""
-    if existing == content:
+        existing = b""
+    if existing == content.encode():
         _log(f"SetPrimary: rule already set for {pci}; nothing to do")
         state = _refresh_udev(_card)
         refresh_ok = state == REFRESH_VERIFIED

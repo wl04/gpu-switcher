@@ -762,6 +762,58 @@ class SetPrimaryTransaction(unittest.TestCase):
         shutil.rmtree(tmp)
 
 
+class SetPrimaryNonUtf8(unittest.TestCase):
+    """The existing rule may contain bytes that are not valid UTF-8 (a
+    broken hand edit); comparing it as text must not crash the handler."""
+
+    PCI = "0000:12:00.0"
+
+    def test_set_primary_overwrites_non_utf8_existing_rule(self):
+        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp14-")
+        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
+        with open(managed, "wb") as f:
+            f.write(b'TAG+="mutter-device-preferred-primary"\xff\xfe\n')
+
+        def run(argv, **kwargs):
+            if argv[:2] == ["udevadm", "info"]:
+                return mock.Mock(
+                    returncode=0,
+                    stderr="",
+                    stdout="DEVPATH=/x\nCURRENT_TAGS=:mutter-device-preferred-primary:\n",
+                )
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        invocation = mock.Mock()
+        with (
+            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
+            mock.patch.object(h, "rule_conflicts", return_value=[]),
+            mock.patch.object(
+                h, "_resolve_gpu", return_value=("card1", "0x1002", "0x7550")
+            ),
+            mock.patch.object(h, "MANAGED_RULE", managed),
+            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
+            mock.patch("os.chown"),
+            mock.patch("subprocess.run", side_effect=run),
+        ):
+            h.handle_set_primary(mock.Mock(), "sender", (self.PCI, "en"), invocation)
+        self.assertFalse(invocation.return_gerror.called)
+        self.assertTrue(invocation.return_value.called)
+        with open(managed, "rb") as f:
+            new_content = f.read()
+        new_content.decode("utf-8")  # must stay valid UTF-8
+        self.assertEqual(
+            new_content.decode("utf-8"),
+            h._rule_text(self.PCI, "0x1002", "0x7550"),
+        )
+        backups = [
+            f
+            for f in os.listdir(tmp)
+            if f.startswith("61-mutter-primary-gpu.rules.bak.")
+        ]
+        self.assertEqual(len(backups), 1)
+        shutil.rmtree(tmp)
+
+
 class SetPrimaryUnsupported(unittest.TestCase):
     """With udevadm unavailable the verification is skipped (not a
     rejection) and the rule is still written, but the refresh reports
