@@ -1,7 +1,8 @@
 # gpu-switcher — Design notes
 
-What the app does and why it is built this way. For usage and build
-instructions see [README.md](README.md).
+What the app does and why it is built this way. For usage see
+[README.md](README.md); for build and release instructions see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Scope
 
@@ -201,6 +202,8 @@ gpu-switcher/
 ├── Makefile
 ├── DESIGN.md                       # this file
 ├── README.md
+├── CONTRIBUTING.md
+├── ROADMAP.md
 └── LICENSE
 ```
 

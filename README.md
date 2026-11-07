@@ -1,12 +1,19 @@
-# gpu-switcher
+```text
+ ██████╗ ██████╗ ██╗   ██╗    ███████╗██╗    ██╗██╗████████╗ ██████╗██╗  ██╗███████╗██████╗
+██╔════╝ ██╔══██╗██║   ██║    ██╔════╝██║    ██║██║╚══██╔══╝██╔════╝██║  ██║██╔════╝██╔══██╗
+██║  ███╗██████╔╝██║   ██║    ███████╗██║ █╗ ██║██║   ██║   ██║     ███████║█████╗  ██████╔╝
+██║   ██║██╔═══╝ ██║   ██║    ╚════██║██║███╗██║██║   ██║   ██║     ██╔══██║██╔══╝  ██╔══██╗
+╚██████╔╝██║     ╚██████╔╝    ███████║╚███╔███╔╝██║   ██║   ╚██████╗██║  ██║███████╗██║  ██║
+ ╚═════╝ ╚═╝      ╚═════╝     ╚══════╝ ╚══╝╚══╝ ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
+```
 
-A small application that switches which GPU GNOME (Mutter) uses as
-the **primary display adapter** - no hand-edited udev rules, no terminal.
+[![CI](https://github.com/wl04/gpu-switcher/actions/workflows/ci.yml/badge.svg)](https://github.com/wl04/gpu-switcher/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/wl04/gpu-switcher)](https://github.com/wl04/gpu-switcher/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Built for dual-GPU (dGPU + iGPU) or multi-GPU machines, e.g. a desktop with a CPU's integrated graphics and one or more discrete GPU.
-
-> **v1 scope: GNOME / Wayland (Mutter) only.** KDE Plasma and X11 are planned
-> as later extensions.
+Switch which GPU GNOME (Mutter) uses as the **primary display adapter** - no
+hand-edited udev rules, no terminal. Built for multi-GPU machines, e.g. a CPU's
+integrated graphics plus one or more discrete GPUs.
 
 ![gpu-switcher](docs/screenshot.png)
 
@@ -15,42 +22,29 @@ Built for dual-GPU (dGPU + iGPU) or multi-GPU machines, e.g. a desktop with a CP
 - GPU list with `lspci` names, PCI addresses and `/dev/dri` nodes
 - Badges: **In use now** (primary selected by gnome-shell this boot) and
   **Preferred (configured)** (managed udev rule on disk)
-- **Apply** / **Reset to auto** — write or remove the managed udev rule under
-  polkit authorization (a root D-Bus-activated helper does the privileged
-  work; the GUI app never touches polkit directly)
-- **Reboot now** and the **Log out** fast path (enabled after an apply whose
-  udev refresh succeeded — no extra prompt)
-- Confirmation dialogs, contextual status banners, a collapsible
-  verification hint with the exact `journalctl` command
-- English and Russian (gettext; adding a language = one more `.po` file)
+- **Apply** / **Reset to auto** under polkit authorization
+- **Reboot now** and a **Log out** fast path, enabled after a successful apply
+- Confirmation dialogs, status banners and a built-in verification hint
+- English and Russian
 
-## How it works
+## Compatibility
 
-Mutter reads the udev tag `mutter-device-preferred-primary` from the card's
-current udev tags when the session starts and does not re-read tags
-mid-session.
-`gpu-switcher` therefore:
+Supports **GNOME on Wayland (Mutter) only**; KDE Plasma and X11 are on the
+[roadmap](ROADMAP.md).
 
-1. writes the managed rule `/etc/udev/rules.d/61-mutter-primary-gpu.rules`
-   (with backup and conflict checks) under **polkit** authorization;
-2. runs the udev refresh (`udevadm` rules reload + a scoped DRM re-trigger)
-   under the same authorization, then activates the change via **Reboot**
-   (always works) or **Log out** (no extra prompt) — gnome-shell re-reads the
-   fresh tag at the next session start.
+| Distro | GNOME | GPUs | Status |
+|---|---|---|---|
+| Ubuntu 26.10 | 51 | AMD RX 9070 + iGPU | Tested by the maintainer |
 
-Verify after restart (the line Mutter writes at session start):
-
-```sh
-journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
-```
+Other Debian/Ubuntu-based systems with GNOME on Wayland should work; reports
+of other combinations are welcome in the
+[issue tracker](https://github.com/wl04/gpu-switcher/issues).
 
 ## Install
 
-Requires: `python3 (>= 3.12)`, `python3-gi`, `gir1.2-gtk-4.0 (>= 4.10)`,
-`libgtk-4-1 (>= 4.10)`, `polkitd`, `dbus`, `udev`, `systemd`, `pciutils` — all
-standard on Ubuntu/Debian.
-
-### `.deb`
+Requires `python3 (>= 3.12)`, `python3-gi`, `gir1.2-gtk-4.0 (>= 4.10)`,
+`libgtk-4-1 (>= 4.10)`, `polkitd`, `dbus`, `udev`, `systemd` and `pciutils` -
+all standard on Ubuntu/Debian.
 
 Download the latest `.deb` from the
 [releases page](https://github.com/wl04/gpu-switcher/releases), then:
@@ -59,81 +53,71 @@ Download the latest `.deb` from the
 sudo apt install ./gpu-switcher_<version>_all.deb
 ```
 
-`apt` resolves any missing dependencies from the repository; if you are
-offline and all dependencies are present, `sudo dpkg -i` works too.
+`apt` resolves missing dependencies. To build the package yourself, see
+[CONTRIBUTING.md](CONTRIBUTING.md#packaging).
 
-After installing, launch the app from the GNOME app grid
-(**gpu-switcher**); `man gpu-switcher` is also installed.
+### Upgrading
 
-When upgrading from an older version, restart the still-running helper so
-the fresh code takes over the D-Bus name:
+Restart the still-running helper so the fresh code takes over the D-Bus name:
 
 ```sh
 sudo systemctl restart gpu-switcher-helper.service
 ```
 
-### From source
+### Uninstalling
 
 ```sh
-git clone https://github.com/wl04/gpu-switcher
-cd gpu-switcher
-./tools/build-deb.sh    # builds ../gpu-switcher_<version>_all.deb (version from the top debian/changelog entry)
-sudo apt install ../gpu-switcher_<version>_all.deb
+sudo dpkg -r gpu-switcher
 ```
 
-Uninstalling (`sudo dpkg -r gpu-switcher`) leaves the managed udev rule and
-its backups in place: they are your primary-GPU choice, not package data.
-Remove the rule manually if you no longer need it.
+This leaves the managed udev rule and its backups in place: they are your
+primary-GPU choice, not package data. Remove the rule yourself if you no longer
+need it (see [Recovery](#recovery)).
 
-## Development
+## Usage
 
-- Plain Python 3 + PyGObject (GTK 4); no compilation.
-- `.deb`: `tools/build-deb.sh` (plain `dpkg-deb`); `debian/` supports the
-  `dpkg-buildpackage -us -uc` flow — both paths build the same package.
-- Release: `tools/release.sh <version> <changelog-bullets>` — prepends the
-  changelog entry (the version's source of truth), syncs `pyproject.toml`,
-  runs the checks, builds and lints the `.deb`, commits, and creates the
-  GitHub release.
-- gettext catalogs (`po/`) compile with `msgfmt` (build-time `gettext`
-  dependency).
-- Design notes (architecture, polkit, detection, packaging):
-  [DESIGN.md](DESIGN.md).
+1. Launch **gpu-switcher** from the GNOME app grid (`man gpu-switcher` is also
+   installed).
+2. Select a GPU and click **Apply**; authenticate in the polkit prompt.
+   **Reset to auto** removes the rule and returns to automatic selection.
+3. Click **Log out** (or **Reboot now**) so GNOME picks the new GPU at the next
+   session start.
+4. Verify the switch after logging back in:
 
-### Checks
+```sh
+journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
+```
 
-- `make test` — unit tests. Plain stdlib `unittest` (no test-framework
-  dependencies); test names follow `Operation_Behavior_Context`.
-- `make lint` — ruff lint and format check (dev tools, not package
-  dependencies; install once, e.g. `uv tool install ruff mypy`).
-- `make typecheck` — mypy over `src/` and `tests/`; `disallow_untyped_defs`
-  is enforced for the core modules and tests (the GTK UI is typed for errors
-  but not yet for untyped defs).
-- `make locale` — compile the gettext catalogs into the source tree.
-- `make package` — build the `.deb`.
-- CI (`.github/workflows/ci.yml`): test / lint / typecheck, both `.deb`
-  builds + lintian, and `systemd-analyze verify` on the systemd unit.
-- End-to-end verification (on a real GNOME/Wayland machine): run the app,
-  apply a switch through the polkit prompt, then confirm after restart with
-  `journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'`.
+## Recovery
 
-## Roadmap
+If the graphical session fails after a switch, restore automatic selection from
+a text console (Ctrl+Alt+F3) or over SSH:
 
-- Clear state: explicit banner — "running now" vs "configured for next
-  login" vs "reboot required", derived from the existing detection data
-  (running primary, rule on disk, last udev-refresh result).
-- Verification at app startup: confirm after login whether GNOME actually
-  picked the configured GPU (no session autostart).
-- Per-GPU monitor display: connected DRM connectors from /sys, so the
-  choice is made with context.
-- Recovery: documented terminal steps to restore auto selection if the
-  graphical session fails (README + man page).
-- Tested configurations: verified distro/GNOME/GPU combinations with
-  whether logout alone is sufficient; start with the maintainer's machine
-  (Ubuntu 26.10, GNOME 51, AMD RX 9070 + iGPU), extend with real-world
-  reports.
-- KDE Plasma and X11 support
-- More languages
+```sh
+sudo rm /etc/udev/rules.d/61-mutter-primary-gpu.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=drm --settle
+sudo reboot
+```
+
+Earlier versions of the rule are kept next to it as
+`61-mutter-primary-gpu.rules.bak.*`.
+
+## How it works
+
+Mutter reads the udev tag `mutter-device-preferred-primary` from the card's
+current udev tags when the session starts and does not re-read tags
+mid-session. `gpu-switcher` writes the managed rule
+`/etc/udev/rules.d/61-mutter-primary-gpu.rules` (with backup and conflict
+checks) through a root, D-Bus-activated helper under polkit authorization, then
+refreshes udev so the new tag is in place. Mutter picks it up at the next login
+or reboot. Architecture details are in [DESIGN.md](DESIGN.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, checks and the
+release process, and [ROADMAP.md](ROADMAP.md) for planned work.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).
