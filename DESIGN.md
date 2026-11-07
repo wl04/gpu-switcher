@@ -58,8 +58,9 @@ Consequences:
 │                              │  D-Bus │  on demand, idle-exit ~60 s)          │
 │  • enumerate GPUs (/sys)     │◄──────►│  • polkit CheckAuthorization         │
 │  • journal → running primary │        │  • write/remove udev rule (+ backup) │
-│  • udevadm → configured      │        │  • reload-rules (+ scoped trigger)   │
-│  • login1 → reboot/logout    │        │  • refuses if conflicts found        │
+│  • managed rule → configured │        │  • reload-rules (+ scoped trigger)   │
+│  • login1 → reboot, session  │
+│    manager → logout          │        │  • refuses if conflicts found        │
 └──────────────────────────────┘        └──────────────────────────────────────┘
 ```
 
@@ -76,9 +77,21 @@ Consequences:
 - The refresh lives inside SetPrimary/SetAuto: one polkit prompt covers the
   rule change and its activation; a failed refresh is reported per call
   (`refresh_ok` is false) and leaves reboot as the fallback.
-- The helper quits ~60 s after the last call; the D-Bus broker re-activates a
-  fresh process from the on-disk code on the next call, so a package upgrade
-  cannot leave a stale helper serving old method signatures.
+- The helper quits ~60 s after the last call (never while an operation is in
+  flight: the interactive polkit dialog alone may outlast that); the D-Bus
+  broker re-activates a fresh process from the on-disk code on the next call,
+  so a package upgrade cannot leave a stale helper serving old method
+  signatures.
+- At most one mutating call runs at a time. A second one gets the
+  `com.github.wl04.gpu_switcher.Error.Busy` D-Bus error; an unexpected
+  failure releases the lock and is reported as
+  `com.github.wl04.gpu_switcher.Error.Internal` (details go to the journal).
+  Expected, user-facing failures are returned in the reply tuple
+  (`ok = false` plus a localized `message`).
+- All long work is asynchronous (polkit via `connection.call`, `udevadm` via
+  `Gio.Subprocess` with a per-step timeout; a timed-out child is killed), so
+  the helper's main loop stays responsive. The client's call timeout is
+  derived from the helper's worst case (`core/udev.py`).
 - `locale` is passed explicitly: a root-activated helper has **no user locale
   in its environment**, so the localized polkit dialog message must come
   from the caller.
@@ -89,14 +102,16 @@ Consequences:
   localized `message`; the policy file is installed to
   `/usr/share/polkit-1/actions/gpu-switcher.policy`.
 - The privileged mechanism is a **D-Bus-activated system-bus helper**:
-  dbus-daemon starts it as root on demand (no setuid, no resident root daemon,
-  no pkexec). The helper checks authorization itself over raw D-Bus
+  the broker starts it on demand as the hardened systemd unit
+  `gpu-switcher-helper.service` (root; `ProtectSystem=strict`, write access
+  limited to `/etc/udev/rules.d`; no setuid, no resident root daemon, no
+  pkexec). The helper checks authorization itself over raw D-Bus
   (`org.freedesktop.PolicyKit1.Authority.CheckAuthorization`); the GUI app
   never talks to polkit directly. Raw D-Bus is used because there is no Python
   Polkit typelib on the target systems — zero extra dependencies.
-- Reboot/logout use login1's standard actions
-  (`org.freedesktop.login1.reboot`, `Session.Logout`) — no custom policy for
-  those.
+- Reboot uses login1's standard action (`org.freedesktop.login1.reboot`);
+  Log out goes through the GNOME session manager on the session bus — no
+  custom policy for either.
 
 ### Managed rule file
 
@@ -105,7 +120,8 @@ writes — `/etc/udev/rules.d/61-mutter-primary-gpu.rules` — with the same rul
 line (`KERNELS=="<PCI>"`, vendor/device, the
 `mutter-device-preferred-primary` tag), the same backup scheme
 (`.bak.<UTC-timestamp>.<random-suffix>`), and the same conflict detection (any
-*other* rule setting the tag blocks the switch). The script and the app
+*other* rule that assigns the tag blocks the switch; the scan inspects every
+assignment on a line and joins `\` continuations). The script and the app
 therefore coexist without fighting over state; `udevadm verify` runs when
 available.
 
@@ -114,7 +130,7 @@ available.
 1. **Enumerate**: `/sys/class/drm/card*` → `device` symlink → PCI address;
    keep only display-controller classes (`0x030000` VGA, `0x030200` 3D
    controller) with a bound driver.
-2. **Name**: `lspci -nn`; fallback: `PCI v<vendor> d<device>` (no
+2. **Name**: `lspci -Dmmnn`; fallback: `PCI v<vendor> d<device>` (no
    hard-coded GPU table).
 3. **Running primary**: latest `journalctl -b -q _PID=<pid>
    /usr/bin/gnome-shell` line matching `GPU /dev/dri/cardN selected (as
@@ -124,11 +140,12 @@ available.
    our uid (read from `/proc/<pid>/status`), with no logind round trip;
    other users'/sessions' shells never count. Zero or multiple in-scope
    pids leave the running primary unknown.
-4. **Configured preference**: the managed rule's `KERNELS` + each card's udev
-   `TAGS`, plus the conflict scan.
+4. **Configured preference**: the managed rule's `KERNELS` value, plus the
+   conflict scan (the root helper repeats it authoritatively).
 5. **Session guard**: if the session is not GNOME/Wayland
-   (`XDG_SESSION_TYPE=wayland` and `gnome-shell` present) — warning banner,
-   no changes.
+   (`XDG_SESSION_TYPE=wayland` and `XDG_CURRENT_DESKTOP` is GNOME, or
+   `gnome-shell` present when it is unset) — warning banner, privileged
+   actions disabled.
 
 ## UI
 
@@ -140,17 +157,19 @@ One window (Adwaita, no custom CSS):
 - **Apply** — confirmation dialog → polkit → `SetPrimary` (+ backup notice).
 - **Reset to auto** — `SetAuto` (+ note that auto-selection applies after
   restart).
-- **Reboot now** — confirmation → login1 `Manager.Reboot`.
+- **Reboot now** — two confirmations → login1 `Manager.Reboot`.
 - **Log out** — fast path via the GNOME session manager `Logout` on the
   session bus; enabled only after an Apply/Reset whose udev refresh
   succeeded (no polkit prompt of its own).
-- Contextual status banners: applied / denied / conflict.
+- Contextual status banners: applied / denied / conflict / unavailable
+  configured GPU / unknown outcome after a timeout.
 - Collapsible verification hint: the exact `journalctl` command to confirm
   after restart.
 
-Interaction rules: privileged calls are async (spinner; the UI never blocks);
-Apply/Reset are the only state-changing buttons; every destructive step has a
-confirmation dialog.
+Interaction rules: privileged calls are async (the buttons are disabled while
+an operation or a re-detection runs; the UI never blocks, detection runs on a
+worker thread); Apply/Reset change the udev rule, and every destructive step
+has a confirmation dialog.
 
 ## File layout
 
@@ -160,7 +179,7 @@ gpu-switcher/
 │   ├── gpu-switcher.desktop
 │   ├── polkit/gpu-switcher.policy
 │   ├── dbus/com.github.wl04.gpu_switcher.Helper.service
-│   │   # D-Bus activation (system bus, user=root; file name must be
+│   │   # D-Bus activation (SystemdService=, Exec= fallback; file name must be
 │   │   # exactly <service name>.service)
 │   ├── dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf
 │   │   # system-bus policy: root owns the helper name, any user may call it
@@ -168,42 +187,44 @@ gpu-switcher/
 │   └── locale/         # compiled .mo (built from po/)
 ├── debian/
 │   ├── control  gpu-switcher.manpages  source/format  rules
-│   └── changelog  copyright  postrm
+│   ├── changelog  copyright  postrm
+│   └── gpu-switcher-helper.service    # systemd unit for the helper
 ├── man/gpu-switcher.1
 ├── po/                 # gpu-switcher-en.po  gpu-switcher-ru.po
 ├── src/
 │   ├── wrapper/gpu-switcher           # installed as /usr/bin/gpu-switcher
-│   ├── udev_rules.py                  # shared udev-rule constants and the
-│   │                                  #   conflict scan (app + helper; stdlib
-│   │                                  #   only, no gi import)
-│   ├── gpu_switcher/
-│   │   ├── __init__.py                # package entry point
-│   │   ├── main.py                    # GTK4 UI
-│   │   ├── detect.py                  # GPU enumeration, names, running/configured
-│   │   │                               #   primary, conflicts, session guard
-│   │   ├── selection.py               # pure radio-selection logic
-│   │   ├── bus.py                     # D-Bus clients: helper + login1
-│   │   └── i18n.py                    # gettext setup
-│   └── helper/gpu_switcher_helper.py  # root D-Bus service + raw-D-Bus polkit
-├── tests/                             # unit tests (stdlib unittest)
-│   ├── test_bus.py
-│   ├── test_detect.py
-│   ├── test_udev_rules.py
-│   ├── test_helper.py
-│   ├── test_selection.py
-│   ├── test_state.py
-│   └── test_i18n.py
+│   └── gpu_switcher/
+│       ├── main.py                    # GTK4 UI
+│       ├── detect.py                  # GPU enumeration, names, running/configured
+│       │                              #   primary, conflicts, session guard
+│       ├── selection.py               # pure radio-selection logic
+│       ├── state.py                   # operation outcome, banner/button rules
+│       ├── bus.py                     # D-Bus clients: helper, login1, session
+│       │                              #   manager
+│       ├── i18n.py                    # gettext setup
+│       ├── core/                      # shared by app and helper (stdlib only,
+│       │   │                          #   no gi import)
+│       │   ├── udev.py                # rule constants, timeouts, conflict scan
+│       │   └── gpu.py                 # PCI validation, GPU resolution, rule text
+│       └── helper/                    # root D-Bus service
+│           ├── __main__.py            # entry: python3 -m gpu_switcher.helper
+│           ├── service.py             # D-Bus object, dispatch, lock, idle timer
+│           ├── auth.py                # raw-D-Bus polkit CheckAuthorization
+│           ├── rule_store.py          # atomic rule write, backups, removal
+│           ├── udev.py                # async udevadm steps and verification
+│           └── errors.py              # HelperFailure
+├── tests/                             # unit tests (stdlib unittest), one
+│                                      #   test_<module>.py per area
 ├── tools/
 │   ├── build-deb.sh                   # .deb builder (plain dpkg-deb)
 │   └── release.sh                     # release: bump version, changelog,
 │                                      #   checks, build, lintian, commit,
 │                                      #   GitHub release
+├── .github/workflows/ci.yml
 ├── docs/screenshot.png
-├── Makefile
+├── Makefile  pyproject.toml  requirements-dev.txt
 ├── DESIGN.md                       # this file
-├── README.md
-├── CONTRIBUTING.md
-├── ROADMAP.md
+├── README.md  CONTRIBUTING.md  ROADMAP.md
 └── LICENSE
 ```
 
@@ -214,7 +235,7 @@ gpu-switcher/
   (hyphens are not allowed in D-Bus names).
 - `tools/build-deb.sh` (plain `dpkg-deb`, no debhelper required) is the
   canonical build; `debian/` (control, rules, manpages, changelog,
-  copyright, postrm; source format `3.0 (quilt)`) supports the
+  copyright, postrm, `gpu-switcher-helper.service`; source format `3.0 (quilt)`) supports the
   `dpkg-buildpackage -us -uc` flow — `release.sh` generates the orig
   tarball from git and cross-checks that both builds produce identical
   contents. Both paths compile the catalogs with `msgfmt` and install
