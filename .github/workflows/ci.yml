@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi libgtk-4-dev gettext
+      - name: Pinned dev tools
+        run: pip install -r requirements-dev.txt
+      - name: Unit tests
+        run: make test
+      - name: Lint and format
+        run: make lint
+      - name: Type check
+        run: make typecheck
+
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi libgtk-4-dev gettext \
+            debhelper dpkg-dev lintian
+      - name: Build with dpkg-buildpackage
+        run: |
+          dpkg-buildpackage -us -uc -b
+          mkdir -p dist
+          cp ../gpu-switcher_*_all.deb dist/gpu-switcher-dh.deb
+      - name: Build with tools/build-deb.sh
+        run: |
+          ./tools/build-deb.sh dist/gpu-switcher-plain.deb
+      - name: lintian both packages
+        run: lintian dist/gpu-switcher-dh.deb dist/gpu-switcher-plain.deb
+      - name: Keep the artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-switcher-debs
+          path: dist/*.deb

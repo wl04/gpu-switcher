@@ -1,0 +1,5 @@
+# Pinned development tools: CI installs exactly these, so the gate is
+# reproducible. ruff < 0.8-era behavior (ISC004) is pinned away by the
+# version here; bump deliberately and re-run `make lint typecheck`.
+ruff==0.17.3
+mypy==2.4.1
