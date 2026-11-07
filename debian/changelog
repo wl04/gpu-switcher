@@ -1,3 +1,14 @@
+gpu-switcher (0.2.3-1) unstable; urgency=low
+
+  * Fix: the helper no longer exits during a long polkit dialog; its operation lock is released after unexpected errors instead of leaving it answering Busy.
+  * Fix: udev rule conflicts are detected when the tag is assigned after a match on the same line or on a continued line; TAG!= is no longer flagged.
+  * Fix: a timed-out udevadm child is killed, and a timed-out polkit check is cancelled asynchronously.
+  * Fix: SetAuto prunes old backups; no rule is written when the GPU vendor or device id cannot be read.
+  * Fix: error messages no longer show the GDBus.Error prefix; buttons are disabled while the window re-detects.
+  * Tooling: mypy per-module strictness and the ruff rule set are now enforced.
+
+ -- wl04 <wl04@users.noreply.github.com>  Sat, 07 Nov 2026 23:34:06 +0100
+
 gpu-switcher (0.2.2-1) unstable; urgency=high
 
   * Fix: the udevadm refresh crashed with AttributeError ('Bytes' object has no
