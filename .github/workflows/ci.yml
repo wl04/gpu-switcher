@@ -17,13 +17,15 @@ jobs:
       - name: System dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-gi libgtk-4-dev gettext python3-pip
+          sudo apt-get install -y python3-gi libgtk-4-dev gettext python3-pip xvfb
       - name: Check Python version
         run: python3 -c 'import sys; assert sys.version_info >= (3, 12), f"need 3.12, got {sys.version}"'
       - name: Pinned dev tools
         run: sudo python3 -m pip install --break-system-packages -r requirements-dev.txt
+      # GTK 4 widget construction (test_main) segfaults with no display on a
+      # headless runner; run the suite under a virtual X11 display.
       - name: Unit tests
-        run: make test
+        run: xvfb-run -a make test
       - name: Lint and format
         run: make lint
       - name: Type check
@@ -36,7 +38,7 @@ jobs:
       - name: System dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-gi libgtk-4-dev gettext \
+          sudo apt-get install -y build-essential python3-gi libgtk-4-dev gettext \
             debhelper dpkg-dev lintian
       # systemd-analyze verify resolves Documentation=man:gpu-switcher(1) by
       # running `man`, which exits 16 (page not found) unless the page exists.
