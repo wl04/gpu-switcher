@@ -10,15 +10,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # Use the runner's system Python, not a setup-python toolcache
+      # interpreter: the apt-installed PyGObject (python3-gi) lives in the
+      # system dist-packages and is not importable from a standalone
+      # toolcache Python.
       - name: System dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-gi libgtk-4-dev gettext
+          sudo apt-get install -y python3-gi libgtk-4-dev gettext python3-pip
+      - name: Check Python version
+        run: python3 -c 'import sys; assert sys.version_info >= (3, 12), f"need 3.12, got {sys.version}"'
       - name: Pinned dev tools
-        run: pip install -r requirements-dev.txt
+        run: sudo python3 -m pip install --break-system-packages -r requirements-dev.txt
       - name: Unit tests
         run: make test
       - name: Lint and format
@@ -30,14 +33,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
       - name: System dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-gi libgtk-4-dev gettext \
             debhelper dpkg-dev lintian
+      # systemd-analyze verify resolves Documentation=man:gpu-switcher(1) by
+      # running `man`, which exits 16 (page not found) unless the page exists.
+      # The page ships in the package; install it so verification can resolve it.
+      - name: Install the man page
+        run: sudo install -D -m 0644 man/gpu-switcher.1 /usr/local/share/man/man1/gpu-switcher.1
       - name: Verify the systemd unit
         run: systemd-analyze verify debian/gpu-switcher-helper.service
       - name: Build with dpkg-buildpackage
@@ -46,8 +51,7 @@ jobs:
           mkdir -p dist
           cp ../gpu-switcher_*_all.deb dist/gpu-switcher-dh.deb
       - name: Build with tools/build-deb.sh
-        run: |
-          ./tools/build-deb.sh dist/gpu-switcher-plain.deb
+        run: ./tools/build-deb.sh dist/gpu-switcher-plain.deb
       - name: lintian both packages
         run: lintian dist/gpu-switcher-dh.deb dist/gpu-switcher-plain.deb
       - name: Keep the artifacts
