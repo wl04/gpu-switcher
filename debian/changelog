@@ -1,3 +1,20 @@
+gpu-switcher (0.2.1-1) unstable; urgency=high
+
+  * Fix: Apply and Reset to auto failed with Error.Internal. The helper called
+    invocation.get_cancellable(), a method the real GDBusMethodInvocation does
+    not expose in this pygobject build; the resulting AttributeError was caught
+    by the dispatcher and surfaced as Error.Internal. A fresh
+    Gio.Cancellable is used instead.
+  * Fix: the polkit check hung until the client timed out. authorize() passed
+    user_data to connection.call, which pygobject forwards to the callback, so
+    on_result was invoked with three arguments and raised TypeError before the
+    reply completed. The user_data is omitted so the callback keeps its two
+    parameters.
+  * The helper tests now model the real pygobject invocation and callback
+    conventions, catching both mismatches instead of mocking them away.
+
+ -- wl04 <wl04@users.noreply.github.com>  Sat, 07 Nov 2026 19:32:24 +0100
+
 gpu-switcher (0.2.0-1) unstable; urgency=low
 
   * New: GPU rows are accessible — the name is now the radio's child, so screen readers announce each card and clicking the label selects it; status banners use Adwaita's success/warning/error styling.
