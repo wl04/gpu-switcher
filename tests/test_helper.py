@@ -1,15 +1,19 @@
-"""Unit tests for the root D-Bus helper (helper/gpu_switcher_helper.py).
+"""Unit tests for the root D-Bus helper (gpu_switcher/helper/).
 
 Covers the pure PCI-format validation, the /sys resolution failure paths
 (stubbed filesystem), the managed rule line format (golden string matching
 the reference script mutter-primary-gpu.sh), the polkit authorization
 (subject binding, cancellation id, result statuses — mocked D-Bus), the
 distinct authorization-failure messages of SetPrimary, the
-SetPrimary/SetAsync transaction failure paths (verify, backup, rename,
+SetPrimary/SetAuto transaction failure paths (verify, backup, rename,
 unlink) and the idempotent no-write path, the missing-catalog translator
 fallback, the in-progress lock (Busy D-Bus error), the backup retention,
 and the IPC contract agreement between the app side (gpu_switcher/bus.py),
 the helper side and the INTROSPECTION_XML method signatures.
+
+Patches target the module that resolves the name at call time: service
+(dispatcher/handlers), auth (polkit), hud (udevadm steps), rule_store
+(managed-rule file operations).
 
 The async design is tested with two fakes: a connection whose
 CheckAuthorization reply is delivered synchronously, and a Gio.Subprocess
@@ -32,7 +36,8 @@ from gi.repository import Gio, GLib
 from gpu_switcher import bus
 from gpu_switcher.core import gpu
 from gpu_switcher.core import udev as udev_rules
-from gpu_switcher.helper import __main__ as h
+from gpu_switcher.helper import auth, rule_store, service
+from gpu_switcher.helper import udev as hud
 
 _IO_QUARK = GLib.quark_from_string("g-io-error-quark")
 
@@ -64,7 +69,7 @@ def _run_authorize(conn, sender=":1.29", locale="en", cancellable=None):
     def capture(*args):
         result.append(args)
 
-    h._authorize(conn, sender, locale, capture, cancellable)
+    auth.authorize(conn, sender, locale, capture, cancellable)
     assert result, "authorize did not call on_done"
     return result[0]
 
@@ -117,13 +122,13 @@ def _invocation():
     return inv
 
 
-RELOAD_ARGV = (h.UDEVDADM, "control", "--reload-rules")
-TRIGGER_ARGV = (h.UDEVDADM, "trigger", "--subsystem-match=drm", "--settle")
+RELOAD_ARGV = (hud.UDEVDADM, "control", "--reload-rules")
+TRIGGER_ARGV = (hud.UDEVDADM, "trigger", "--subsystem-match=drm", "--settle")
 TAGGED_INFO = "CURRENT_TAGS=:seat:mutter-device-preferred-primary:\nTAGS=:seat:\n"
 
 
 def _info_argv(card):
-    return (h.UDEVDADM, "info", "--query=property", f"--path=/sys/class/drm/{card}")
+    return (hud.UDEVDADM, "info", "--query=property", f"--path=/sys/class/drm/{card}")
 
 
 def _ok_results(card=None):
@@ -192,33 +197,33 @@ class ResolveGpu(unittest.TestCase):
 
 class Translator(unittest.TestCase):
     def test_translator_returns_identity_when_catalog_is_missing(self):
-        self.assertEqual(h._translator("en")("Some text"), "Some text")
+        self.assertEqual(service.translator("en")("Some text"), "Some text")
 
 
 class NormalizeLocale(unittest.TestCase):
     def test_normalize_locale_maps_known_language(self):
-        self.assertEqual(h._normalize_locale("ru_RU.UTF-8"), "ru")
+        self.assertEqual(service.normalize_locale("ru_RU.UTF-8"), "ru")
 
     def test_normalize_locale_falls_back_to_english_for_unknown_language(self):
-        self.assertEqual(h._normalize_locale("de_DE.UTF-8"), "en")
+        self.assertEqual(service.normalize_locale("de_DE.UTF-8"), "en")
 
     def test_normalize_locale_rejects_path_shaped_values(self):
-        self.assertEqual(h._normalize_locale("../evil"), "en")
-        self.assertEqual(h._normalize_locale("/etc/passwd"), "en")
-        self.assertEqual(h._normalize_locale(".."), "en")
+        self.assertEqual(service.normalize_locale("../evil"), "en")
+        self.assertEqual(service.normalize_locale("/etc/passwd"), "en")
+        self.assertEqual(service.normalize_locale(".."), "en")
 
     def test_normalize_locale_rejects_overlong_values(self):
-        self.assertEqual(h._normalize_locale("a" * 40), "en")
+        self.assertEqual(service.normalize_locale("a" * 40), "en")
 
 
 class TranslatorLocale(unittest.TestCase):
     def test_translator_uses_normalized_locale_for_catalog_lookup(self):
         with (
-            mock.patch.object(h, "_normalize_locale", return_value="en"),
+            mock.patch.object(service, "normalize_locale", return_value="en"),
             mock.patch("gettext.translation") as translation,
         ):
             translation.return_value.gettext = lambda s: s
-            h._translator("ru_RU.UTF-8")
+            service.translator("ru_RU.UTF-8")
             langs = translation.call_args.kwargs["languages"]
             self.assertEqual(langs, ["en"])
 
@@ -232,13 +237,13 @@ class Authorize(unittest.TestCase):
         _run_authorize(conn, sender=":1.29")
         args = conn.call.call_args[0]
         self.assertEqual(args[0], "org.freedesktop.PolicyKit1")
-        self.assertEqual(args[2], h.POLKIT_IFACE)
+        self.assertEqual(args[2], auth.POLKIT_IFACE)
         self.assertEqual(args[3], "CheckAuthorization")
         subject, action, _details, flags, _cancellation_id = args[4]
         self.assertEqual(subject[0], "system-bus-name")
         self.assertEqual(subject[1]["name"], ":1.29")
-        self.assertEqual(action, h.POLKIT_ACTION)
-        self.assertEqual(flags, h.POLKIT_INTERACTIVE)
+        self.assertEqual(action, auth.POLKIT_ACTION)
+        self.assertEqual(flags, auth.POLKIT_INTERACTIVE)
 
     def test_authorize_passes_unique_cancellation_id_per_invocation(self):
         ids = []
@@ -287,16 +292,22 @@ class Authorize(unittest.TestCase):
 
 class SetPrimaryAuthorization(unittest.TestCase):
     def setUp(self):
-        h._operation_in_progress = False
+        service._operation_in_progress = False
 
     def tearDown(self):
-        h._operation_in_progress = False
+        service._operation_in_progress = False
 
     def test_set_primary_returns_distinct_messages_for_denial_vs_service_error(self):
         def run(status, detail):
             invocation = _invocation()
-            with mock.patch.object(h, "_authorize", _fake_authorize(status, detail)):
-                h.handle_set_primary(
+            with (
+                mock.patch.object(auth, "authorize", _fake_authorize(status, detail)),
+                mock.patch.object(service, "rule_conflicts", return_value=[]),
+                mock.patch.object(
+                    service, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
+                ),
+            ):
+                service.handle_set_primary(
                     mock.Mock(), "sender", ("0000:12:00.0", "en"), invocation
                 )
             return invocation.return_value.call_args[0][0].unpack()
@@ -321,13 +332,19 @@ class SetPrimaryAuthorization(unittest.TestCase):
     def test_set_primary_reports_conflict_when_other_rule_sets_tag(self):
         invocation = _invocation()
         with (
-            mock.patch.object(h, "_authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(auth, "authorize", _fake_authorize("authorized", "")),
             mock.patch.object(
-                h, "rule_conflicts", return_value=["/etc/udev/rules.d/10-x.rules"]
+                service, "rule_conflicts", return_value=["/etc/udev/rules.d/10-x.rules"]
             ),
         ):
-            h.handle_set_primary(
-                mock.Mock(), "sender", ("0000:12:00.0", "en"), invocation
+            service.handle_method_call(
+                mock.Mock(),
+                "sender",
+                service.OBJECT_PATH,
+                service.INTERFACE,
+                "SetPrimary",
+                ("0000:12:00.0", "en"),
+                invocation,
             )
         self.assertEqual(
             invocation.return_value.call_args[0][0].unpack(),
@@ -343,12 +360,18 @@ class SetPrimaryAuthorization(unittest.TestCase):
     def test_set_primary_reports_invalid_pci(self):
         invocation = _invocation()
         with (
-            mock.patch.object(h, "_authorize", _fake_authorize("authorized", "")),
-            mock.patch.object(h, "rule_conflicts", return_value=[]),
-            mock.patch.object(h, "resolve_gpu", return_value=None),
+            mock.patch.object(auth, "authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(service, "rule_conflicts", return_value=[]),
+            mock.patch.object(service, "resolve_gpu", return_value=None),
         ):
-            h.handle_set_primary(
-                mock.Mock(), "sender", ("0000:12:00.0", "en"), invocation
+            service.handle_method_call(
+                mock.Mock(),
+                "sender",
+                service.OBJECT_PATH,
+                service.INTERFACE,
+                "SetPrimary",
+                ("0000:12:00.0", "en"),
+                invocation,
             )
         self.assertEqual(
             invocation.return_value.call_args[0][0].unpack(),
@@ -366,20 +389,30 @@ class OperationInProgress(unittest.TestCase):
     in flight gets the Busy D-Bus error, and Status stays responsive."""
 
     def setUp(self):
-        h._operation_in_progress = False
+        service._operation_in_progress = False
 
     def tearDown(self):
-        h._operation_in_progress = False
+        service._operation_in_progress = False
 
     def test_set_primary_rejects_concurrent_second_call_as_busy(self):
         def never_authorize(_connection, _sender, _locale, _on_done, _cancellable=None):
             pass  # the operation stays in flight
 
-        with mock.patch.object(h, "_authorize", never_authorize):
+        with (
+            mock.patch.object(auth, "authorize", never_authorize),
+            mock.patch.object(service, "rule_conflicts", return_value=[]),
+            mock.patch.object(
+                service, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
+            ),
+        ):
             inv1 = _invocation()
-            h.handle_set_primary(mock.Mock(), "sender", ("0000:12:00.0", "en"), inv1)
+            service.handle_set_primary(
+                mock.Mock(), "sender", ("0000:12:00.0", "en"), inv1
+            )
             inv2 = _invocation()
-            h.handle_set_primary(mock.Mock(), "sender", ("0000:12:00.0", "en"), inv2)
+            service.handle_set_primary(
+                mock.Mock(), "sender", ("0000:12:00.0", "en"), inv2
+            )
             inv2.return_dbus_error.assert_called_once()
             name, message = inv2.return_dbus_error.call_args[0]
             self.assertEqual(name, udev_rules.DBUS_ERROR_BUSY)
@@ -391,36 +424,36 @@ class OperationInProgress(unittest.TestCase):
         def never_authorize(_connection, _sender, _locale, _on_done, _cancellable=None):
             pass
 
-        with mock.patch.object(h, "_authorize", never_authorize):
+        with mock.patch.object(auth, "authorize", never_authorize):
             inv1 = _invocation()
-            h.handle_set_auto(mock.Mock(), "sender", ("en",), inv1)
+            service.handle_set_auto(mock.Mock(), "sender", ("en",), inv1)
             inv2 = _invocation()
-            h.handle_set_auto(mock.Mock(), "sender", ("en",), inv2)
+            service.handle_set_auto(mock.Mock(), "sender", ("en",), inv2)
             inv2.return_dbus_error.assert_called_once()
             self.assertEqual(
                 inv2.return_dbus_error.call_args[0][0], udev_rules.DBUS_ERROR_BUSY
             )
 
     def test_status_stays_responsive_while_operation_in_progress(self):
-        h._operation_in_progress = True
+        service._operation_in_progress = True
         try:
-            with mock.patch.object(h, "read_text", return_value=""):
+            with mock.patch.object(service, "read_text", return_value=""):
                 invocation = _invocation()
-                h.handle_status(mock.Mock(), "sender", ("en",), invocation)
+                service.handle_status(mock.Mock(), "sender", ("en",), invocation)
             rule, message = invocation.return_value.call_args[0][0].unpack()
             self.assertEqual(rule, "")
             self.assertEqual(message, "No managed rule (auto selection).")
         finally:
-            h._operation_in_progress = False
+            service._operation_in_progress = False
 
 
 class ErrorNames(unittest.TestCase):
     """The D-Bus error names are a stable contract shared by both sides."""
 
     def test_error_names_are_valid_and_shared(self):
-        self.assertIs(h.DBUS_ERROR_BUSY, udev_rules.DBUS_ERROR_BUSY)
-        self.assertIs(h.DBUS_ERROR_INTERNAL, udev_rules.DBUS_ERROR_INTERNAL)
-        for name in (h.DBUS_ERROR_BUSY, h.DBUS_ERROR_INTERNAL):
+        self.assertIs(service.DBUS_ERROR_BUSY, udev_rules.DBUS_ERROR_BUSY)
+        self.assertIs(service.DBUS_ERROR_INTERNAL, udev_rules.DBUS_ERROR_INTERNAL)
+        for name in (service.DBUS_ERROR_BUSY, service.DBUS_ERROR_INTERNAL):
             self.assertRegex(name, r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
 
 
@@ -428,39 +461,41 @@ class VerifyRule(unittest.TestCase):
     def test_verify_rule_returns_verified_when_udevadm_accepts(self):
         started = []
         with (
-            _fake_udev({(h.UDEVDADM, "verify", "/tmp/r.rules"): {"rc": 0}}, started),
-            mock.patch.object(h, "_check_udevadm", return_value=True),
+            _fake_udev({(hud.UDEVDADM, "verify", "/tmp/r.rules"): {"rc": 0}}, started),
+            mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
             result = []
-            h._verify_rule_async("/tmp/r.rules", result.append)
-            self.assertEqual(result, [h.REFRESH_VERIFIED])
-        self.assertEqual(started, [[h.UDEVDADM, "verify", "/tmp/r.rules"]])
+            hud.verify_rule_async("/tmp/r.rules", result.append)
+            self.assertEqual(result, [hud.REFRESH_VERIFIED])
+        self.assertEqual(started, [[hud.UDEVDADM, "verify", "/tmp/r.rules"]])
 
     def test_verify_rule_returns_failed_when_udevadm_rejects(self):
         with (
-            _fake_udev({(h.UDEVDADM, "verify", "/tmp/r.rules"): {"rc": 1}}, []),
-            mock.patch.object(h, "_check_udevadm", return_value=True),
+            _fake_udev({(hud.UDEVDADM, "verify", "/tmp/r.rules"): {"rc": 1}}, []),
+            mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
             result = []
-            h._verify_rule_async("/tmp/r.rules", result.append)
-            self.assertEqual(result, [h.REFRESH_FAILED])
+            hud.verify_rule_async("/tmp/r.rules", result.append)
+            self.assertEqual(result, [hud.REFRESH_FAILED])
 
     def test_verify_rule_returns_failed_when_step_times_out(self):
         error = GLib.Error.new_literal(_IO_QUARK, "Operation was cancelled", 8)
         with (
-            _fake_udev({(h.UDEVDADM, "verify", "/tmp/r.rules"): {"error": error}}, []),
-            mock.patch.object(h, "_check_udevadm", return_value=True),
+            _fake_udev(
+                {(hud.UDEVDADM, "verify", "/tmp/r.rules"): {"error": error}}, []
+            ),
+            mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
             result = []
-            h._verify_rule_async("/tmp/r.rules", result.append)
-            self.assertEqual(result, [h.REFRESH_FAILED])
+            hud.verify_rule_async("/tmp/r.rules", result.append)
+            self.assertEqual(result, [hud.REFRESH_FAILED])
 
     def test_verify_rule_returns_unsupported_when_udevadm_missing(self):
         started = []
-        with mock.patch.object(h, "_check_udevadm", return_value=False):
+        with mock.patch.object(hud, "check_udevadm", return_value=False):
             result = []
-            h._verify_rule_async("/tmp/r.rules", result.append)
-            self.assertEqual(result, [h.REFRESH_UNSUPPORTED])
+            hud.verify_rule_async("/tmp/r.rules", result.append)
+            self.assertEqual(result, [hud.REFRESH_UNSUPPORTED])
         self.assertEqual(started, [])
 
 
@@ -471,17 +506,17 @@ class RefreshUdev(unittest.TestCase):
     def _run(self, results, card):
         with (
             _fake_udev(results, self.started),
-            mock.patch.object(h, "_check_udevadm", return_value=True),
+            mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
             out = []
-            h._refresh_udev_async(card, out.append)
+            hud.refresh_udev_async(card, out.append)
             self.assertEqual(len(out), 1)
             return out[0]
 
     def test_refresh_udev_returns_verified_when_every_step_succeeds_and_tag_present(
         self,
     ):
-        self.assertEqual(self._run(_ok_results("card1"), "card1"), h.REFRESH_VERIFIED)
+        self.assertEqual(self._run(_ok_results("card1"), "card1"), hud.REFRESH_VERIFIED)
         self.assertEqual(
             self.started,
             [
@@ -493,36 +528,36 @@ class RefreshUdev(unittest.TestCase):
 
     def test_refresh_udev_returns_failed_when_reload_fails(self):
         results = {RELOAD_ARGV: {"rc": 1}, TRIGGER_ARGV: {"rc": 0}}
-        self.assertEqual(self._run(results, None), h.REFRESH_FAILED)
+        self.assertEqual(self._run(results, None), hud.REFRESH_FAILED)
         self.assertEqual(len(self.started), 1)
 
     def test_refresh_udev_returns_failed_when_trigger_fails(self):
         results = {RELOAD_ARGV: {"rc": 0}, TRIGGER_ARGV: {"rc": 1}}
-        self.assertEqual(self._run(results, None), h.REFRESH_FAILED)
+        self.assertEqual(self._run(results, None), hud.REFRESH_FAILED)
         self.assertEqual(len(self.started), 2)
 
     def test_refresh_udev_returns_failed_when_tag_absent(self):
         results = _ok_results("card1")
         results[_info_argv("card1")] = {"rc": 0, "out": "CURRENT_TAGS=:seat:\n"}
-        self.assertEqual(self._run(results, "card1"), h.REFRESH_FAILED)
+        self.assertEqual(self._run(results, "card1"), hud.REFRESH_FAILED)
 
     def test_refresh_udev_returns_failed_when_tag_query_fails(self):
         results = _ok_results("card1")
         results[_info_argv("card1")] = {"rc": 1}
-        self.assertEqual(self._run(results, "card1"), h.REFRESH_FAILED)
+        self.assertEqual(self._run(results, "card1"), hud.REFRESH_FAILED)
 
     def test_refresh_udev_returns_unsupported_when_udevadm_missing(self):
         with (
             _fake_udev({}, self.started),
-            mock.patch.object(h, "_check_udevadm", return_value=False),
+            mock.patch.object(hud, "check_udevadm", return_value=False),
         ):
             out = []
-            h._refresh_udev_async(None, out.append)
-            self.assertEqual(out, [h.REFRESH_UNSUPPORTED])
+            hud.refresh_udev_async(None, out.append)
+            self.assertEqual(out, [hud.REFRESH_UNSUPPORTED])
         self.assertEqual(self.started, [])
 
     def test_refresh_udev_without_card_skips_tag_check(self):
-        self.assertEqual(self._run(_ok_results(None), None), h.REFRESH_VERIFIED)
+        self.assertEqual(self._run(_ok_results(None), None), hud.REFRESH_VERIFIED)
         self.assertEqual(len(self.started), 2)
 
 
@@ -539,13 +574,13 @@ class ParseUdevCurrentTags(unittest.TestCase):
             "TAGS=:seat:uaccess:\n"
         )
         self.assertEqual(
-            h.parse_udev_current_tags(out),
+            hud.parse_udev_current_tags(out),
             ["seat", "mutter-device-preferred-primary", "uaccess"],
         )
 
     def test_parse_udev_current_tags_returns_empty_list_when_no_current_tags(self):
-        self.assertEqual(h.parse_udev_current_tags("CURRENT_TAGS=:\n"), [])
-        self.assertEqual(h.parse_udev_current_tags("SUBSYSTEM=drm\n"), [])
+        self.assertEqual(hud.parse_udev_current_tags("CURRENT_TAGS=:\n"), [])
+        self.assertEqual(hud.parse_udev_current_tags("SUBSYSTEM=drm\n"), [])
 
 
 class SetPrimaryTransactionBase(unittest.TestCase):
@@ -556,28 +591,30 @@ class SetPrimaryTransactionBase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.rules_dir = self._tmp.name
         self.rule = os.path.join(self.rules_dir, "61-mutter-primary-gpu.rules")
-        h._operation_in_progress = False
+        service._operation_in_progress = False
 
     def tearDown(self):
-        h._operation_in_progress = False
+        service._operation_in_progress = False
 
     def _run_set_primary(self, results, invocation=None, udevadm=True):
         inv = invocation or _invocation()
         patches = [
             _fake_udev(results, []),
-            mock.patch.object(h, "MANAGED_RULE", self.rule),
-            mock.patch.object(h, "_authorize", _fake_authorize("authorized", "")),
-            mock.patch.object(h, "rule_conflicts", return_value=[]),
+            mock.patch.object(rule_store, "MANAGED_RULE", self.rule),
+            mock.patch.object(auth, "authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(service, "rule_conflicts", return_value=[]),
             mock.patch.object(
-                h, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
+                service, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
             ),
-            mock.patch.object(h, "_check_udevadm", return_value=udevadm),
+            mock.patch.object(hud, "check_udevadm", return_value=udevadm),
             mock.patch("os.chown"),
         ]
         with contextlib.ExitStack() as stack:
             for patcher in patches:
                 stack.enter_context(patcher)
-            h.handle_set_primary(mock.Mock(), "sender", ("0000:12:00.0", "en"), inv)
+            service.handle_set_primary(
+                mock.Mock(), "sender", ("0000:12:00.0", "en"), inv
+            )
         self.assertTrue(inv.return_value.called, "SetPrimary did not reply")
         return inv.return_value.call_args[0][0].unpack()
 
@@ -587,10 +624,10 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write('SUBSYSTEM=="drm", TAG="something-else"\n')
         results = {
-            (h.UDEVDADM, "verify", "*"): {"rc": 0},
+            (hud.UDEVDADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
         }
-        with mock.patch.object(h, "_fsync_dir") as fsync_dir:
+        with mock.patch.object(rule_store, "fsync_dir") as fsync_dir:
             ok, message, backup, refresh_ok = self._run_set_primary(results)
         self.assertTrue(ok)
         self.assertTrue(refresh_ok)
@@ -604,7 +641,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
 
     def test_set_primary_does_not_rename_when_verify_rejects(self):
         results = {
-            (h.UDEVDADM, "verify", "*"): {"rc": 1},
+            (hud.UDEVDADM, "verify", "*"): {"rc": 1},
             **_ok_results("card1"),
         }
         ok, message, backup, refresh_ok = self._run_set_primary(results)
@@ -616,12 +653,12 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
 
     def test_set_primary_does_not_rename_when_backup_fails(self):
         results = {
-            (h.UDEVDADM, "verify", "*"): {"rc": 0},
+            (hud.UDEVDADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
         }
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write("old rule\n")
-        with mock.patch.object(h, "_backup_rule", return_value=""):
+        with mock.patch.object(rule_store, "backup_rule", return_value=""):
             ok, message, backup, refresh_ok = self._run_set_primary(results)
         self.assertEqual(
             (ok, message, backup, refresh_ok),
@@ -632,10 +669,10 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
 
     def test_set_primary_reports_failure_when_rename_fails(self):
         results = {
-            (h.UDEVDADM, "verify", "*"): {"rc": 0},
+            (hud.UDEVDADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
         }
-        with mock.patch.object(h.os, "rename", side_effect=OSError("boom")):
+        with mock.patch.object(os, "rename", side_effect=OSError("boom")):
             ok, message, backup, refresh_ok = self._run_set_primary(results)
         self.assertEqual(
             (ok, message, backup, refresh_ok),
@@ -647,7 +684,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write(content)
         results = _ok_results("card1")  # no verify step on the idempotent path
-        with mock.patch.object(h, "_fsync_dir") as fsync_dir:
+        with mock.patch.object(rule_store, "fsync_dir") as fsync_dir:
             ok, message, backup, refresh_ok = self._run_set_primary(results)
         self.assertTrue(ok)
         self.assertTrue(refresh_ok)
@@ -660,13 +697,13 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
     def test_set_primary_retains_only_the_newest_backups(self):
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write("old rule\n")
-        for i in range(h._BACKUP_KEEP + 2):
+        for i in range(rule_store.BACKUP_KEEP + 2):
             with open(
                 f"{self.rule}.bak.2026010{i}T000000Z.{i:06x}", "w", encoding="utf-8"
             ) as f:
                 f.write(f"backup {i}\n")
         results = {
-            (h.UDEVDADM, "verify", "*"): {"rc": 0},
+            (hud.UDEVDADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
         }
         ok, _message, backup, _refresh_ok = self._run_set_primary(results)
@@ -676,7 +713,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
             for e in os.listdir(self.rules_dir)
             if e.startswith("61-mutter-primary-gpu.rules.bak.")
         )
-        self.assertEqual(len(backups), h._BACKUP_KEEP)
+        self.assertEqual(len(backups), rule_store.BACKUP_KEEP)
         self.assertIn(os.path.basename(backup), backups)
 
 
@@ -687,7 +724,7 @@ class SetPrimaryNonUtf8(SetPrimaryTransactionBase):
         with open(self.rule, "wb") as f:
             f.write(b'SUBSYSTEM=="drm", TAG\x80="x"\n')
         results = {
-            (h.UDEVDADM, "verify", "*"): {"rc": 0},
+            (hud.UDEVDADM, "verify", "*"): {"rc": 0},
             **_ok_results("card1"),
         }
         ok, _message, backup, _refresh_ok = self._run_set_primary(results)
@@ -717,24 +754,24 @@ class SetAutoTransactionBase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.rules_dir = self._tmp.name
         self.rule = os.path.join(self.rules_dir, "61-mutter-primary-gpu.rules")
-        h._operation_in_progress = False
+        service._operation_in_progress = False
 
     def tearDown(self):
-        h._operation_in_progress = False
+        service._operation_in_progress = False
 
     def _run_set_auto(self, results=None, invocation=None, udevadm=True):
         inv = invocation or _invocation()
         patches = [
             _fake_udev(results or _ok_results(None), []),
-            mock.patch.object(h, "MANAGED_RULE", self.rule),
-            mock.patch.object(h, "_authorize", _fake_authorize("authorized", "")),
-            mock.patch.object(h, "_check_udevadm", return_value=udevadm),
+            mock.patch.object(rule_store, "MANAGED_RULE", self.rule),
+            mock.patch.object(auth, "authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(hud, "check_udevadm", return_value=udevadm),
             mock.patch("os.chown"),
         ]
         with contextlib.ExitStack() as stack:
             for patcher in patches:
                 stack.enter_context(patcher)
-            h.handle_set_auto(mock.Mock(), "sender", ("en",), inv)
+            service.handle_set_auto(mock.Mock(), "sender", ("en",), inv)
         self.assertTrue(inv.return_value.called, "SetAuto did not reply")
         return inv.return_value.call_args[0][0].unpack()
 
@@ -772,7 +809,7 @@ class SetAutoTransaction(SetAutoTransactionBase):
     def test_set_auto_reports_failure_when_backup_fails(self):
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write("old rule\n")
-        with mock.patch.object(h, "_backup_rule", return_value=""):
+        with mock.patch.object(rule_store, "backup_rule", return_value=""):
             ok, message, refresh_ok = self._run_set_auto()
         self.assertEqual(
             (ok, message, refresh_ok),
@@ -785,8 +822,10 @@ class SetAutoTransaction(SetAutoTransactionBase):
         with open(self.rule, "w", encoding="utf-8") as f:
             f.write("old rule\n")
         with (
-            mock.patch.object(h, "_backup_rule", return_value=self.rule + ".bak.x"),
-            mock.patch.object(h.os, "unlink", side_effect=OSError("boom")),
+            mock.patch.object(
+                rule_store, "backup_rule", return_value=self.rule + ".bak.x"
+            ),
+            mock.patch.object(os, "unlink", side_effect=OSError("boom")),
         ):
             ok, message, refresh_ok = self._run_set_auto()
         self.assertEqual(
@@ -833,22 +872,22 @@ class IdleTimerInMain(unittest.TestCase):
         # helper alive: the idle timer is armed as soon as the name is
         # owned, so 60 s after the last real call the process exits.
         with (
-            mock.patch.object(h, "_check_udevadm", return_value=True),
+            mock.patch.object(hud, "check_udevadm", return_value=True),
             mock.patch.object(Gio, "bus_get_sync", return_value=mock.Mock()),
             mock.patch.object(Gio, "bus_own_name"),
             mock.patch.object(GLib, "MainLoop") as loop_cls,
-            mock.patch.object(h, "_IDLE_SOURCE", None),
+            mock.patch.object(service, "_IDLE_SOURCE", None),
         ):
             loop_cls.return_value.run.return_value = None
-            h.main()
-            self.assertIsNotNone(h._IDLE_SOURCE)
+            service.main()
+            self.assertIsNotNone(service._IDLE_SOURCE)
 
 
 class BusContract(unittest.TestCase):
     def test_bus_contract_matches_helper_service_name_and_path_and_interface(self):
-        self.assertEqual(bus.HELPER_NAME, h.SERVICE_NAME)
-        self.assertEqual(bus.HELPER_PATH, h.OBJECT_PATH)
-        self.assertEqual(bus.HELPER_IFACE, h.INTERFACE)
+        self.assertEqual(bus.HELPER_NAME, service.SERVICE_NAME)
+        self.assertEqual(bus.HELPER_PATH, service.OBJECT_PATH)
+        self.assertEqual(bus.HELPER_IFACE, service.INTERFACE)
 
     def test_bus_contract_matches_introspection_methods_and_signatures(self):
         """INTROSPECTION_XML must declare the signatures the app side
@@ -866,9 +905,9 @@ class BusContract(unittest.TestCase):
             "SetPrimary": ("ss", "bssb"),
             "SetAuto": ("s", "bsb"),
         }
-        node = Gio.DBusNodeInfo.new_for_xml(h.INTROSPECTION_XML)
+        node = Gio.DBusNodeInfo.new_for_xml(service.INTROSPECTION_XML)
         iface = node.interfaces[0]
-        self.assertEqual(iface.name, h.INTERFACE)
+        self.assertEqual(iface.name, service.INTERFACE)
         self.assertEqual(iface.name, bus.HELPER_IFACE)
         for name, signatures in expected.items():
             method = iface.lookup_method(name)
