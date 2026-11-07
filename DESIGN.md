@@ -223,7 +223,7 @@ gpu-switcher/
 - Installed docs: `changelog.Debian.gz` (gzip-compressed per Debian policy),
   plain `copyright`, gzipped man page.
 - `postrm` leaves the managed rule and its `.bak.*` backups in place on
-  `dpkg -r` — they are the user's primary-GPU choice, not package data.
+  `apt remove` — they are the user's primary-GPU choice, not package data.
 - Quality gates: `lintian` clean on the built `.deb`, `dpkg-deb --info` /
   `--contents` sanity, install/remove tested (see README).
 
