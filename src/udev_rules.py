@@ -47,9 +47,13 @@ RULE_DIRS = (
 
 
 def read_text(path: str) -> str:
-    """File content stripped, or '' when the file cannot be read."""
+    """File content stripped, or '' when the file cannot be read.
+
+    Invalid UTF-8 bytes are replaced (U+FFFD): /sys and /proc values may
+    hold them, and the detector must not die on them.
+    """
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             return f.read().strip()
     except OSError:
         return ""

@@ -99,6 +99,15 @@ class ReadText(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual(read_text(os.path.join(root, "no-such-file")), "")
 
+    def test_read_text_keeps_invalid_utf8_as_replacement_characters(self):
+        # A /sys or /proc value may hold bytes that are not valid UTF-8;
+        # reading must not raise (the detector would otherwise die).
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "file")
+            with open(path, "wb") as f:
+                f.write(b"ab\xff\xfe\n")
+            self.assertEqual(read_text(path), "ab\ufffd\ufffd")
+
 
 if __name__ == "__main__":
     unittest.main()

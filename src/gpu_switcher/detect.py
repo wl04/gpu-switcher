@@ -83,7 +83,12 @@ def lspci_names() -> dict[str, str]:
     missing or fails (names then fall back to vendor:device)."""
     try:
         out = subprocess.run(
-            ["lspci", "-nn"], capture_output=True, text=True, check=False, timeout=10
+            ["lspci", "-nn"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            check=False,
+            timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
         return {}
@@ -145,22 +150,23 @@ def gnome_shell_pids_in_tree(
     return sorted(found)
 
 
-def _process_tree() -> dict[int, tuple[int, str]]:
-    """{pid: (ppid, comm)} for the live process table.
+def _process_tree(proc_root: str = "/proc") -> dict[int, tuple[int, str]]:
+    """{pid: (ppid, comm)} for the process table under `proc_root`.
 
     /proc/<pid>/stat is `pid (comm) state ppid ...`; comm may contain
     spaces and parentheses, so the line is split at the last ')'.
-    Unreadable entries are skipped (processes vanish mid-scan normally).
+    Unreadable entries are skipped (processes vanish mid-scan normally);
+    non-UTF-8 comm bytes are replaced, not fatal (see read_text).
     """
     tree: dict[int, tuple[int, str]] = {}
     try:
-        entries = os.listdir("/proc")
+        entries = os.listdir(proc_root)
     except OSError:
         return tree
     for entry in entries:
         if not entry.isdigit():
             continue
-        stat = read_text(f"/proc/{entry}/stat")
+        stat = read_text(f"{proc_root}/{entry}/stat")
         if not stat:
             continue
         try:
@@ -198,6 +204,7 @@ def running_primary(leader_pid: int | None = None) -> tuple[str | None, str | No
             ["journalctl", "-b", "-q", f"_PID={pid}", JOURNAL_UNIT],
             capture_output=True,
             text=True,
+            errors="replace",
             check=False,
             timeout=15,
         )

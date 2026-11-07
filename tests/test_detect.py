@@ -13,6 +13,7 @@ verification.
 
 import os
 import subprocess
+import tempfile
 import unittest
 from unittest import mock
 
@@ -114,6 +115,25 @@ class GnomeShellPidsInTree(unittest.TestCase):
         self.assertEqual(
             detect.gnome_shell_pids_in_tree(self._tree(), None), [200, 300, 400]
         )
+
+
+class ProcessTree(unittest.TestCase):
+    """The live /proc scan must not die on non-UTF-8 process names: a
+    binary that wrote an invalid byte to its comm must be skipped, not
+    kill the detection thread."""
+
+    def test_process_tree_skips_non_utf8_comm(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "100"))
+            with open(os.path.join(root, "100", "stat"), "wb") as f:
+                f.write(b"100 (good\xff\xfe) S 1 0")
+            os.makedirs(os.path.join(root, "200"))
+            with open(os.path.join(root, "200", "stat"), "wb") as f:
+                f.write(b"200 (shell) S 100 0")
+            tree = detect._process_tree(root)
+        self.assertEqual(set(tree), {100, 200})
+        self.assertEqual(tree[200], (100, "shell"))
+        self.assertNotEqual(tree[100][1], "shell")
 
 
 class RunningPrimary(unittest.TestCase):

@@ -590,7 +590,36 @@ class GpuSwitcherApp(Gtk.Application):
                 leader = bus.session_leader()
             except Exception:
                 leader = None
-            GLib.idle_add(apply, detect.detect(leader))
+            try:
+                result = detect.detect(leader)
+            except Exception as error:
+                # Never leave "Detecting…" forever: report the failure.
+                # (Captured before the except-block exit clears the binding.)
+                error_message = i18n._("Detection failed: %s.") % error
+
+                def show_error():
+                    if generation != self._detect_generation:
+                        return
+                    if self.banner is None:
+                        # First detection: there is no banner widget yet,
+                        # so the error replaces the loading box.
+                        label = Gtk.Label(label=error_message)
+                        label.set_wrap(True)
+                        label.add_css_class("destructive-action")
+                        label.set_xalign(0.0)
+                        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+                        box.set_margin_top(24)
+                        box.set_margin_bottom(24)
+                        box.set_margin_start(24)
+                        box.set_margin_end(24)
+                        box.append(label)
+                        self.window.set_child(box)
+                        return
+                    self._banner_show(error_message, "error")
+
+                GLib.idle_add(show_error)
+                return
+            GLib.idle_add(apply, result)
 
         threading.Thread(target=worker, daemon=True).start()
 
