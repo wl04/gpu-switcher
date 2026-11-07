@@ -27,6 +27,7 @@ gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
 from . import i18n, state
+from udev_rules import HELPER_TIMEOUT_MS
 
 HELPER_NAME = "com.github.wl04.gpu_switcher.Helper"
 HELPER_PATH = "/com/github/wl04/gpu_switcher/Helper"
@@ -44,11 +45,13 @@ SESSION_MANAGER_IFACE = "org.gnome.SessionManager"
 # confirmed; mode 0 would show GNOME's own dialog again.
 SESSION_MANAGER_LOGOUT_MODE = 1
 
-# The helper waits on an interactive polkit dialog, which may stay open for
-# a while; its worst case is ~260 s (170 s dialog + 3 x 30 s subprocesses).
-# The client timeout must exceed that, so the helper's result is never lost
-# to a client-side timeout.
-HELPER_TIMEOUT_MS = 280000
+# ---------------------------------------------------------------------------
+# The D-Bus timeout budget constants (POLKIT_TIMEOUT_MS,
+# UDEVDADM_STEP_TIMEOUT_S, SET_PRIMARY_STEP_COUNT, HELPER_TIMEOUT_MS) are
+# defined in udev_rules.py — the shared module the helper can import — so
+# the client's budget is always derived from the helper's worst case, not
+# from a duplicated literal.
+
 LOGIN1_TIMEOUT_MS = 15000
 
 

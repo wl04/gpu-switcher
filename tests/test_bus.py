@@ -23,6 +23,22 @@ from gi.repository import Gio, GLib
 os.environ["LC_ALL"] = "en"
 
 from gpu_switcher import bus
+import udev_rules
+
+
+class TimeoutBudget(unittest.TestCase):
+    def test_helper_timeout_exceeds_helper_worst_case(self):
+        # Worst case: the interactive polkit dialog plus every udevadm
+        # step (verify, reload, trigger, tag check) at the per-step
+        # timeout; the client budget must exceed that so the helper's
+        # result is never lost to a client-side timeout.
+        worst_case_ms = (
+            udev_rules.POLKIT_TIMEOUT_MS
+            + udev_rules.SET_PRIMARY_STEP_COUNT
+            * udev_rules.UDEVDADM_STEP_TIMEOUT_S
+            * 1000
+        )
+        self.assertGreater(bus.HELPER_TIMEOUT_MS, worst_case_ms)
 
 
 class Logout(unittest.TestCase):

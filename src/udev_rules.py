@@ -18,6 +18,30 @@ import re
 # script mutter-primary-gpu.sh writes).
 MANAGED_RULE = "/etc/udev/rules.d/61-mutter-primary-gpu.rules"
 
+# ---------------------------------------------------------------------------
+# D-Bus timeout budget: one source of truth shared by the helper (server
+# side) and the app (client side), so the client's budget always exceeds
+# the helper's worst case (interactive polkit dialog + every udevadm step)
+# plus slack. Without that, the helper's own error is lost to a
+# client-side timeout.
+# ---------------------------------------------------------------------------
+# The polkit interactive dialog (AllowUserInteraction) dominates the worst
+# case: the user decides for up to this long.
+POLKIT_TIMEOUT_MS = 170_000
+# A single udevadm step (verify / reload-rules / trigger / tag check) fails
+# fast in practice; this is the fail-safe bound for one step.
+UDEVDADM_STEP_TIMEOUT_S = 30
+# Number of udevadm steps on the SetPrimary path (verify, reload-rules,
+# trigger, tag check); keep this count honest when the steps change.
+SET_PRIMARY_STEP_COUNT = 4
+
+# The client's budget must exceed the helper's worst case plus slack.
+HELPER_TIMEOUT_MS = (
+    POLKIT_TIMEOUT_MS
+    + SET_PRIMARY_STEP_COUNT * UDEVDADM_STEP_TIMEOUT_S * 1000
+    + 30_000
+)
+
 # Mutter reads this tag from the udev database at session start; the ENV
 # variable is retained for compatibility with the previous local rule.
 MUTTER_TAG = "mutter-device-preferred-primary"
