@@ -1,10 +1,9 @@
 # gpu-switcher
 
-A small GTK 4 GUI application that switches which GPU GNOME (Mutter) uses as
-the **primary display adapter** — no hand-edited udev rules, no terminal.
+A small application that switches which GPU GNOME (Mutter) uses as
+the **primary display adapter** - no hand-edited udev rules, no terminal.
 
-Built for dual-GPU machines (dGPU + iGPU), e.g. a desktop with a discrete AMD
-GPU plus the CPU's integrated graphics.
+Built for dual-GPU (dGPU + iGPU) or multi-GPU machines, e.g. a desktop with a CPU's integrated graphics and one or more discrete GPU.
 
 > **v1 scope: GNOME / Wayland (Mutter) only.** KDE Plasma and X11 are planned
 > as later extensions.
