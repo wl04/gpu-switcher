@@ -119,6 +119,28 @@ def read_text(path: str) -> str:
         return ""
 
 
+# Assignment operators for the preferred-GPU tag. TAG-= (unset) and
+# TAG== (match expression) are not assignments and must not count.
+_TAG_ASSIGN_RE = re.compile(r"TAG\s*(\+=|-=|==|=)")
+_ENV_ASSIGN_RE = re.compile(r"ENV\s*\{[^}]*\}\s*(\+=|-=|==|=)")
+_ASSIGN_OPS = ("+=", "=")
+
+
+def _sets_preferred_gpu(line: str) -> bool:
+    """True when this line assigns the preferred-GPU tag to the device.
+
+    Only assignment forms count: TAG+=/TAG= with the tag as the assigned
+    value, or ENV{...}= where the key is the legacy variable. Unassign
+    (TAG-=) and match expressions (TAG==, ENV{...}==/!=) are not
+    assignments and must not block the switch.
+    """
+    m = _TAG_ASSIGN_RE.search(line)
+    if m is not None and m.group(1) in _ASSIGN_OPS and MUTTER_TAG in line:
+        return True
+    m = _ENV_ASSIGN_RE.search(line)
+    return m is not None and m.group(1) in _ASSIGN_OPS and MUTTER_ENV in line
+
+
 def rule_conflicts(
     rule_dirs: tuple[str, ...] = RULE_DIRS,
     managed_rule: str = MANAGED_RULE,
@@ -128,8 +150,9 @@ def rule_conflicts(
     """Paths of the other udev rules that set the preferred-GPU tag.
 
     Scans `*.rules` files in `rule_dirs` in the given order, skipping
-    comment lines; a rule conflicts when any line contains the mutter tag
-    or the legacy ENV variable. The managed rule file itself is never a
+    comment lines; a rule conflicts when any line assigns the mutter tag
+    or the legacy ENV variable (assignment forms only: TAG+=/TAG=/ENV{}=;
+    unassign TAG-= and match expressions TAG==/ENV{}!= do not count). The managed rule file itself is never a
     conflict. A base name seen in an earlier directory shadows the later
     one (the later copy is ignored).
 
@@ -159,6 +182,6 @@ def rule_conflicts(
                     conflicts.append(path)
                 continue
             lines = [l for l in text.splitlines() if not l.strip().startswith("#")]
-            if any(MUTTER_TAG in l or MUTTER_ENV in l for l in lines):
+            if any(_sets_preferred_gpu(l) for l in lines):
                 conflicts.append(path)
     return conflicts

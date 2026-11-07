@@ -45,6 +45,26 @@ class RuleConflicts(unittest.TestCase):
         self._write_rule(path, ENV_LINE)
         self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
 
+    def test_rule_conflicts_ignores_unassign_and_match_lines(self):
+        # TAG-= (unset) and TAG== (match expression) are not assignments
+        # of the preferred GPU and must not block the switch.
+        path = os.path.join(self.dir_a, "10-other.rules")
+        self._write_rule(
+            path,
+            f'SUBSYSTEM=="drm", TAG-="{MUTTER_TAG}"\n'
+            f'SUBSYSTEM=="drm", TAG=="{MUTTER_TAG}"\n'
+            f'SUBSYSTEM=="drm", ENV{{{MUTTER_ENV}}}!=""\n',
+        )
+        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [])
+
+    def test_rule_conflicts_finds_plain_assignment_lines(self):
+        path = os.path.join(self.dir_a, "10-other.rules")
+        self._write_rule(
+            path,
+            f'SUBSYSTEM=="drm", TAG="{MUTTER_TAG}"\nENV{{{MUTTER_ENV}}}="1"\n',
+        )
+        self.assertEqual(rule_conflicts((self.dir_a,), on_unreadable="skip"), [path])
+
     def test_rule_conflicts_ignores_comment_lines(self):
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, f"# {MUTTER_TAG}\n# {ENV_LINE}")
