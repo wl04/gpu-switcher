@@ -48,6 +48,32 @@ def _badge(text: str) -> Gtk.Label:
     return label
 
 
+def _gpu_row(radio, name: str, sub: str, badges: list) -> Gtk.Box:
+    # The name is the radio's child: it is the row's accessible name (Orca
+    # announces it) and makes the whole name clickable. The PCI address and
+    # status badges sit on a second line so the row does not stretch the
+    # window to name + PCI + badges on one line.
+    name_label = Gtk.Label(label=name)
+    # A bare GtkLabel centers its text (default xalign is 0.5); the name must
+    # sit at the left edge.
+    name_label.set_xalign(0.0)
+    radio.set_child(name_label)
+    container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    container.append(radio)
+    lower = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    if sub:
+        sub_label = Gtk.Label(label=sub)
+        sub_label.add_css_class("dim-label")
+        lower.append(sub_label)
+    for badge in badges:
+        lower.append(_badge(badge))
+    if lower.get_first_child() is not None:
+        # Indent the detail line under the name, past the radio indicator.
+        lower.set_margin_start(22)
+        container.append(lower)
+    return container
+
+
 class GpuSwitcherApp(Gtk.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID)
@@ -90,28 +116,6 @@ class GpuSwitcherApp(Gtk.Application):
         label.add_css_class("dim-label")
         box.append(label)
         self.window.set_child(box)
-
-    def _gpu_row(self, radio, name: str, sub: str, badges: list) -> Gtk.Box:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        # The name label is the radio's child: it becomes the radio's
-        # accessible name (Orca reads the row correctly) and clicking the
-        # label toggles the selection, not just the bare indicator.
-        name_label = Gtk.Label(label=name)
-        # A bare GtkLabel centers its text inside the box (default
-        # xalign is 0.5); the name must sit at the left edge.
-        name_label.set_xalign(0.0)
-        radio.set_child(name_label)
-        row.append(radio)
-        lower = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        if sub:
-            sub_label = Gtk.Label(label=sub)
-            sub_label.add_css_class("dim-label")
-            lower.append(sub_label)
-        for badge in badges:
-            lower.append(_badge(badge))
-        if len(lower.get_children()) > 0:
-            row.append(lower)
-        return row
 
     def _build_content(self) -> None:
         """Assemble the window content; each section has its own builder."""
@@ -177,7 +181,7 @@ class GpuSwitcherApp(Gtk.Application):
             radio.connect("toggled", self._on_radio_toggled, card)
             self.radios_by_gpu[card] = radio
             sub = f"PCI {gpu.pci} \u00b7 {gpu.node}"
-            self.rows_box.append(self._gpu_row(radio, gpu.name, sub, badges))
+            self.rows_box.append(_gpu_row(radio, gpu.name, sub, badges))
         self.unavailable_radio = None
         self.unavailable_pci = configured_unavailable_pci(result)
         if self.unavailable_pci is not None:
@@ -195,7 +199,7 @@ class GpuSwitcherApp(Gtk.Application):
             )
             self.unavailable_radio = unavailable
             self.rows_box.append(
-                self._gpu_row(
+                _gpu_row(
                     unavailable,
                     i18n._("Configured GPU (not currently detected)"),
                     f"PCI {self.unavailable_pci}",
@@ -208,7 +212,7 @@ class GpuSwitcherApp(Gtk.Application):
             self.auto_radio.set_group(first_radio)
         self.auto_radio.connect("toggled", self._on_radio_toggled, SELECTION_AUTO)
         self.rows_box.append(
-            self._gpu_row(self.auto_radio, i18n._("System default (auto)"), "", [])
+            _gpu_row(self.auto_radio, i18n._("System default (auto)"), "", [])
         )
         # Initial build: mirror the managed rule on disk (auto when nothing
         # is configured).
@@ -650,7 +654,8 @@ class GpuSwitcherApp(Gtk.Application):
                 return
         self.window = Gtk.ApplicationWindow(application=self)
         self.window.set_title("gpu-switcher")
-        self.window.set_default_size(560, 430)
+        # No fixed default size: the window sizes to its content and grows
+        # only when the verification hint is expanded.
         self._build_loading()
         self.window.present()
         self._start_detection()

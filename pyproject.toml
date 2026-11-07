@@ -54,6 +54,8 @@ disallow_untyped_defs = true
 disallow_untyped_defs = true
 [tool."mypy-test_i18n"]
 disallow_untyped_defs = true
+[tool."mypy-test_main"]
+disallow_untyped_defs = true
 [tool."mypy-test_selection"]
 disallow_untyped_defs = true
 [tool."mypy-test_state"]
