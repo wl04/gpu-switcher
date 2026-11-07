@@ -1023,5 +1023,30 @@ class BusContract(unittest.TestCase):
             self.assertEqual(flat(reply_type.dup_string()), signatures[1])
 
 
+class UdevRealRuntime(unittest.TestCase):
+    """Exercise the real pygobject Subprocess runtime (no mock) so the
+    communicate_finish return type is what the code actually sees."""
+
+    def test_run_udev_async_decodes_real_subprocess_output(self) -> None:
+        result: list[Any] = []
+        loop = GLib.MainLoop()
+
+        def on_done(rc: Any, out: Any, err: Any) -> None:
+            result.append((rc, out, err))
+            loop.quit()
+
+        def _safety() -> bool:
+            # A regression that never fires on_done must not hang the suite.
+            loop.quit()
+            return False
+
+        GLib.timeout_add(15000, _safety)
+        hud.run_udev_async(["echo", "hello-world"], on_done)
+        loop.run()
+        # stdout must come back as decoded str (from GLib.Bytes), not raw
+        # bytes/Bytes; empty stderr is "".
+        self.assertEqual(result, [(0, "hello-world\n", "")])
+
+
 if __name__ == "__main__":
     unittest.main()
