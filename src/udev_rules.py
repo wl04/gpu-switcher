@@ -14,6 +14,15 @@ from __future__ import annotations
 import os
 import re
 
+# ---------------------------------------------------------------------------
+# D-Bus error names: first-class, stable contract shared by the helper
+# (which replies with them) and the app (which displays the message). The
+# name is a valid D-Bus error name derived from the interface namespace.
+# ---------------------------------------------------------------------------
+DBUS_ERROR_NAMESPACE = "com.github.wl04.gpu_switcher.Error"
+DBUS_ERROR_INTERNAL = f"{DBUS_ERROR_NAMESPACE}.Internal"
+DBUS_ERROR_BUSY = f"{DBUS_ERROR_NAMESPACE}.Busy"
+
 # The udev rule file managed by gpu-switcher (the same file the reference
 # script mutter-primary-gpu.sh writes).
 MANAGED_RULE = "/etc/udev/rules.d/61-mutter-primary-gpu.rules"

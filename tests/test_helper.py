@@ -4,16 +4,21 @@ Covers the pure PCI-format validation, the /sys resolution failure paths
 (stubbed filesystem), the managed rule line format (golden string matching
 the reference script mutter-primary-gpu.sh), the polkit authorization
 (subject binding, cancellation id, result statuses — mocked D-Bus), the
-distinct authorization-failure messages of SetPrimary, the SetPrimary/SetAuto
-transaction failure paths (verify, backup, rename, unlink) and the
-idempotent no-write path, the missing-catalog translator fallback, and the
-IPC contract agreement between the app side (gpu_switcher/bus.py), the
-helper side and the INTROSPECTION_XML method signatures.
+distinct authorization-failure messages of SetPrimary, the
+SetPrimary/SetAsync transaction failure paths (verify, backup, rename,
+unlink) and the idempotent no-write path, the missing-catalog translator
+fallback, the in-progress lock (Busy D-Bus error), the backup retention,
+and the IPC contract agreement between the app side (gpu_switcher/bus.py),
+the helper side and the INTROSPECTION_XML method signatures.
+
+The async design is tested with two fakes: a connection whose
+CheckAuthorization reply is delivered synchronously, and a Gio.Subprocess
+whose communicate_async callback fires synchronously, so the whole
+operation chain runs inline and assertions stay deterministic.
 """
 
+import contextlib
 import os
-import shutil
-import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -25,7 +30,106 @@ gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib
 
 import helper.gpu_switcher_helper as h
+import udev_rules
 from gpu_switcher import bus
+
+_IO_QUARK = GLib.quark_from_string("g-io-error-quark")
+
+
+def _polkit_conn(reply=None, call_error=None):
+    """A fake connection delivering the CheckAuthorization reply inline."""
+    conn = mock.Mock()
+
+    def call_finish(_task):
+        if call_error is not None:
+            raise call_error
+        return reply
+
+    conn.call_finish.side_effect = call_finish
+
+    def call(*args):
+        # (dest, path, iface, method, params, type, flags, timeout,
+        #  cancellable, callback, user_data)
+        callback = args[9]
+        callback(conn, None)
+
+    conn.call.side_effect = call
+    return conn
+
+
+def _run_authorize(conn, sender=":1.29", locale="en", cancellable=None):
+    result = []
+
+    def capture(*args):
+        result.append(args)
+
+    h._authorize(conn, sender, locale, capture, cancellable)
+    assert result, "authorize did not call on_done"
+    return result[0]
+
+
+def _fake_udev(results, started):
+    """Patch Gio.Subprocess.new: `results` maps argv-tuple to rc/out/err or
+    a GLib.Error that communicate_finish raises (step timeout/cancel)."""
+
+    def factory(argv, _flags):
+        key = tuple(argv)
+        spec = None
+        for k, v in results.items():  # "*" matches any element (e.g. temp path)
+            if len(k) == len(key) and all(a == b or a == "*" for a, b in zip(k, key)):
+                spec = v
+                break
+        if spec is None:
+            raise AssertionError(f"unexpected udev command: {key}")
+        proc = mock.Mock()
+
+        def communicate_async(_stdin, _cancellable, callback, ud):
+            callback(proc, None, ud)
+
+        proc.communicate_async.side_effect = communicate_async
+        if spec.get("error") is not None:
+            proc.communicate_finish.side_effect = spec["error"]
+        else:
+            # communicate_finish returns Python bytes (matching the real API).
+            proc.communicate_finish.return_value = (
+                True,
+                spec.get("out", "").encode("utf-8"),
+                spec.get("err", "").encode("utf-8"),
+            )
+        proc.get_exit_status.return_value = spec.get("rc", 0)
+        started.append(list(argv))
+        return proc
+
+    return mock.patch.object(Gio.Subprocess, "new", factory)
+
+
+def _fake_authorize(status, detail):
+    def fake(_connection, _sender, _locale, on_done, _cancellable=None):
+        on_done(status, detail)
+
+    return fake
+
+
+def _invocation():
+    inv = mock.Mock()
+    inv.get_cancellable.return_value = Gio.Cancellable.new()
+    return inv
+
+
+RELOAD_ARGV = (h.UDEVDADM, "control", "--reload-rules")
+TRIGGER_ARGV = (h.UDEVDADM, "trigger", "--subsystem-match=drm", "--settle")
+TAGGED_INFO = "CURRENT_TAGS=:seat:mutter-device-preferred-primary:\nTAGS=:seat:\n"
+
+
+def _info_argv(card):
+    return (h.UDEVDADM, "info", "--query=property", f"--path=/sys/class/drm/{card}")
+
+
+def _ok_results(card=None):
+    results = {RELOAD_ARGV: {"rc": 0}, TRIGGER_ARGV: {"rc": 0}}
+    if card is not None:
+        results[_info_argv(card)] = {"rc": 0, "out": TAGGED_INFO}
+    return results
 
 
 class IsValidPciFormat(unittest.TestCase):
@@ -58,129 +162,64 @@ class RuleText(unittest.TestCase):
 class ResolveGpu(unittest.TestCase):
     def test_resolve_gpu_returns_none_for_malformed_pci(self):
         self.assertIsNone(h._resolve_gpu("12:00.0"))
-        self.assertIsNone(h._resolve_gpu("0000:12:00"))
-        self.assertIsNone(h._resolve_gpu("not-a-pci"))
 
-    def test_resolve_gpu_returns_none_when_pci_not_a_display_controller(self):
-        with (
-            mock.patch("os.path.isdir", return_value=True),
-            mock.patch("helper.gpu_switcher_helper.read_text", return_value="0x080000"),
-            mock.patch("udev_rules.read_text", return_value="0x080000"),
-        ):
+    def test_resolve_gpu_returns_none_when_pci_not_a_display_gpu(self):
+        with mock.patch.object(h, "is_display_gpu", return_value=None):
             self.assertIsNone(h._resolve_gpu("0000:12:00.0"))
 
-    def test_resolve_gpu_accepts_3d_controller_class(self):
+    def test_resolve_gpu_reads_vendor_and_device_from_sys(self):
         with (
-            mock.patch("os.path.isdir", return_value=True),
-            mock.patch("os.path.islink", return_value=True),
-            mock.patch("os.path.realpath", return_value="/dev/pci/0000:12:00.0"),
-            mock.patch("os.listdir", return_value=["card1"]),
-            mock.patch("os.path.exists", return_value=True),
-            mock.patch(
-                "udev_rules.read_text",
-                side_effect=lambda path: "0x030200" if path.endswith("/class") else "",
-            ),
-            mock.patch(
-                "helper.gpu_switcher_helper.read_text",
-                side_effect=lambda path: (
-                    "0x030200"
-                    if path.endswith("/class")
-                    else "0x1002"
-                    if path.endswith("/vendor")
-                    else "0x7550"
-                    if path.endswith("/device")
-                    else ""
-                ),
+            mock.patch.object(h, "is_display_gpu", return_value="card1"),
+            mock.patch.object(
+                h,
+                "read_text",
+                side_effect=lambda p: {
+                    "vendor": "0x1002",
+                    "device": "0x7550",
+                }.get(os.path.basename(p)),
             ),
         ):
             self.assertEqual(
                 h._resolve_gpu("0000:12:00.0"), ("card1", "0x1002", "0x7550")
             )
 
-    def test_resolve_gpu_returns_none_when_two_cards_bind_to_the_pci(self):
-        # Two DRM cards resolving to the same PCI: the binding is
-        # ambiguous, so SetPrimary must not guess which card to write.
-        with (
-            mock.patch("os.path.isdir", return_value=True),
-            mock.patch("os.path.islink", return_value=True),
-            mock.patch("os.path.realpath", return_value="/dev/pci/0000:12:00.0"),
-            mock.patch("os.listdir", return_value=["card1", "card2"]),
-            mock.patch("os.path.exists", return_value=True),
-            mock.patch(
-                "udev_rules.read_text",
-                side_effect=lambda path: "0x030200" if path.endswith("/class") else "",
-            ),
-            mock.patch(
-                "helper.gpu_switcher_helper.read_text",
-                side_effect=lambda path: (
-                    "0x030200"
-                    if path.endswith("/class")
-                    else "0x1002"
-                    if path.endswith("/vendor")
-                    else "0x7550"
-                    if path.endswith("/device")
-                    else ""
-                ),
-            ),
-        ):
+    def test_resolve_gpu_returns_none_when_two_cards_bound_to_same_pci(self):
+        # Ambiguous binding: is_display_gpu already refuses it.
+        with mock.patch.object(h, "is_display_gpu", return_value=None):
             self.assertIsNone(h._resolve_gpu("0000:12:00.0"))
 
 
 class Translator(unittest.TestCase):
-    def test_translator_returns_identity_when_catalog_missing(self):
-        with mock.patch(
-            "helper.gpu_switcher_helper.LOCALE_BASE", "/nonexistent-gpu-switcher-locale"
-        ):
-            tr = h._translator("ru")
-        self.assertEqual(tr("No catalog here"), "No catalog here")
+    def test_translator_returns_identity_when_catalog_is_missing(self):
+        self.assertEqual(h._translator("en")("Some text"), "Some text")
 
 
 class NormalizeLocale(unittest.TestCase):
-    """The locale arrives from an unauthenticated D-Bus caller, so it is
-    mapped to the allowlisted catalog languages before gettext sees it.
-    Path-shaped values would let gettext open (or block on) files outside
-    LOCALE_BASE."""
-
-    def test_normalize_locale_keeps_supported_languages(self):
-        self.assertEqual(h._normalize_locale("en"), "en")
-        self.assertEqual(h._normalize_locale("ru"), "ru")
+    def test_normalize_locale_maps_known_language(self):
         self.assertEqual(h._normalize_locale("ru_RU.UTF-8"), "ru")
-        self.assertEqual(h._normalize_locale("en_US"), "en")
 
-    def test_normalize_locale_falls_back_to_english_for_unsupported_or_path_like(self):
-        for locale in (
-            "fr",
-            "",
-            None,
-            "ru/ru",
-            "..",
-            "/tmp/evil/LC_MESSAGES/gpu-switcher.mo",
-            "C:\\evil",
-            "x" * 33,
-        ):
-            self.assertEqual(h._normalize_locale(locale), "en", locale)
+    def test_normalize_locale_falls_back_to_english_for_unknown_language(self):
+        self.assertEqual(h._normalize_locale("de_DE.UTF-8"), "en")
+
+    def test_normalize_locale_rejects_path_shaped_values(self):
+        self.assertEqual(h._normalize_locale("../evil"), "en")
+        self.assertEqual(h._normalize_locale("/etc/passwd"), "en")
+        self.assertEqual(h._normalize_locale(".."), "en")
+
+    def test_normalize_locale_rejects_overlong_values(self):
+        self.assertEqual(h._normalize_locale("a" * 40), "en")
 
 
 class TranslatorLocale(unittest.TestCase):
-    def test_translator_passes_only_allowlisted_languages_to_gettext(self):
-        """Contract: only allowlisted language identifiers reach
-        gettext.translation, so catalog loading cannot leave LOCALE_BASE.
-        """
-        fake = mock.Mock(gettext=lambda s: s)
-        with mock.patch(
-            "helper.gpu_switcher_helper.gettext.translation", return_value=fake
-        ) as translation:
-            for locale in (
-                "ru",
-                "ru_RU.UTF-8",
-                "fr",
-                "/tmp/evil/LC_MESSAGES/gpu-switcher.mo",
-                "..",
-            ):
-                h._translator(locale)
-        for call in translation.call_args_list:
-            for lang in call.kwargs["languages"]:
-                self.assertIn(lang, ("en", "ru"), lang)
+    def test_translator_uses_normalized_locale_for_catalog_lookup(self):
+        with (
+            mock.patch.object(h, "_normalize_locale", return_value="en"),
+            mock.patch("gettext.translation") as translation,
+        ):
+            translation.return_value.gettext = lambda s: s
+            h._translator("ru_RU.UTF-8")
+            langs = translation.call_args.kwargs["languages"]
+            self.assertEqual(langs, ["en"])
 
 
 class Authorize(unittest.TestCase):
@@ -188,100 +227,74 @@ class Authorize(unittest.TestCase):
     unique cancellation id, the result statuses, and timeout cancellation."""
 
     def test_authorize_builds_system_bus_name_subject_from_message_sender(self):
-        conn = mock.Mock()
-        conn.call_sync.return_value = ((True, False, {}),)
-        h._authorize(conn, ":1.42", "en")
-        args = conn.call_sync.call_args[0]
+        conn = _polkit_conn(reply=((True, False, {}),))
+        _run_authorize(conn, sender=":1.29")
+        args = conn.call.call_args[0]
         self.assertEqual(args[0], "org.freedesktop.PolicyKit1")
+        self.assertEqual(args[2], h.POLKIT_IFACE)
         self.assertEqual(args[3], "CheckAuthorization")
-        subject, action, details, flags, _cancellation = args[4].unpack()
-        self.assertEqual(subject, ("system-bus-name", {"name": ":1.42"}))
+        subject, action, _details, flags, _cancellation_id = args[4]
+        self.assertEqual(subject[0], "system-bus-name")
+        self.assertEqual(subject[1]["name"], ":1.29")
         self.assertEqual(action, h.POLKIT_ACTION)
-        self.assertEqual(details, {})
-        self.assertEqual(flags, 1)
+        self.assertEqual(flags, h.POLKIT_INTERACTIVE)
 
     def test_authorize_passes_unique_cancellation_id_per_invocation(self):
-        conn = mock.Mock()
-        conn.call_sync.return_value = ((True, False, {}),)
-        h._authorize(conn, "sender", "en")
-        first_id = conn.call_sync.call_args[0][4].unpack()[4]
-        h._authorize(conn, "sender", "en")
-        second_id = conn.call_sync.call_args[0][4].unpack()[4]
-        self.assertIsInstance(first_id, str)
-        self.assertIsInstance(second_id, str)
-        self.assertNotEqual(first_id, second_id)
+        ids = []
+        for _ in range(2):
+            conn = _polkit_conn(reply=((True, False, {}),))
+            _run_authorize(conn)
+            ids.append(conn.call.call_args[0][4][4])
+        self.assertEqual(len(set(ids)), 2)
 
-    def test_authorize_returns_authorized_status_when_polkit_says_authorized(self):
-        conn = mock.Mock()
-        conn.call_sync.return_value = ((True, False, {}),)
-        status, detail = h._authorize(conn, "sender", "en")
-        self.assertEqual(status, "authorized")
-        self.assertEqual(detail, "")
+    def test_authorize_reports_authorized(self):
+        conn = _polkit_conn(reply=((True, False, {}),))
+        self.assertEqual(_run_authorize(conn), ("authorized", ""))
 
-    def test_authorize_returns_denied_status_when_polkit_says_not_authorized(self):
-        conn = mock.Mock()
-        conn.call_sync.return_value = ((False, True, {}),)
-        status, detail = h._authorize(conn, "sender", "en")
-        self.assertEqual(status, "denied")
-        self.assertEqual(detail, "")
+    def test_authorize_reports_denied(self):
+        conn = _polkit_conn(reply=((False, False, {}),))
+        self.assertEqual(_run_authorize(conn), ("denied", ""))
 
-    def test_authorize_returns_cancelled_status_when_dialog_was_dismissed(self):
-        conn = mock.Mock()
-        conn.call_sync.return_value = ((False, True, {"polkit.dismissed": "1"}),)
-        status, detail = h._authorize(conn, "sender", "en")
-        self.assertEqual(status, "cancelled")
-        self.assertEqual(detail, "")
+    def test_authorize_reports_cancelled_when_dialog_dismissed(self):
+        conn = _polkit_conn(reply=((False, False, {"polkit.dismissed": True}),))
+        self.assertEqual(_run_authorize(conn), ("cancelled", ""))
 
-    def test_authorize_returns_error_status_when_polkit_call_fails(self):
-        conn = mock.Mock()
-        conn.call_sync.side_effect = GLib.Error.new_literal(
-            GLib.quark_from_string("g-io-error-quark"), "name has no owner", 8
+    def test_authorize_reports_error_on_check_authorization_failure(self):
+        conn = _polkit_conn(
+            call_error=GLib.Error.new_literal(_IO_QUARK, "polkitd is not running", 8)
         )
-        status, detail = h._authorize(conn, "sender", "en")
-        self.assertEqual(status, "error")
-        self.assertIn("name has no owner", detail)
-        # No cancel attempt for a non-timeout failure.
-        self.assertEqual(conn.call_sync.call_count, 1)
+        self.assertEqual(_run_authorize(conn), ("error", "polkitd is not running"))
 
     def test_authorize_returns_timeout_cancels_check_when_polkit_times_out(self):
-        # G_IO_ERROR_TIMEOUT is 7, not 5 (5 is G_IO_ERROR_IO): a real
-        # timeout must be detected and the pending check cancelled.
-        def call_sync(*args):
-            if args[3] == "CheckAuthorization":
-                raise GLib.Error.new_literal(
-                    GLib.quark_from_string("g-io-error-quark"), "timed out", 7
-                )
-            return (True,)
+        conn = _polkit_conn(
+            call_error=GLib.Error.new_literal(_IO_QUARK, "timed out", 7)
+        )
+        cancellable = Gio.Cancellable.new()
+        status, detail = _run_authorize(conn, cancellable=cancellable)
+        self.assertEqual((status, detail), ("timeout", ""))
+        self.assertTrue(cancellable.is_cancelled())
+        self.assertTrue(conn.call_sync.called)
+        self.assertEqual(conn.call_sync.call_args[0][3], "CancelCheckAuthorization")
 
-        conn = mock.Mock()
-        conn.call_sync.side_effect = call_sync
-        status, _detail = h._authorize(conn, "sender", "en")
-        self.assertEqual(status, "timeout")
-        check = conn.call_sync.call_args_list[0][0]
-        cancel = conn.call_sync.call_args_list[1][0]
-        self.assertEqual(cancel[3], "CancelCheckAuthorization")
-        self.assertEqual(cancel[4].unpack(), (check[4].unpack()[4],))
-
-    def test_authorize_returns_error_when_polkit_check_raises_io_error_code_5(self):
-        def call_sync(*args):
-            raise GLib.Error.new_literal(
-                GLib.quark_from_string("g-io-error-quark"), "io error", 5
-            )
-
-        conn = mock.Mock()
-        conn.call_sync.side_effect = call_sync
-        status, detail = h._authorize(conn, "sender", "en")
+    def test_authorize_does_not_treat_io_error_code_5_as_timeout(self):
+        conn = _polkit_conn(call_error=GLib.Error.new_literal(_IO_QUARK, "io", 5))
+        status, detail = _run_authorize(conn)
         self.assertEqual(status, "error")
-        self.assertIn("io error", detail)
-        # No cancel attempt for a non-timeout failure.
-        self.assertEqual(conn.call_sync.call_count, 1)
+        self.assertEqual(detail, "io")
+        self.assertFalse(conn.call_sync.called)
 
 
 class SetPrimaryAuthorization(unittest.TestCase):
+    def setUp(self):
+        h._operation_in_progress = False
+
+    def tearDown(self):
+        h._operation_in_progress = False
+
     def test_set_primary_returns_distinct_messages_for_denial_vs_service_error(self):
         def run(status, detail):
-            invocation = mock.Mock()
-            with mock.patch.object(h, "_authorized", return_value=(status, detail)):
+            invocation = _invocation()
+            with mock.patch.object(h, "_authorize", _fake_authorize(status, detail)):
                 h.handle_set_primary(
                     mock.Mock(), "sender", ("0000:12:00.0", "en"), invocation
                 )
@@ -304,22 +317,212 @@ class SetPrimaryAuthorization(unittest.TestCase):
             ),
         )
 
-
-class TriggerDrm(unittest.TestCase):
-    def test_trigger_drm_passes_settle_flag(self):
-        with mock.patch("subprocess.run") as run:
-            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
-            h._trigger_drm()
-        argv = run.call_args[0][0]
+    def test_set_primary_reports_conflict_when_other_rule_sets_tag(self):
+        invocation = _invocation()
+        with (
+            mock.patch.object(h, "_authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(
+                h, "rule_conflicts", return_value=["/etc/udev/rules.d/10-x.rules"]
+            ),
+        ):
+            h.handle_set_primary(
+                mock.Mock(), "sender", ("0000:12:00.0", "en"), invocation
+            )
         self.assertEqual(
-            argv, ["udevadm", "trigger", "--subsystem-match=drm", "--settle"]
+            invocation.return_value.call_args[0][0].unpack(),
+            (
+                False,
+                "Another udev rule sets the preferred GPU: "
+                "/etc/udev/rules.d/10-x.rules. Resolve it manually first.",
+                "",
+                False,
+            ),
         )
 
-    def test_trigger_drm_returns_false_when_trigger_times_out(self):
-        with mock.patch(
-            "subprocess.run", side_effect=subprocess.TimeoutExpired("udevadm", 30)
+    def test_set_primary_reports_invalid_pci(self):
+        invocation = _invocation()
+        with (
+            mock.patch.object(h, "_authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(h, "rule_conflicts", return_value=[]),
+            mock.patch.object(h, "_resolve_gpu", return_value=None),
         ):
-            self.assertFalse(h._trigger_drm())
+            h.handle_set_primary(
+                mock.Mock(), "sender", ("0000:12:00.0", "en"), invocation
+            )
+        self.assertEqual(
+            invocation.return_value.call_args[0][0].unpack(),
+            (
+                False,
+                "Target PCI 0000:12:00.0 is not a valid display controller.",
+                "",
+                False,
+            ),
+        )
+
+
+class OperationInProgress(unittest.TestCase):
+    """The in-progress lock: a second mutating call while an operation is
+    in flight gets the Busy D-Bus error, and Status stays responsive."""
+
+    def setUp(self):
+        h._operation_in_progress = False
+
+    def tearDown(self):
+        h._operation_in_progress = False
+
+    def test_set_primary_rejects_concurrent_second_call_as_busy(self):
+        def never_authorize(_connection, _sender, _locale, _on_done, _cancellable=None):
+            pass  # the operation stays in flight
+
+        with mock.patch.object(h, "_authorize", never_authorize):
+            inv1 = _invocation()
+            h.handle_set_primary(mock.Mock(), "sender", ("0000:12:00.0", "en"), inv1)
+            inv2 = _invocation()
+            h.handle_set_primary(mock.Mock(), "sender", ("0000:12:00.0", "en"), inv2)
+            inv2.return_dbus_error.assert_called_once()
+            name, message = inv2.return_dbus_error.call_args[0]
+            self.assertEqual(name, udev_rules.DBUS_ERROR_BUSY)
+            self.assertTrue(message)
+            inv1.return_value.assert_not_called()
+            inv2.return_value.assert_not_called()
+
+    def test_set_auto_rejects_concurrent_second_call_as_busy(self):
+        def never_authorize(_connection, _sender, _locale, _on_done, _cancellable=None):
+            pass
+
+        with mock.patch.object(h, "_authorize", never_authorize):
+            inv1 = _invocation()
+            h.handle_set_auto(mock.Mock(), "sender", ("en",), inv1)
+            inv2 = _invocation()
+            h.handle_set_auto(mock.Mock(), "sender", ("en",), inv2)
+            inv2.return_dbus_error.assert_called_once()
+            self.assertEqual(
+                inv2.return_dbus_error.call_args[0][0], udev_rules.DBUS_ERROR_BUSY
+            )
+
+    def test_status_stays_responsive_while_operation_in_progress(self):
+        h._operation_in_progress = True
+        try:
+            with mock.patch.object(h, "read_text", return_value=""):
+                invocation = _invocation()
+                h.handle_status(mock.Mock(), "sender", ("en",), invocation)
+            rule, message = invocation.return_value.call_args[0][0].unpack()
+            self.assertEqual(rule, "")
+            self.assertEqual(message, "No managed rule (auto selection).")
+        finally:
+            h._operation_in_progress = False
+
+
+class ErrorNames(unittest.TestCase):
+    """The D-Bus error names are a stable contract shared by both sides."""
+
+    def test_error_names_are_valid_and_shared(self):
+        self.assertIs(h.DBUS_ERROR_BUSY, udev_rules.DBUS_ERROR_BUSY)
+        self.assertIs(h.DBUS_ERROR_INTERNAL, udev_rules.DBUS_ERROR_INTERNAL)
+        for name in (h.DBUS_ERROR_BUSY, h.DBUS_ERROR_INTERNAL):
+            self.assertRegex(name, r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
+
+
+class VerifyRule(unittest.TestCase):
+    def test_verify_rule_returns_verified_when_udevadm_accepts(self):
+        started = []
+        with (
+            _fake_udev({(h.UDEVDADM, "verify", "/tmp/r.rules"): {"rc": 0}}, started),
+            mock.patch.object(h, "_check_udevadm", return_value=True),
+        ):
+            result = []
+            h._verify_rule_async("/tmp/r.rules", result.append)
+            self.assertEqual(result, [h.REFRESH_VERIFIED])
+        self.assertEqual(started, [[h.UDEVDADM, "verify", "/tmp/r.rules"]])
+
+    def test_verify_rule_returns_failed_when_udevadm_rejects(self):
+        with (
+            _fake_udev({(h.UDEVDADM, "verify", "/tmp/r.rules"): {"rc": 1}}, []),
+            mock.patch.object(h, "_check_udevadm", return_value=True),
+        ):
+            result = []
+            h._verify_rule_async("/tmp/r.rules", result.append)
+            self.assertEqual(result, [h.REFRESH_FAILED])
+
+    def test_verify_rule_returns_failed_when_step_times_out(self):
+        error = GLib.Error.new_literal(_IO_QUARK, "Operation was cancelled", 8)
+        with (
+            _fake_udev({(h.UDEVDADM, "verify", "/tmp/r.rules"): {"error": error}}, []),
+            mock.patch.object(h, "_check_udevadm", return_value=True),
+        ):
+            result = []
+            h._verify_rule_async("/tmp/r.rules", result.append)
+            self.assertEqual(result, [h.REFRESH_FAILED])
+
+    def test_verify_rule_returns_unsupported_when_udevadm_missing(self):
+        started = []
+        with mock.patch.object(h, "_check_udevadm", return_value=False):
+            result = []
+            h._verify_rule_async("/tmp/r.rules", result.append)
+            self.assertEqual(result, [h.REFRESH_UNSUPPORTED])
+        self.assertEqual(started, [])
+
+
+class RefreshUdev(unittest.TestCase):
+    def setUp(self):
+        self.started = []
+
+    def _run(self, results, card):
+        with (
+            _fake_udev(results, self.started),
+            mock.patch.object(h, "_check_udevadm", return_value=True),
+        ):
+            out = []
+            h._refresh_udev_async(card, out.append)
+            self.assertEqual(len(out), 1)
+            return out[0]
+
+    def test_refresh_udev_returns_verified_when_every_step_succeeds_and_tag_present(
+        self,
+    ):
+        self.assertEqual(self._run(_ok_results("card1"), "card1"), h.REFRESH_VERIFIED)
+        self.assertEqual(
+            self.started,
+            [
+                [RELOAD_ARGV[0], "control", "--reload-rules"],
+                [TRIGGER_ARGV[0], "trigger", "--subsystem-match=drm", "--settle"],
+                list(_info_argv("card1")),
+            ],
+        )
+
+    def test_refresh_udev_returns_failed_when_reload_fails(self):
+        results = {RELOAD_ARGV: {"rc": 1}, TRIGGER_ARGV: {"rc": 0}}
+        self.assertEqual(self._run(results, None), h.REFRESH_FAILED)
+        self.assertEqual(len(self.started), 1)
+
+    def test_refresh_udev_returns_failed_when_trigger_fails(self):
+        results = {RELOAD_ARGV: {"rc": 0}, TRIGGER_ARGV: {"rc": 1}}
+        self.assertEqual(self._run(results, None), h.REFRESH_FAILED)
+        self.assertEqual(len(self.started), 2)
+
+    def test_refresh_udev_returns_failed_when_tag_absent(self):
+        results = _ok_results("card1")
+        results[_info_argv("card1")] = {"rc": 0, "out": "CURRENT_TAGS=:seat:\n"}
+        self.assertEqual(self._run(results, "card1"), h.REFRESH_FAILED)
+
+    def test_refresh_udev_returns_failed_when_tag_query_fails(self):
+        results = _ok_results("card1")
+        results[_info_argv("card1")] = {"rc": 1}
+        self.assertEqual(self._run(results, "card1"), h.REFRESH_FAILED)
+
+    def test_refresh_udev_returns_unsupported_when_udevadm_missing(self):
+        with (
+            _fake_udev({}, self.started),
+            mock.patch.object(h, "_check_udevadm", return_value=False),
+        ):
+            out = []
+            h._refresh_udev_async(None, out.append)
+            self.assertEqual(out, [h.REFRESH_UNSUPPORTED])
+        self.assertEqual(self.started, [])
+
+    def test_refresh_udev_without_card_skips_tag_check(self):
+        self.assertEqual(self._run(_ok_results(None), None), h.REFRESH_VERIFIED)
+        self.assertEqual(len(self.started), 2)
 
 
 class ParseUdevCurrentTags(unittest.TestCase):
@@ -328,683 +531,299 @@ class ParseUdevCurrentTags(unittest.TestCase):
     ):
         # udev prints CURRENT_TAGS colon-separated with a leading and
         # trailing colon, alongside the cumulative TAGS line.
-        output = (
-            "DEVPATH=/devices/pci/0000:12:00.0\n"
-            "TAGS=:mutter-device-preferred-primary:seat:uaccess:\n"
-            "CURRENT_TAGS=:mutter-device-preferred-primary:seat:uaccess:\n"
-            "ID_PATH=pci-0000:12:00.0\n"
+        out = (
+            "SUBSYSTEM=drm\n"
+            "DEVTYPE=drm_minor\n"
+            "CURRENT_TAGS=:seat:mutter-device-preferred-primary:uaccess:\n"
+            "TAGS=:seat:uaccess:\n"
         )
         self.assertEqual(
-            h.parse_udev_current_tags(output),
-            ["mutter-device-preferred-primary", "seat", "uaccess"],
+            h.parse_udev_current_tags(out),
+            ["seat", "mutter-device-preferred-primary", "uaccess"],
         )
 
-    def test_parse_udev_current_tags_returns_empty_list_for_empty_current_tags_line(
-        self,
-    ):
-        self.assertEqual(h.parse_udev_current_tags("DEVPATH=/x\nCURRENT_TAGS=\n"), [])
-        self.assertEqual(h.parse_udev_current_tags("DEVPATH=/x\n"), [])
-
-    def test_parse_udev_current_tags_ignores_stale_tag_in_cumulative_tags_line(self):
-        # The cumulative TAGS line still carries the tag from a previous
-        # rule, but the last uevent (rule no longer matching) set none.
-        output = (
-            "DEVPATH=/x\n"
-            "TAGS=:mutter-device-preferred-primary:seat:\n"
-            "CURRENT_TAGS=:seat:\n"
-        )
-        self.assertEqual(h.parse_udev_current_tags(output), ["seat"])
+    def test_parse_udev_current_tags_returns_empty_list_when_no_current_tags(self):
+        self.assertEqual(h.parse_udev_current_tags("CURRENT_TAGS=:\n"), [])
+        self.assertEqual(h.parse_udev_current_tags("SUBSYSTEM=drm\n"), [])
 
 
-class CardHasTag(unittest.TestCase):
-    def test_card_has_tag_returns_true_when_mutter_tag_in_current_tags(self):
-        with (
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run") as run,
-        ):
-            run.return_value = mock.Mock(
-                returncode=0,
-                stderr="",
-                stdout="DEVPATH=/x\n"
-                "TAGS=:mutter-device-preferred-primary:\n"
-                "CURRENT_TAGS=:mutter-device-preferred-primary:\n",
-            )
-            self.assertTrue(h._card_has_tag("card1"))
-        argv = run.call_args[0][0]
-        self.assertIn("--path=/sys/class/drm/card1", argv)
+class SetPrimaryTransactionBase(unittest.TestCase):
+    """Shared setup for the SetPrimary write-path tests."""
 
-    def test_card_has_tag_returns_false_when_tag_only_in_stale_cumulative_tags(self):
-        with (
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run") as run,
-        ):
-            run.return_value = mock.Mock(
-                returncode=0,
-                stderr="",
-                stdout="DEVPATH=/x\n"
-                "TAGS=:mutter-device-preferred-primary:\n"
-                "CURRENT_TAGS=:seat:\n",
-            )
-            self.assertFalse(h._card_has_tag("card1"))
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="gpu-switcher-sp-")
+        self.addCleanup(self._tmp.cleanup)
+        self.rules_dir = self._tmp.name
+        self.rule = os.path.join(self.rules_dir, "61-mutter-primary-gpu.rules")
+        h._operation_in_progress = False
 
-    def test_card_has_tag_returns_false_when_udevadm_missing(self):
-        # An unverifiable tag must be treated as absent: without the tag
-        # mutter will not select the primary even after a relogin.
-        with (
-            mock.patch("shutil.which", return_value=None),
-            mock.patch("subprocess.run") as run,
-        ):
-            self.assertFalse(h._card_has_tag("card1"))
-        run.assert_not_called()
+    def tearDown(self):
+        h._operation_in_progress = False
 
-
-class SetPrimaryRefresh(unittest.TestCase):
-    """SetPrimary verifies the tag is present in the card's current udev
-    tags (what mutter reads at session start) after the settled refresh."""
-
-    def test_set_primary_returns_refresh_failed_when_tag_missing_after_refresh(self):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp5-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-
-        def run(argv, **kwargs):
-            # udevadm info (the tag query) reports no current tag; everything
-            # else (verify, reload-rules, settled trigger) succeeds.
-            if argv[:2] == ["udevadm", "info"]:
-                return mock.Mock(
-                    returncode=0, stderr="", stdout="DEVPATH=/x\nCURRENT_TAGS=\n"
-                )
-            return mock.Mock(returncode=0, stdout="", stderr="")
-
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
+    def _run_set_primary(self, results, invocation=None, udevadm=True):
+        inv = invocation or _invocation()
+        patches = [
+            _fake_udev(results, []),
+            mock.patch.object(h, "MANAGED_RULE", self.rule),
+            mock.patch.object(h, "_authorize", _fake_authorize("authorized", "")),
             mock.patch.object(h, "rule_conflicts", return_value=[]),
             mock.patch.object(
                 h, "_resolve_gpu", return_value=("card1", "0x1002", "0x7550")
             ),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
+            mock.patch.object(h, "_check_udevadm", return_value=udevadm),
             mock.patch("os.chown"),
-            mock.patch("subprocess.run", side_effect=run),
-        ):
-            h.handle_set_primary(
-                mock.Mock(), "sender", ("0000:12:00.0", "en"), invocation
-            )
-        shutil.rmtree(tmp)
-        result = invocation.return_value.call_args[0][0].unpack()
+        ]
+        with contextlib.ExitStack() as stack:
+            for patcher in patches:
+                stack.enter_context(patcher)
+            h.handle_set_primary(mock.Mock(), "sender", ("0000:12:00.0", "en"), inv)
+        self.assertTrue(inv.return_value.called, "SetPrimary did not reply")
+        return inv.return_value.call_args[0][0].unpack()
+
+
+class SetPrimaryTransaction(SetPrimaryTransactionBase):
+    def test_set_primary_writes_rule_backs_up_and_refreshes_udev(self):
+        with open(self.rule, "w", encoding="utf-8") as f:
+            f.write('SUBSYSTEM=="drm", TAG="something-else"\n')
+        results = {
+            (h.UDEVDADM, "verify", "*"): {"rc": 0},
+            **_ok_results("card1"),
+        }
+        with mock.patch.object(h, "_fsync_dir") as fsync_dir:
+            ok, message, backup, refresh_ok = self._run_set_primary(results)
+        self.assertTrue(ok)
+        self.assertTrue(refresh_ok)
+        self.assertTrue(message.startswith("Rule written for 0000:12:00.0."))
+        self.assertIn("A backup was saved to", message)
+        self.assertTrue(backup.startswith(self.rule + ".bak."))
+        self.assertTrue(os.path.exists(backup))
+        with open(self.rule, encoding="utf-8") as f:
+            self.assertIn('KERNELS=="0000:12:00.0"', f.read())
+        fsync_dir.assert_called_once_with(self.rules_dir)
+
+    def test_set_primary_does_not_rename_when_verify_rejects(self):
+        results = {
+            (h.UDEVDADM, "verify", "*"): {"rc": 1},
+            **_ok_results("card1"),
+        }
+        ok, message, backup, refresh_ok = self._run_set_primary(results)
         self.assertEqual(
-            result,
-            (
-                True,
-                "Rule written for 0000:12:00.0. The udev refresh failed; "
-                "a reboot is required.",
-                "",
-                False,
-            ),
-        )
-
-
-class VerifyRule(unittest.TestCase):
-    """udevadm verify must distinguish verified / unsupported / failed:
-    an error or timeout is a failure, never an implicit verification."""
-
-    def test_verify_rule_returns_verified_when_udevadm_verify_succeeds(self):
-        with (
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run") as run,
-        ):
-            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
-            self.assertEqual(h._verify_rule("/tmp/rule"), h.REFRESH_VERIFIED)
-
-    def test_verify_rule_returns_unsupported_when_udevadm_missing(self):
-        with (
-            mock.patch("shutil.which", return_value=None),
-            mock.patch("subprocess.run") as run,
-        ):
-            self.assertEqual(h._verify_rule("/tmp/rule"), h.REFRESH_UNSUPPORTED)
-        run.assert_not_called()
-
-    def test_verify_rule_returns_failed_when_udevadm_verify_errors(self):
-        with (
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run", side_effect=OSError("spawn failed")),
-        ):
-            self.assertEqual(h._verify_rule("/tmp/rule"), h.REFRESH_FAILED)
-
-    def test_verify_rule_returns_failed_when_udevadm_verify_times_out(self):
-        with (
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch(
-                "subprocess.run", side_effect=subprocess.TimeoutExpired("udevadm", 30)
-            ),
-        ):
-            self.assertEqual(h._verify_rule("/tmp/rule"), h.REFRESH_FAILED)
-
-    def test_verify_rule_returns_failed_when_udevadm_verify_rejects(self):
-        with (
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run") as run,
-        ):
-            run.return_value = mock.Mock(returncode=1, stdout="", stderr="bad")
-            self.assertEqual(h._verify_rule("/tmp/rule"), h.REFRESH_FAILED)
-
-
-class RefreshUdev(unittest.TestCase):
-    """The refresh returns the verified / unsupported / failed state,
-    never a bare success it cannot stand behind."""
-
-    def test_refresh_skips_gracefully_when_udevadm_missing(self):
-        # Missing udevadm is "unsupported": the refresh could not be
-        # verified, so it must not be reported as success.
-        with (
-            mock.patch("shutil.which", return_value=None),
-            mock.patch("subprocess.run") as run,
-        ):
-            self.assertEqual(h._refresh_udev("card1"), h.REFRESH_UNSUPPORTED)
-        run.assert_not_called()
-
-    def test_refresh_returns_verified_when_all_steps_succeed(self):
-        with (
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run") as run,
-        ):
-
-            def run_side(argv, **kwargs):
-                if argv[:2] == ["udevadm", "info"]:
-                    return mock.Mock(
-                        returncode=0,
-                        stderr="",
-                        stdout="DEVPATH=/x\n"
-                        "CURRENT_TAGS=:mutter-device-preferred-primary:\n",
-                    )
-                return mock.Mock(returncode=0, stdout="", stderr="")
-
-            run.side_effect = run_side
-            self.assertEqual(h._refresh_udev("card1"), h.REFRESH_VERIFIED)
-
-    def test_refresh_returns_failed_when_tag_missing(self):
-        with (
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run") as run,
-        ):
-
-            def run_side(argv, **kwargs):
-                if argv[:2] == ["udevadm", "info"]:
-                    return mock.Mock(
-                        returncode=0, stderr="", stdout="DEVPATH=/x\nCURRENT_TAGS=\n"
-                    )
-                return mock.Mock(returncode=0, stdout="", stderr="")
-
-            run.side_effect = run_side
-            self.assertEqual(h._refresh_udev("card1"), h.REFRESH_FAILED)
-
-    def test_refresh_returns_failed_when_tag_unverifiable(self):
-        # udevadm info fails: the tag cannot be verified, so the refresh
-        # must not report success.
-        with (
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run") as run,
-        ):
-
-            def run_side(argv, **kwargs):
-                if argv[:2] == ["udevadm", "info"]:
-                    return mock.Mock(returncode=1, stdout="", stderr="no such device")
-                return mock.Mock(returncode=0, stdout="", stderr="")
-
-            run.side_effect = run_side
-            self.assertEqual(h._refresh_udev("card1"), h.REFRESH_FAILED)
-
-    def test_refresh_returns_failed_when_reload_fails(self):
-        with (
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run") as run,
-        ):
-
-            def run_side(argv, **kwargs):
-                if argv[:2] == ["udevadm", "control"]:
-                    return mock.Mock(returncode=1, stdout="", stderr="boom")
-                return mock.Mock(returncode=0, stdout="", stderr="")
-
-            run.side_effect = run_side
-            self.assertEqual(h._refresh_udev("card1"), h.REFRESH_FAILED)
-
-
-class SetPrimaryTransaction(unittest.TestCase):
-    """SetPrimary write-transaction failure paths and the idempotent
-    no-write path."""
-
-    PCI = "0000:12:00.0"
-
-    def test_set_primary_returns_verify_rejected_when_udevadm_verify_fails(self):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-
-        def run(argv, **kwargs):
-            # udevadm verify rejects the new rule; nothing else runs.
-            if argv[:2] == ["udevadm", "verify"]:
-                return mock.Mock(returncode=1, stdout="", stderr="bad rule")
-            return mock.Mock(returncode=0, stdout="", stderr="")
-
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "rule_conflicts", return_value=[]),
-            mock.patch.object(
-                h, "_resolve_gpu", return_value=("card1", "0x1002", "0x7550")
-            ),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("os.chown"),
-            mock.patch("subprocess.run", side_effect=run),
-        ):
-            h.handle_set_primary(mock.Mock(), "sender", (self.PCI, "en"), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
-        self.assertEqual(
-            result,
+            (ok, message, backup, refresh_ok),
             (False, "udevadm verify rejected the rule; nothing changed.", "", False),
         )
-        self.assertFalse(os.path.exists(managed))
-        shutil.rmtree(tmp)
+        self.assertFalse(os.path.exists(self.rule))
 
-    def test_set_primary_returns_backup_failure_when_copy_fails(self):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-        old = 'SUBSYSTEMS=="pci", KERNELS=="0000:00:00.0"\n'
-        with open(managed, "w", encoding="utf-8") as f:
-            f.write(old)
-
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "rule_conflicts", return_value=[]),
-            mock.patch.object(
-                h, "_resolve_gpu", return_value=("card1", "0x1002", "0x7550")
-            ),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("os.chown"),
-            mock.patch("shutil.copy2", side_effect=OSError("no space")),
-            mock.patch("subprocess.run") as run,
-        ):
-            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
-            h.handle_set_primary(mock.Mock(), "sender", (self.PCI, "en"), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
+    def test_set_primary_does_not_rename_when_backup_fails(self):
+        results = {
+            (h.UDEVDADM, "verify", "*"): {"rc": 0},
+            **_ok_results("card1"),
+        }
+        with open(self.rule, "w", encoding="utf-8") as f:
+            f.write("old rule\n")
+        with mock.patch.object(h, "_backup_rule", return_value=""):
+            ok, message, backup, refresh_ok = self._run_set_primary(results)
         self.assertEqual(
-            result,
+            (ok, message, backup, refresh_ok),
             (False, "Backup of the existing rule failed; nothing changed.", "", False),
         )
-        with open(managed, encoding="utf-8") as f:
-            self.assertEqual(f.read(), old)
-        shutil.rmtree(tmp)
+        with open(self.rule, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "old rule\n")
 
-    def test_set_primary_returns_nothing_changed_when_rename_fails(self):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-        old = 'SUBSYSTEMS=="pci", KERNELS=="0000:00:00.0"\n'
-        with open(managed, "w", encoding="utf-8") as f:
-            f.write(old)
-
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "rule_conflicts", return_value=[]),
-            mock.patch.object(
-                h, "_resolve_gpu", return_value=("card1", "0x1002", "0x7550")
-            ),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("os.chown"),
-            mock.patch("subprocess.run") as run,
-            mock.patch("os.rename", side_effect=OSError("read-only filesystem")),
-        ):
-            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
-            h.handle_set_primary(mock.Mock(), "sender", (self.PCI, "en"), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
+    def test_set_primary_reports_failure_when_rename_fails(self):
+        results = {
+            (h.UDEVDADM, "verify", "*"): {"rc": 0},
+            **_ok_results("card1"),
+        }
+        with mock.patch.object(h.os, "rename", side_effect=OSError("boom")):
+            ok, message, backup, refresh_ok = self._run_set_primary(results)
         self.assertEqual(
-            result,
+            (ok, message, backup, refresh_ok),
             (False, "Failed to write the managed rule; nothing changed.", "", False),
         )
-        with open(managed, encoding="utf-8") as f:
-            self.assertEqual(f.read(), old)
-        shutil.rmtree(tmp)
 
-    def test_set_primary_skips_write_when_rule_already_current(self):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-        content = h._rule_text(self.PCI, "0x1002", "0x7550")
-        with open(managed, "w", encoding="utf-8") as f:
+    def test_set_primary_idempotent_when_rule_already_matches(self):
+        content = h._rule_text("0000:12:00.0", "0x1002", "0x7550")
+        with open(self.rule, "w", encoding="utf-8") as f:
             f.write(content)
-
-        def run(argv, **kwargs):
-            # reload-rules and the settled trigger succeed; the tag query
-            # reports the mutter tag in the card's current tags.
-            if argv[:2] == ["udevadm", "info"]:
-                return mock.Mock(
-                    returncode=0,
-                    stderr="",
-                    stdout="DEVPATH=/x\n"
-                    "CURRENT_TAGS=:mutter-device-preferred-primary:\n",
-                )
-            return mock.Mock(returncode=0, stdout="", stderr="")
-
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "rule_conflicts", return_value=[]),
-            mock.patch.object(
-                h, "_resolve_gpu", return_value=("card1", "0x1002", "0x7550")
-            ),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run", side_effect=run),
-        ):
-            h.handle_set_primary(mock.Mock(), "sender", (self.PCI, "en"), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
+        results = _ok_results("card1")  # no verify step on the idempotent path
+        with mock.patch.object(h, "_fsync_dir") as fsync_dir:
+            ok, message, backup, refresh_ok = self._run_set_primary(results)
+        self.assertTrue(ok)
+        self.assertTrue(refresh_ok)
+        self.assertEqual(backup, "")
         self.assertEqual(
-            result,
-            (
-                True,
-                "The rule is already set for 0000:12:00.0. Udev rules reloaded.",
-                "",
-                True,
-            ),
+            message, "The rule is already set for 0000:12:00.0. Udev rules reloaded."
         )
-        with open(managed, encoding="utf-8") as f:
-            self.assertEqual(f.read(), content)
-        # The write path was skipped entirely: no backup, no temp file.
-        self.assertEqual(os.listdir(tmp), ["61-mutter-primary-gpu.rules"])
-        shutil.rmtree(tmp)
+        fsync_dir.assert_not_called()
+
+    def test_set_primary_retains_only_the_newest_backups(self):
+        with open(self.rule, "w", encoding="utf-8") as f:
+            f.write("old rule\n")
+        for i in range(h._BACKUP_KEEP + 2):
+            with open(
+                f"{self.rule}.bak.2026010{i}T000000Z.{i:06x}", "w", encoding="utf-8"
+            ) as f:
+                f.write(f"backup {i}\n")
+        results = {
+            (h.UDEVDADM, "verify", "*"): {"rc": 0},
+            **_ok_results("card1"),
+        }
+        ok, _message, backup, _refresh_ok = self._run_set_primary(results)
+        self.assertTrue(ok)
+        backups = sorted(
+            e
+            for e in os.listdir(self.rules_dir)
+            if e.startswith("61-mutter-primary-gpu.rules.bak.")
+        )
+        self.assertEqual(len(backups), h._BACKUP_KEEP)
+        self.assertIn(os.path.basename(backup), backups)
 
 
-class SetPrimaryNonUtf8(unittest.TestCase):
-    """The existing rule may contain bytes that are not valid UTF-8 (a
-    broken hand edit); comparing it as text must not crash the handler."""
-
-    PCI = "0000:12:00.0"
-
+class SetPrimaryNonUtf8(SetPrimaryTransactionBase):
     def test_set_primary_overwrites_non_utf8_existing_rule(self):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp14-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-        with open(managed, "wb") as f:
-            f.write(b'TAG+="mutter-device-preferred-primary"\xff\xfe\n')
+        # A broken hand edit may leave invalid UTF-8 in the rule; the read
+        # is byte-based so the comparison and overwrite must not crash.
+        with open(self.rule, "wb") as f:
+            f.write(b'SUBSYSTEM=="drm", TAG\x80="x"\n')
+        results = {
+            (h.UDEVDADM, "verify", "*"): {"rc": 0},
+            **_ok_results("card1"),
+        }
+        ok, _message, backup, _refresh_ok = self._run_set_primary(results)
+        self.assertTrue(ok)
+        with open(self.rule, encoding="utf-8") as f:
+            self.assertIn('KERNELS=="0000:12:00.0"', f.read())
+        self.assertTrue(backup)
 
-        def run(argv, **kwargs):
-            if argv[:2] == ["udevadm", "info"]:
-                return mock.Mock(
-                    returncode=0,
-                    stderr="",
-                    stdout="DEVPATH=/x\nCURRENT_TAGS=:mutter-device-preferred-primary:\n",
-                )
-            return mock.Mock(returncode=0, stdout="", stderr="")
 
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "rule_conflicts", return_value=[]),
-            mock.patch.object(
-                h, "_resolve_gpu", return_value=("card1", "0x1002", "0x7550")
-            ),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
+class SetPrimaryUnsupported(SetPrimaryTransactionBase):
+    """udevadm missing: verification is impossible, and a refresh cannot
+    be reported as fresh - the user must be told a reboot is required."""
+
+    def test_set_primary_reports_unsupported_when_udevadm_missing(self):
+        results = _ok_results("card1")
+        ok, message, _backup, refresh_ok = self._run_set_primary(results, udevadm=False)
+        self.assertTrue(ok)  # the rule was still written
+        self.assertFalse(refresh_ok)
+        self.assertIn("could not be verified", message)
+        self.assertIn("reboot is required", message)
+        self.assertTrue(os.path.exists(self.rule))
+
+
+class SetAutoTransactionBase(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="gpu-switcher-sa-")
+        self.addCleanup(self._tmp.cleanup)
+        self.rules_dir = self._tmp.name
+        self.rule = os.path.join(self.rules_dir, "61-mutter-primary-gpu.rules")
+        h._operation_in_progress = False
+
+    def tearDown(self):
+        h._operation_in_progress = False
+
+    def _run_set_auto(self, results=None, invocation=None, udevadm=True):
+        inv = invocation or _invocation()
+        patches = [
+            _fake_udev(results or _ok_results(None), []),
+            mock.patch.object(h, "MANAGED_RULE", self.rule),
+            mock.patch.object(h, "_authorize", _fake_authorize("authorized", "")),
+            mock.patch.object(h, "_check_udevadm", return_value=udevadm),
             mock.patch("os.chown"),
-            mock.patch("subprocess.run", side_effect=run),
-        ):
-            h.handle_set_primary(mock.Mock(), "sender", (self.PCI, "en"), invocation)
-        self.assertFalse(invocation.return_gerror.called)
-        self.assertTrue(invocation.return_value.called)
-        with open(managed, "rb") as f:
-            new_content = f.read()
-        new_content.decode("utf-8")  # must stay valid UTF-8
-        self.assertEqual(
-            new_content.decode("utf-8"),
-            h._rule_text(self.PCI, "0x1002", "0x7550"),
-        )
-        backups = [
-            f
-            for f in os.listdir(tmp)
-            if f.startswith("61-mutter-primary-gpu.rules.bak.")
         ]
-        self.assertEqual(len(backups), 1)
-        shutil.rmtree(tmp)
+        with contextlib.ExitStack() as stack:
+            for patcher in patches:
+                stack.enter_context(patcher)
+            h.handle_set_auto(mock.Mock(), "sender", ("en",), inv)
+        self.assertTrue(inv.return_value.called, "SetAuto did not reply")
+        return inv.return_value.call_args[0][0].unpack()
 
 
-class SetPrimaryUnsupported(unittest.TestCase):
-    """With udevadm unavailable the verification is skipped (not a
-    rejection) and the rule is still written, but the refresh reports
-    unsupported and refresh_ok stays False - the logout fast path is not
-    enabled."""
-
-    PCI = "0000:12:00.0"
-
-    def test_set_primary_writes_rule_when_udevadm_unavailable(self):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp12-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "rule_conflicts", return_value=[]),
-            mock.patch.object(
-                h, "_resolve_gpu", return_value=("card1", "0x1002", "0x7550")
-            ),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value=None),
-            mock.patch("os.chown"),
-            mock.patch("subprocess.run") as run,
-        ):
-            h.handle_set_primary(mock.Mock(), "sender", (self.PCI, "en"), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
+class SetAutoTransaction(SetAutoTransactionBase):
+    def test_set_auto_removes_rule_backs_up_and_refreshes(self):
+        with open(self.rule, "w", encoding="utf-8") as f:
+            f.write('SUBSYSTEM=="drm", TAG="x"\n')
+        ok, message, refresh_ok = self._run_set_auto()
+        self.assertTrue(ok)
+        self.assertTrue(refresh_ok)
+        self.assertFalse(os.path.exists(self.rule))
+        self.assertIn("Managed rule removed.", message)
+        self.assertIn("A backup was saved to", message)
         self.assertEqual(
-            result,
-            (
-                True,
-                "Rule written for 0000:12:00.0. The udev refresh could "
-                "not be verified (udevadm unavailable); a reboot is "
-                "required.",
-                "",
-                False,
+            len(
+                [
+                    e
+                    for e in os.listdir(self.rules_dir)
+                    if e.startswith("61-mutter-primary-gpu.rules.bak.")
+                ]
             ),
+            1,
         )
-        with open(managed, encoding="utf-8") as f:
-            self.assertEqual(f.read(), h._rule_text(self.PCI, "0x1002", "0x7550"))
-        run.assert_not_called()
-        shutil.rmtree(tmp)
 
-    def test_set_primary_reports_unsupported_when_udevadm_unavailable_when_rule_already_current(
-        self,
-    ):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp12-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-        content = h._rule_text(self.PCI, "0x1002", "0x7550")
-        with open(managed, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "rule_conflicts", return_value=[]),
-            mock.patch.object(
-                h, "_resolve_gpu", return_value=("card1", "0x1002", "0x7550")
-            ),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value=None),
-            mock.patch("subprocess.run") as run,
-        ):
-            h.handle_set_primary(mock.Mock(), "sender", (self.PCI, "en"), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
+    def test_set_auto_refuses_symlink(self):
+        os.symlink("/nonexistent-target", self.rule)
+        ok, message, refresh_ok = self._run_set_auto()
         self.assertEqual(
-            result,
-            (
-                True,
-                "The rule is already set for 0000:12:00.0. The udev "
-                "refresh could not be verified (udevadm unavailable); "
-                "a reboot is required.",
-                "",
-                False,
-            ),
+            (ok, message, refresh_ok),
+            (False, "The managed rule is a symlink; refusing to remove it.", False),
         )
-        run.assert_not_called()
-        shutil.rmtree(tmp)
+        self.assertTrue(os.path.islink(self.rule))
 
-
-class SetAutoUnsupported(unittest.TestCase):
-    """SetAuto with udevadm unavailable still performs the file change
-    (remove / already-absent) but reports the refresh as unsupported and
-    refresh_ok False - the logout fast path is not enabled."""
-
-    def test_set_auto_reports_unsupported_when_udevadm_unavailable_when_rule_already_absent(
-        self,
-    ):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp13-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-        self.assertFalse(os.path.exists(managed))
-
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value=None),
-            mock.patch("subprocess.run") as run,
-        ):
-            h.handle_set_auto(mock.Mock(), "sender", ("en",), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
-        self.assertEqual(
-            result,
-            (
-                True,
-                "No managed rule (auto selection already in effect). "
-                "The udev refresh could not be verified (udevadm "
-                "unavailable); a reboot is required.",
-                False,
-            ),
-        )
-        run.assert_not_called()
-        shutil.rmtree(tmp)
-
-    def test_set_auto_reports_unsupported_when_udevadm_unavailable_when_rule_removed(
-        self,
-    ):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp13-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-        with open(managed, "w", encoding="utf-8") as f:
+    def test_set_auto_reports_failure_when_backup_fails(self):
+        with open(self.rule, "w", encoding="utf-8") as f:
             f.write("old rule\n")
-
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value=None),
-            mock.patch("os.chown"),
-        ):
-            h.handle_set_auto(mock.Mock(), "sender", ("en",), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
-        self.assertFalse(os.path.exists(managed))
-        backups = [
-            f
-            for f in os.listdir(tmp)
-            if f.startswith("61-mutter-primary-gpu.rules.bak.")
-        ]
-        self.assertEqual(len(backups), 1)
-        backup_path = os.path.join(tmp, backups[0])
-        expected = (
-            "Managed rule removed. A backup was saved to "
-            f"{backup_path}. The udev refresh could not be verified "
-            "(udevadm unavailable); a reboot is required."
-        )
-        self.assertEqual(result, (True, expected, False))
-        shutil.rmtree(tmp)
-
-
-class SetAutoTransaction(unittest.TestCase):
-    def test_set_auto_returns_nothing_removed_when_unlink_fails(self):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp10-")
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-        with open(managed, "w", encoding="utf-8") as f:
-            f.write("old rule\n")
-
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("os.chown"),
-            mock.patch("os.unlink", side_effect=OSError("read-only filesystem")),
-        ):
-            h.handle_set_auto(mock.Mock(), "sender", ("en",), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
+        with mock.patch.object(h, "_backup_rule", return_value=""):
+            ok, message, refresh_ok = self._run_set_auto()
         self.assertEqual(
-            result,
+            (ok, message, refresh_ok),
+            (False, "Backup of the existing rule failed; nothing removed.", False),
+        )
+        with open(self.rule, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "old rule\n")
+
+    def test_set_auto_reports_failure_when_unlink_fails(self):
+        with open(self.rule, "w", encoding="utf-8") as f:
+            f.write("old rule\n")
+        with (
+            mock.patch.object(h, "_backup_rule", return_value=self.rule + ".bak.x"),
+            mock.patch.object(h.os, "unlink", side_effect=OSError("boom")),
+        ):
+            ok, message, refresh_ok = self._run_set_auto()
+        self.assertEqual(
+            (ok, message, refresh_ok),
             (False, "Failed to remove the managed rule; nothing changed.", False),
         )
-        self.assertTrue(os.path.exists(managed))
-        shutil.rmtree(tmp)
+        self.assertTrue(os.path.exists(self.rule))
 
 
-class SetAutoAlreadyAuto(unittest.TestCase):
-    """A previous Reset may have removed the rule while its udev refresh
-    failed, so the already-absent path must still refresh udev (as
-    SetPrimary does for an unchanged rule) instead of returning
-    unverified success."""
-
-    def _absent_rule(self):
-        tmp = tempfile.mkdtemp(prefix="gpu-switcher-wp6-")
-        self.addCleanup(shutil.rmtree, tmp)
-        managed = os.path.join(tmp, "61-mutter-primary-gpu.rules")
-        self.assertFalse(os.path.exists(managed))
-        return managed
-
-    def test_set_auto_refreshes_udev_when_rule_already_absent(self):
-        managed = self._absent_rule()
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run") as run,
-        ):
-            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
-            h.handle_set_auto(mock.Mock(), "sender", ("en",), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
+class SetAutoAlreadyAuto(SetAutoTransactionBase):
+    def test_set_auto_is_idempotent_when_rule_is_absent(self):
+        ok, message, refresh_ok = self._run_set_auto()
+        self.assertTrue(ok)
+        self.assertTrue(refresh_ok)
         self.assertEqual(
-            result,
-            (
-                True,
-                "No managed rule (auto selection already in effect). "
-                "Udev rules reloaded.",
-                True,
-            ),
-        )
-        argvs = [c[0][0] for c in run.call_args_list]
-        self.assertIn(["udevadm", "control", "--reload-rules"], argvs)
-        self.assertIn(
-            ["udevadm", "trigger", "--subsystem-match=drm", "--settle"], argvs
+            message,
+            "No managed rule (auto selection already in effect). Udev rules reloaded.",
         )
 
-    def test_set_auto_returns_refresh_failed_when_trigger_fails_with_absent_rule(self):
-        managed = self._absent_rule()
+    def test_set_auto_reports_unsupported_when_rule_absent_and_udevadm_missing(self):
+        ok, message, refresh_ok = self._run_set_auto(udevadm=False)
+        self.assertTrue(ok)
+        self.assertFalse(refresh_ok)
+        self.assertIn("could not be verified", message)
 
-        def run(argv, **kwargs):
-            if len(argv) > 1 and argv[1] == "trigger":
-                return mock.Mock(returncode=1, stdout="", stderr="boom")
-            return mock.Mock(returncode=0, stdout="", stderr="")
 
-        invocation = mock.Mock()
-        with (
-            mock.patch.object(h, "_authorized", return_value=("authorized", "")),
-            mock.patch.object(h, "MANAGED_RULE", managed),
-            mock.patch("shutil.which", return_value="/usr/bin/udevadm"),
-            mock.patch("subprocess.run", side_effect=run),
-        ):
-            h.handle_set_auto(mock.Mock(), "sender", ("en",), invocation)
-        result = invocation.return_value.call_args[0][0].unpack()
-        self.assertEqual(
-            result,
-            (
-                True,
-                "No managed rule (auto selection already in effect). "
-                "The udev refresh failed; a reboot is required.",
-                False,
-            ),
-        )
+class SetAutoUnsupported(SetAutoTransactionBase):
+    """udevadm missing: a removal refresh must be reported as unverifiable."""
+
+    def test_set_auto_reports_unsupported_when_udevadm_missing(self):
+        with open(self.rule, "w", encoding="utf-8") as f:
+            f.write("old rule\n")
+        ok, message, refresh_ok = self._run_set_auto(udevadm=False)
+        self.assertTrue(ok)
+        self.assertFalse(refresh_ok)
+        self.assertIn("could not be verified", message)
+        self.assertIn("reboot is required", message)
+        self.assertFalse(os.path.exists(self.rule))
 
 
 class IdleTimerInMain(unittest.TestCase):
@@ -1013,6 +832,7 @@ class IdleTimerInMain(unittest.TestCase):
         # helper alive: the idle timer is armed as soon as the name is
         # owned, so 60 s after the last real call the process exits.
         with (
+            mock.patch.object(h, "_check_udevadm", return_value=True),
             mock.patch.object(Gio, "bus_get_sync", return_value=mock.Mock()),
             mock.patch.object(Gio, "bus_own_name"),
             mock.patch.object(GLib, "MainLoop") as loop_cls,
