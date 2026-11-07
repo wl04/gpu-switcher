@@ -569,8 +569,8 @@ class GpuSwitcherApp(Gtk.Application):
         self._start_detection()
 
     def _start_detection(self) -> None:
-        """Run detect.detect() and the session-leader lookup on a worker
-        thread and rebuild the UI on the main loop.
+        """Run detect.detect() on a worker thread and rebuild the UI on
+        the main loop.
 
         A generation token discards stale results when a newer detection
         has already superseded this one (rapid Apply/Reset cycles). While
@@ -594,11 +594,7 @@ class GpuSwitcherApp(Gtk.Application):
 
         def worker():
             try:
-                leader = bus.session_leader()
-            except Exception:
-                leader = None
-            try:
-                result = detect.detect(leader)
+                result = detect.detect()
             except Exception as error:
                 # Never leave "Detecting…" forever: report the failure.
                 # (Captured before the except-block exit clears the binding.)

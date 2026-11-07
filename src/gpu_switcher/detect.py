@@ -5,11 +5,10 @@ and the managed udev rule file; no privileged operation is required. The
 parsing steps are pure (text in, data out) so they are unit-testable
 without the real binaries; the thin wrappers are the I/O boundary.
 
-The running primary is attributed to a single gnome-shell pid scoped to
-our session: a descendant of our session leader (from logind) when it is
-known, else the single gnome-shell pid system-wide. Without exactly one
-in-scope pid, the attribution is ambiguous and the running primary is
-unknown.
+The running primary is attributed to a single gnome-shell pid owned by our
+uid (read from /proc/<pid>/status). Shells of other users and sessions
+never count. Without exactly one in-scope pid, the attribution is
+ambiguous and the running primary is unknown.
 """
 
 from __future__ import annotations
@@ -124,40 +123,51 @@ def last_primary_card(lines: list[str]) -> str | None:
     return card
 
 
-def gnome_shell_pids_in_tree(
-    tree: dict[int, tuple[int, str]], leader: int | None
+def gnome_shell_pids_for_uid(
+    tree: dict[int, tuple[int, str, int | None]], uid: int
 ) -> list[int]:
-    """gnome-shell pids in a process tree of {pid: (ppid, comm)}.
+    """gnome-shell pids owned by `uid`, sorted and deduplicated.
 
-    With a leader, only its descendants are collected (session-scoped
-    scan: shells of other sessions/users never count). With leader None,
-    the whole tree is scanned. Result is sorted and deduplicated.
+    Scopes the running-primary attribution to our user without logind:
+    other users'/sessions' shells never count. Pids whose uid is unknown
+    (unreadable status) never match.
     """
-    children: dict[int, list[int]] = {}
-    for pid, (ppid, _comm) in tree.items():
-        children.setdefault(ppid, []).append(pid)
-    if leader is not None and leader not in tree:
-        return []
     found = set()
-    stack = [leader] if leader is not None else list(tree)
-    while stack:
-        pid = stack.pop()
-        _ppid, comm = tree[pid]
-        if comm == "gnome-shell":
+    for pid, (_ppid, comm, pid_uid) in tree.items():
+        if comm == "gnome-shell" and pid_uid == uid:
             found.add(pid)
-        stack.extend(children.get(pid, ()))
     return sorted(found)
 
 
-def _process_tree(proc_root: str = "/proc") -> dict[int, tuple[int, str]]:
-    """{pid: (ppid, comm)} for the process table under `proc_root`.
+def _uid_of(proc_root: str, pid: int) -> int | None:
+    """The uid owning `pid`, from /proc/<pid>/status `Uid:`, or None when
+    unreadable (a process vanishing mid-scan, or another user's process we
+    cannot read)."""
+    status = read_text(f"{proc_root}/{pid}/status")
+    for line in status.splitlines():
+        if line.startswith("Uid:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    return int(parts[1])
+                except ValueError:
+                    return None
+            return None
+    return None
+
+
+def _process_tree(
+    proc_root: str = "/proc",
+) -> dict[int, tuple[int, str, int | None]]:
+    """{pid: (ppid, comm, uid)} for the process table under `proc_root`.
 
     /proc/<pid>/stat is `pid (comm) state ppid ...`; comm may contain
-    spaces and parentheses, so the line is split at the last ')'.
-    Unreadable entries are skipped (processes vanish mid-scan normally);
-    non-UTF-8 comm bytes are replaced, not fatal (see read_text).
+    spaces and parentheses, so the line is split at the last ')'. The uid
+    comes from /proc/<pid>/status and is None when unreadable. Unreadable
+    entries are skipped (processes vanish mid-scan normally); non-UTF-8
+    comm bytes are replaced, not fatal (see read_text).
     """
-    tree: dict[int, tuple[int, str]] = {}
+    tree: dict[int, tuple[int, str, int | None]] = {}
     try:
         entries = os.listdir(proc_root)
     except OSError:
@@ -174,27 +184,22 @@ def _process_tree(proc_root: str = "/proc") -> dict[int, tuple[int, str]]:
             ppid = int(rest.split()[1])
         except (ValueError, IndexError):
             continue
-        tree[int(entry)] = (ppid, comm)
+        pid = int(entry)
+        tree[pid] = (ppid, comm, _uid_of(proc_root, pid))
     return tree
 
 
-def running_primary(leader_pid: int | None = None) -> tuple[str | None, str | None]:
+def running_primary() -> tuple[str | None, str | None]:
     """Card picked by gnome-shell in our session (e.g. 'card2'), and the
     error text when the journal could not be read (None on success).
 
-    The journal is scoped to a single gnome-shell pid: a descendant of
-    our session leader when it is known (leader_pid), else the single
-    gnome-shell pid system-wide. Current GNOME runs the session under a
-    systemd user manager, so the shell is not a descendant of the logind
-    session leader: when the scoped scan is empty, the system-wide scan
-    is the fallback. With zero or multiple in-scope pids the attribution
-    is ambiguous and (None, None) is returned — the existing "unknown"
-    note covers it in the UI.
+    The journal is scoped to the single gnome-shell pid owned by our uid;
+    other users'/sessions' shells never count. With zero or multiple
+    in-scope pids the attribution is ambiguous and (None, None) is
+    returned — the existing "unknown" note covers it in the UI.
     """
     tree = _process_tree()
-    pids = gnome_shell_pids_in_tree(tree, leader_pid)
-    if not pids and leader_pid is not None:
-        pids = gnome_shell_pids_in_tree(tree, None)
+    pids = gnome_shell_pids_for_uid(tree, os.getuid())
     if len(pids) != 1:
         return None, None
     pid = pids[0]
@@ -252,12 +257,8 @@ def gnome_wayland_session() -> bool:
     )
 
 
-def detect(leader_pid: int | None = None) -> Detection:
-    """Full detection snapshot used by the UI.
-
-    leader_pid scopes the running-primary attribution to our session
-    (see running_primary); None scans system-wide.
-    """
+def detect() -> Detection:
+    """Full detection snapshot used by the UI."""
     gpus = []
     try:
         entries = sorted(os.listdir("/sys/class/drm"))
@@ -288,7 +289,7 @@ def detect(leader_pid: int | None = None) -> Detection:
                 preferred=False,
             )
         )
-    running_card, running_card_error = running_primary(leader_pid)
+    running_card, running_card_error = running_primary()
     preferred = managed_rule_pci()
     for g in gpus:
         g.in_use = g.card == running_card

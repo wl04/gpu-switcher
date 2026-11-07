@@ -3,9 +3,8 @@
 Covers the gnome-shell journal line matching, the pure parsing cores,
 the GNOME/Wayland session classification (XDG_CURRENT_DESKTOP
 normalization, fallback to shell presence), the pure process-tree scan
-for session-scoped gnome-shell pids, the session-scoped journal
-attribution of the running primary, the journal error/absence
-distinction, and the logind session-leader lookup (bus.session_leader).
+for the uid-scoped gnome-shell pids, the uid-scoped journal attribution
+of the running primary, and the journal error/absence distinction.
 External binaries (lspci, journalctl) are replaced by stubs in the unit
 tests; the real commands are exercised by the manual end-to-end
 verification.
@@ -17,19 +16,14 @@ import tempfile
 import unittest
 from unittest import mock
 
-import gi
-
-gi.require_version("Gio", "2.0")
-gi.require_version("GLib", "2.0")
-from gi.repository import Gio
-
 # gpu_switcher.i18n binds its gettext function at import time, so the
 # locale must be pinned before the app import: the assertions below
 # compare English catalog strings and must hold under any developer
-# locale.
+# locale. LANGUAGE is cleared so it cannot override the LC_ALL pin.
 os.environ["LC_ALL"] = "en"
+os.environ.pop("LANGUAGE", None)
 
-from gpu_switcher import bus, detect
+from gpu_switcher import detect
 
 
 class PrimaryCardFromLine(unittest.TestCase):
@@ -92,29 +86,29 @@ class IsGnomeWayland(unittest.TestCase):
         self.assertTrue(detect.is_gnome_wayland("wayland", "", True))
 
 
-class GnomeShellPidsInTree(unittest.TestCase):
-    """Pure process-tree scan: {pid: (ppid, comm)}.
+class GnomeShellPidsForUid(unittest.TestCase):
+    """Pure process-tree scan: {pid: (ppid, comm, uid)}.
 
-    Session 1: leader 100 (gnome-session) -> shell 200 -> shell 300.
-    Session 2 (other user): shell 400 directly under init.
+    Two users: uid 1000 owns shells 200 and 300; uid 999 owns shell 400.
+    The scoping key is the uid (not a logind session leader).
     """
 
     def _tree(self):
         return {
-            1: (0, "systemd"),
-            100: (1, "gnome-session"),
-            200: (100, "gnome-shell"),
-            300: (200, "gnome-shell"),
-            400: (1, "gnome-shell"),
+            1: (0, "systemd", 0),
+            200: (1, "gnome-shell", 1000),
+            300: (1, "gnome-shell", 1000),
+            400: (1, "gnome-shell", 999),
         }
 
-    def test_gnome_shell_pids_in_tree_collects_only_descendants_of_leader(self):
-        self.assertEqual(detect.gnome_shell_pids_in_tree(self._tree(), 100), [200, 300])
-
-    def test_gnome_shell_pids_in_tree_returns_all_when_leader_unknown(self):
+    def test_gnome_shell_pids_for_uid_collects_only_that_users_shells(self):
         self.assertEqual(
-            detect.gnome_shell_pids_in_tree(self._tree(), None), [200, 300, 400]
+            detect.gnome_shell_pids_for_uid(self._tree(), 1000), [200, 300]
         )
+
+    def test_gnome_shell_pids_for_uid_excludes_pids_with_unknown_uid(self):
+        tree = {200: (1, "gnome-shell", None), 400: (1, "gnome-shell", 1000)}
+        self.assertEqual(detect.gnome_shell_pids_for_uid(tree, 1000), [400])
 
 
 class ProcessTree(unittest.TestCase):
@@ -130,25 +124,28 @@ class ProcessTree(unittest.TestCase):
             os.makedirs(os.path.join(root, "200"))
             with open(os.path.join(root, "200", "stat"), "wb") as f:
                 f.write(b"200 (shell) S 100 0")
+            with open(os.path.join(root, "200", "status"), "wb") as f:
+                f.write(b"Uid:\t1000\t1000\n")
             tree = detect._process_tree(root)
         self.assertEqual(set(tree), {100, 200})
-        self.assertEqual(tree[200], (100, "shell"))
+        # No status file for pid 100's valid comm? It has comm replaced, uid None.
+        self.assertEqual(tree[200], (100, "shell", 1000))
         self.assertNotEqual(tree[100][1], "shell")
+        self.assertIsNone(tree[100][2])
 
 
 class RunningPrimary(unittest.TestCase):
     """A failed journal read must be reported as an error, not masked as
-    "no selection line". The journal is scoped to the single in-scope
-    gnome-shell pid: a descendant of the session leader, falling back to
-    the single system-wide shell when that scan is empty (current GNOME
-    runs the shell under a systemd user manager, not under the leader),
-    or system-wide when the leader is unknown."""
+    "no selection line". The journal is scoped to the single gnome-shell pid
+    owned by our uid (scoping by /proc/<pid>/status Uid:, no logind): with
+    zero or multiple in-scope pids the attribution is ambiguous and the
+    journal is never queried."""
 
-    # One session: leader 100 -> shell 200.
+    # One user (uid 1000) with a single gnome-shell (pid 200).
     _TREE = {
-        1: (0, "systemd"),
-        100: (1, "gnome-session"),
-        200: (100, "gnome-shell"),
+        1: (0, "systemd", 0),
+        100: (1, "gnome-session", 1000),
+        200: (100, "gnome-shell", 1000),
     }
 
     def _stub(self, **kwargs):
@@ -164,10 +161,37 @@ class RunningPrimary(unittest.TestCase):
         with (
             self._stub(return_value=result),
             mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+            mock.patch("os.getuid", return_value=1000),
         ):
             card, error = detect.running_primary()
         self.assertEqual(card, "card2")
         self.assertIsNone(error)
+
+    def test_running_primary_scopes_by_uid_without_logind(self):
+        # Two gnome-shell pids from two users; only ours (uid 1000) may
+        # reach the journal. No logind session-leader round trip involved.
+        tree = {
+            1: (0, "systemd", 0),
+            200: (1, "gnome-shell", 1000),
+            600: (1, "gnome-shell", 999),
+        }
+        result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="GPU /dev/dri/card2 selected primary\n",
+            stderr="",
+        )
+        with (
+            self._stub(return_value=result) as run,
+            mock.patch.object(detect, "_process_tree", return_value=tree),
+            mock.patch("os.getuid", return_value=1000),
+        ):
+            card, error = detect.running_primary()
+        self.assertEqual(card, "card2")
+        self.assertIsNone(error)
+        argv = run.call_args[0][0]
+        self.assertIn("_PID=200", argv)
+        self.assertNotIn("_PID=600", argv)
 
     def test_running_primary_returns_no_error_when_journal_has_no_selection_line(self):
         result = subprocess.CompletedProcess(
@@ -176,6 +200,7 @@ class RunningPrimary(unittest.TestCase):
         with (
             self._stub(return_value=result),
             mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+            mock.patch("os.getuid", return_value=1000),
         ):
             card, error = detect.running_primary()
         self.assertIsNone(card)
@@ -185,6 +210,7 @@ class RunningPrimary(unittest.TestCase):
         with (
             self._stub(side_effect=FileNotFoundError("journalctl")),
             mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+            mock.patch("os.getuid", return_value=1000),
         ):
             card, error = detect.running_primary()
         self.assertIsNone(card)
@@ -197,110 +223,44 @@ class RunningPrimary(unittest.TestCase):
         with (
             self._stub(return_value=result),
             mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+            mock.patch("os.getuid", return_value=1000),
         ):
             card, error = detect.running_primary()
         self.assertIsNone(card)
         self.assertIsNotNone(error)
 
-    def test_running_primary_filters_journal_by_session_pid(self):
-        # Two interleaved sessions: only our leader's shell pid may
-        # reach the journal, so the other session's lines never count.
+    def test_running_primary_returns_unknown_when_no_shell_owned_by_our_uid(self):
+        # A shell of another user only: it never counts, and with no
+        # in-scope pid the journal is never queried.
         tree = {
-            1: (0, "systemd"),
-            100: (1, "gnome-session"),
-            200: (100, "gnome-shell"),
-            500: (1, "gnome-session"),
-            600: (500, "gnome-shell"),
+            1: (0, "systemd", 0),
+            600: (1, "gnome-shell", 999),
         }
         with (
             mock.patch.object(detect, "_process_tree", return_value=tree),
             self._stub() as run,
+            mock.patch("os.getuid", return_value=1000),
         ):
-            run.return_value = mock.Mock(
-                returncode=0,
-                stderr="",
-                stdout="GPU /dev/dri/card2 selected primary given udev rule\n",
-            )
-            card, error = detect.running_primary(100)
-        self.assertEqual(card, "card2")
-        self.assertIsNone(error)
-        argv = run.call_args[0][0]
-        self.assertIn("_PID=200", argv)
-        self.assertIn(detect.JOURNAL_UNIT, argv)
-
-    def test_running_primary_falls_back_to_system_wide_scan_when_shell_is_not_under_leader(
-        self,
-    ):
-        # Current GNOME runs the session under a systemd user manager:
-        # gnome-shell is a descendant of the manager, not of the logind
-        # session leader (the greeter worker), so the scoped scan is
-        # empty and the fallback must find the single system-wide shell.
-        tree = {
-            1: (0, "systemd"),
-            100: (1, "gdm-session-worker"),
-            200: (1, "systemd"),
-            300: (200, "gnome-shell"),
-        }
-        with (
-            mock.patch.object(detect, "_process_tree", return_value=tree),
-            self._stub() as run,
-        ):
-            run.return_value = mock.Mock(
-                returncode=0,
-                stderr="",
-                stdout="GPU /dev/dri/card2 selected primary given udev rule\n",
-            )
-            card, error = detect.running_primary(100)
-        self.assertEqual(card, "card2")
-        self.assertIsNone(error)
-        argv = run.call_args[0][0]
-        self.assertIn("_PID=300", argv)
-        self.assertIn(detect.JOURNAL_UNIT, argv)
-
-    def test_running_primary_still_unknown_when_fallback_finds_multiple_shells(self):
-        # The scoped scan is empty, but the system-wide fallback finds
-        # two shells (two concurrent sessions): the attribution is
-        # ambiguous, so the result stays unknown and the journal is
-        # never queried.
-        tree = {
-            1: (0, "systemd"),
-            100: (1, "gdm-session-worker"),
-            200: (1, "systemd"),
-            300: (200, "gnome-shell"),
-            400: (200, "gnome-shell"),
-        }
-        with (
-            mock.patch.object(detect, "_process_tree", return_value=tree),
-            self._stub() as run,
-        ):
-            card, error = detect.running_primary(100)
+            card, error = detect.running_primary()
         self.assertIsNone(card)
         self.assertIsNone(error)
         run.assert_not_called()
 
-    def test_running_primary_returns_unknown_when_multiple_shell_pids_in_scope(self):
+    def test_running_primary_returns_unknown_when_multiple_shells_of_our_uid(self):
+        # Two concurrent shells owned by our uid: the attribution is
+        # ambiguous, so the result stays unknown and the journal is never
+        # queried.
         tree = {
-            1: (0, "systemd"),
-            100: (1, "gnome-session"),
-            200: (100, "gnome-shell"),
-            300: (100, "gnome-shell"),
+            1: (0, "systemd", 0),
+            200: (1, "gnome-shell", 1000),
+            300: (1, "gnome-shell", 1000),
         }
         with (
             mock.patch.object(detect, "_process_tree", return_value=tree),
             self._stub() as run,
+            mock.patch("os.getuid", return_value=1000),
         ):
-            card, error = detect.running_primary(100)
-        self.assertIsNone(card)
-        self.assertIsNone(error)
-        run.assert_not_called()
-
-    def test_running_primary_returns_unknown_when_no_shell_pids_in_scope(self):
-        tree = {1: (0, "systemd"), 100: (1, "gnome-session")}
-        with (
-            mock.patch.object(detect, "_process_tree", return_value=tree),
-            self._stub() as run,
-        ):
-            card, error = detect.running_primary(100)
+            card, error = detect.running_primary()
         self.assertIsNone(card)
         self.assertIsNone(error)
         run.assert_not_called()
@@ -356,42 +316,6 @@ class DetectClassFilter(unittest.TestCase):
         # the shared is_display_gpu contract excludes it.
         result = self._run_detect("0x030000", driver_link=False)
         self.assertEqual(result.gpus, [])
-
-
-class SessionLeader(unittest.TestCase):
-    def test_session_leader_returns_leader_pid_from_logind(self):
-        conn = mock.Mock()
-
-        def call_sync(
-            dest, path, iface, method, params, rtype, flags, timeout, user_data
-        ):
-            if method == "ListSessions":
-                # out-arg a(susso): one row of (sid, uid, user, seat, path)
-                return (
-                    (
-                        (
-                            "1",
-                            1000,
-                            "user",
-                            "seat0",
-                            "/org/freedesktop/login1/session/2",
-                        ),
-                    ),
-                )
-            if method == "Get":
-                self.assertEqual(iface, "org.freedesktop.DBus.Properties")
-                self.assertEqual(
-                    params.unpack(), ("org.freedesktop.login1.Session", "Leader")
-                )
-                return (4361,)
-            raise AssertionError(f"unexpected method {method}")
-
-        conn.call_sync.side_effect = call_sync
-        with (
-            mock.patch.object(Gio, "bus_get_sync", return_value=conn),
-            mock.patch.dict(os.environ, {"XDG_SESSION_ID": "1"}),
-        ):
-            self.assertEqual(bus.session_leader(), 4361)
 
 
 if __name__ == "__main__":
