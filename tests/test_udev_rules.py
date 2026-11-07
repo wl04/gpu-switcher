@@ -56,6 +56,34 @@ class RuleConflicts(unittest.TestCase):
             rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
         )
 
+    def test_rule_conflicts_finds_assignment_after_match_on_same_line(self) -> None:
+        path = os.path.join(self.dir_a, "10-other.rules")
+        self._write_rule(path, f'SUBSYSTEM=="drm", TAG=="seat", TAG+="{MUTTER_TAG}"\n')
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
+        )
+
+    def test_rule_conflicts_finds_env_assignment_after_env_match(self) -> None:
+        path = os.path.join(self.dir_a, "10-other.rules")
+        self._write_rule(path, f'ENV{{A}}=="1", ENV{{{MUTTER_ENV}}}="1"\n')
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
+        )
+
+    def test_rule_conflicts_finds_assignment_on_continued_line(self) -> None:
+        path = os.path.join(self.dir_a, "10-other.rules")
+        self._write_rule(path, f'SUBSYSTEM=="drm", \\\nTAG+="{MUTTER_TAG}"\n')
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
+        )
+
+    def test_rule_conflicts_ignores_tag_name_in_negated_match(self) -> None:
+        path = os.path.join(self.dir_a, "10-other.rules")
+        self._write_rule(path, f'TAG!="{MUTTER_TAG}", TAG+="x"\n')
+        self.assertEqual(
+            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), []
+        )
+
     def test_rule_conflicts_ignores_unassign_and_match_lines(self) -> None:
         # TAG-= (unset) and TAG== (match expression) are not assignments
         # of the preferred GPU and must not block the switch.

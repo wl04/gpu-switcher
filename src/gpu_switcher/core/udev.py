@@ -136,26 +136,43 @@ def read_text(path: str) -> str:
         return ""
 
 
-# Assignment operators for the preferred-GPU tag. TAG-= (unset) and
-# TAG== (match expression) are not assignments and must not count.
-_TAG_ASSIGN_RE = re.compile(r"TAG\s*(\+=|-=|==|=)")
-_ENV_ASSIGN_RE = re.compile(r"ENV\s*\{[^}]*\}\s*(\+=|-=|==|=)")
-_ASSIGN_OPS = ("+=", "=")
+# Assignments of the preferred-GPU tag. Only "=" and "+=" followed by a
+# quoted value assign; TAG-= (unset), TAG== / TAG!= (match expressions) never
+# match because the operator must be directly followed by the opening quote.
+# The lookbehind keeps names such as XTAG from matching.
+_TAG_ASSIGN_RE = re.compile(r'(?<![\w])TAG\s*\+?=\s*"([^"]*)"')
+_ENV_ASSIGN_RE = re.compile(
+    r"(?<![\w])ENV\s*\{\s*" + re.escape(MUTTER_ENV) + r'\s*\}\s*\+?=\s*"'
+)
+
+
+def _join_continuations(text: str) -> list[str]:
+    """Logical rule lines: a trailing backslash joins the next line."""
+    lines: list[str] = []
+    pending = ""
+    for raw in text.splitlines():
+        if raw.endswith("\\"):
+            pending += raw[:-1]
+            continue
+        lines.append(pending + raw)
+        pending = ""
+    if pending:
+        lines.append(pending)
+    return lines
 
 
 def _sets_preferred_gpu(line: str) -> bool:
     """True when this line assigns the preferred-GPU tag to the device.
 
     Only assignment forms count: TAG+=/TAG= with the tag as the assigned
-    value, or ENV{...}= where the key is the legacy variable. Unassign
-    (TAG-=) and match expressions (TAG==, ENV{...}==/!=) are not
-    assignments and must not block the switch.
+    value, or ENV{legacy variable}=. Every assignment on the line is
+    inspected, so a preceding match expression (TAG=="seat") does not hide
+    it. Unassign (TAG-=) and match expressions (TAG==, TAG!=, ENV{...}==)
+    are not assignments and must not block the switch.
     """
-    m = _TAG_ASSIGN_RE.search(line)
-    if m is not None and m.group(1) in _ASSIGN_OPS and MUTTER_TAG in line:
+    if any(m.group(1) == MUTTER_TAG for m in _TAG_ASSIGN_RE.finditer(line)):
         return True
-    m = _ENV_ASSIGN_RE.search(line)
-    return m is not None and m.group(1) in _ASSIGN_OPS and MUTTER_ENV in line
+    return _ENV_ASSIGN_RE.search(line) is not None
 
 
 def rule_conflicts(
@@ -204,7 +221,10 @@ def rule_conflicts(
                 if on_unreadable is OnUnreadable.FLAG:
                     conflicts.append(path)
                 continue
-            lines = [l for l in text.splitlines() if not l.strip().startswith("#")]
-            if any(_sets_preferred_gpu(l) for l in lines):
+            if any(
+                _sets_preferred_gpu(line)
+                for line in _join_continuations(text)
+                if not line.strip().startswith("#")
+            ):
                 conflicts.append(path)
     return conflicts
