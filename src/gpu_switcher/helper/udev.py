@@ -9,6 +9,8 @@ the fast-path logout as though the tags were fresh.
 
 import os
 import sys
+import traceback
+from collections.abc import Callable
 from enum import Enum
 
 import gi
@@ -47,6 +49,20 @@ def check_udevadm() -> bool:
         _udevadm_available = os.path.exists(UDEVDADM)
         print(f"udevadm at {UDEVDADM}: available={_udevadm_available}", file=sys.stderr)
     return _udevadm_available
+
+
+# Exceptions raised inside a GLib callback would otherwise be swallowed by
+# PyGObject and leave the D-Bus call unanswered; the service installs a
+# handler that releases the operation lock and replies with an error.
+callback_error_handler: Callable[[str], None] | None = None
+
+
+def report_callback_error(detail: str) -> None:
+    """Hand an unexpected callback failure to the installed handler (or just
+    log it when none is installed)."""
+    print("error: " + detail, file=sys.stderr)
+    if callback_error_handler is not None:
+        callback_error_handler(detail)
 
 
 def _decode(stream) -> str:
@@ -94,19 +110,25 @@ def run_udev_async(argv, on_done, cancellable=None):
     def on_communicate(_source, result, _ud):
         GLib.source_remove(timeout_source)
         try:
-            _ok, out, err = proc.communicate_finish(result)
-            rc = proc.get_exit_status()
-        except GLib.Error as error:
-            print(f"{argv[0]}: {error}", file=sys.stderr)
-            on_done(1, "", str(error))
-            return
-        out_text = _decode(out)
-        err_text = _decode(err)
-        print(
-            f"{argv[0]} rc={rc} output={out_text.strip() or err_text.strip() or '-'}",
-            file=sys.stderr,
-        )
-        on_done(rc, out_text, err_text)
+            try:
+                _ok, out, err = proc.communicate_finish(result)
+                rc = proc.get_exit_status()
+            except GLib.Error as error:
+                print(f"{argv[0]}: {error}", file=sys.stderr)
+                on_done(1, "", str(error))
+                return
+            out_text = _decode(out)
+            err_text = _decode(err)
+            print(
+                f"{argv[0]} rc={rc} output="
+                f"{out_text.strip() or err_text.strip() or '-'}",
+                file=sys.stderr,
+            )
+            on_done(rc, out_text, err_text)
+        except Exception:
+            report_callback_error(
+                f"unhandled exception in {argv[0]} callback:\n{traceback.format_exc()}"
+            )
 
     proc.communicate_async(None, step_cancellable, on_communicate, None)
 

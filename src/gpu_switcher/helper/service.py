@@ -157,20 +157,25 @@ def translator(locale):
 # In-progress operation lock: at most one mutating call (SetPrimary or
 # SetAuto) runs at a time; a concurrent one gets the Busy D-Bus error.
 _operation_in_progress = False
+# The invocation holding the lock, so a failure can release the lock only
+# when it belongs to the failing call.
+_active_invocation = None
 
 
-def _claim_operation() -> bool:
+def _claim_operation(invocation=None) -> bool:
     """Claim the operation lock; False when another operation is in flight."""
-    global _operation_in_progress
+    global _operation_in_progress, _active_invocation
     if _operation_in_progress:
         return False
     _operation_in_progress = True
+    _active_invocation = invocation
     return True
 
 
 def _release_operation() -> None:
-    global _operation_in_progress
+    global _operation_in_progress, _active_invocation
     _operation_in_progress = False
+    _active_invocation = None
 
 
 def _internal_error(invocation, detail):
@@ -179,6 +184,45 @@ def _internal_error(invocation, detail):
     invocation.return_dbus_error(
         DBUS_ERROR_INTERNAL, "Internal error; see the journal."
     )
+
+
+def _fail_operation(invocation, detail):
+    """Unexpected failure: release the lock when this call holds it, then
+    reply with the internal error."""
+    if _operation_in_progress and _active_invocation is invocation:
+        _release_operation()
+    _internal_error(invocation, detail)
+
+
+def _abort_active_operation(detail):
+    """Failure inside an asynchronous callback of the in-flight operation."""
+    invocation = _active_invocation
+    if invocation is None:
+        print("error: " + detail, file=sys.stderr)
+        _release_operation()
+        return
+    _fail_operation(invocation, detail)
+    _reset_idle_timer()
+
+
+hud.callback_error_handler = _abort_active_operation
+
+
+def _guarded(invocation, fn):
+    """Wrap an asynchronous callback so an unexpected exception releases the
+    lock and answers the call instead of wedging the helper."""
+
+    def wrapper(*args):
+        try:
+            fn(*args)
+        except Exception:
+            _fail_operation(
+                invocation,
+                f"unhandled exception in callback:\n{traceback.format_exc()}",
+            )
+            _reset_idle_timer()
+
+    return wrapper
 
 
 def authorization_message(tr, status, detail):
@@ -231,7 +275,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
     pci, locale = params
     tr = translator(locale)
     print(f"SetPrimary: pci={pci} locale={locale} sender={sender}", file=sys.stderr)
-    if not _claim_operation():
+    if not _claim_operation(invocation):
         print("SetPrimary: operation already in progress; rejecting", file=sys.stderr)
         invocation.return_dbus_error(
             DBUS_ERROR_BUSY, "Another operation is in progress."
@@ -289,7 +333,9 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         rule_store.write_rule_atomically(pci, content, card, tr, finish, cancellable)
 
     sender_bus = invocation.get_message().get_sender()
-    auth.authorize(connection, sender_bus, locale, on_auth, cancellable)
+    auth.authorize(
+        connection, sender_bus, locale, _guarded(invocation, on_auth), cancellable
+    )
 
 
 def _set_auto_apply(tr):
@@ -336,7 +382,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
     locale = params[0]
     tr = translator(locale)
     print(f"SetAuto: locale={locale} sender={sender}", file=sys.stderr)
-    if not _claim_operation():
+    if not _claim_operation(invocation):
         print("SetAuto: operation already in progress; rejecting", file=sys.stderr)
         invocation.return_dbus_error(
             DBUS_ERROR_BUSY, "Another operation is in progress."
@@ -376,7 +422,9 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
         hud.refresh_udev_async(None, on_refresh, cancellable)
 
     sender_bus = invocation.get_message().get_sender()
-    auth.authorize(connection, sender_bus, locale, on_auth, cancellable)
+    auth.authorize(
+        connection, sender_bus, locale, _guarded(invocation, on_auth), cancellable
+    )
 
 
 def handle_method_call(
@@ -404,7 +452,7 @@ def handle_method_call(
                 GLib.Variant("(bsb)", (False, failure.args[0], False))
             )
     except Exception:
-        _internal_error(
+        _fail_operation(
             invocation,
             f"unhandled exception in {method_name}:\n{traceback.format_exc()}",
         )
@@ -419,21 +467,26 @@ IDLE_TIMEOUT_MS = 60000
 _IDLE_SOURCE = None
 
 
+def _on_idle_timeout():
+    """Idle timer tick; True keeps the timer (an operation is in flight: the
+    polkit dialog alone may outlast the idle timeout), False ends it."""
+    if _operation_in_progress:
+        return True
+    print(
+        "idle timeout; exiting so the next call re-activates fresh code",
+        file=sys.stderr,
+    )
+    if _LOOP is not None:
+        _LOOP.quit()
+    return False
+
+
 def _reset_idle_timer():
     global _IDLE_SOURCE
     if _IDLE_SOURCE is not None:
         GLib.source_remove(_IDLE_SOURCE)
 
-    def on_idle():
-        print(
-            "idle timeout; exiting so the next call re-activates fresh code",
-            file=sys.stderr,
-        )
-        if _LOOP is not None:
-            _LOOP.quit()
-        return False
-
-    _IDLE_SOURCE = GLib.timeout_add(IDLE_TIMEOUT_MS, on_idle)
+    _IDLE_SOURCE = GLib.timeout_add(IDLE_TIMEOUT_MS, _on_idle_timeout)
 
 
 _LOOP = None
