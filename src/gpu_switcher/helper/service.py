@@ -72,14 +72,12 @@ INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
 """
 
 
-# The locale arguments arrive from an unauthenticated D-Bus caller. Only
-# the catalog languages actually shipped with the helper are accepted; anything
-# else (unknown language, path-shaped value, over-long value) falls back to
-# English, so catalog lookups can never leave LOCALE_BASE.
+# The locale arrives from an unauthenticated caller. Only shipped catalog
+# languages are accepted; anything else (unknown, path-shaped, over-long)
+# becomes English, so catalog lookups never leave LOCALE_BASE.
 def _shipped_locales(localedir: str) -> tuple[str, ...]:
-    """The catalog languages shipped under localedir, always including the
-    English fallback. A missing or unreadable base yields just "en": the helper
-    still runs (translating nothing) but stays safe."""
+    """The languages shipped under localedir, plus the English fallback. A
+    missing or unreadable directory yields just "en"."""
     try:
         entries = os.listdir(localedir)
     except OSError:
@@ -88,8 +86,7 @@ def _shipped_locales(localedir: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(["en", *locales]))
 
 
-# Derived from the installed locale tree, never hand-kept, so it cannot
-# drift from the packaged catalogs.
+# Read from the installed locale tree so it matches the packaged catalogs.
 SUPPORTED_LOCALES = _shipped_locales(LOCALE_BASE)
 _MAX_LOCALE_LEN = 32
 
@@ -97,11 +94,10 @@ _MAX_LOCALE_LEN = 32
 def normalize_locale(locale):
     """Map a caller-supplied locale to a supported catalog language.
 
-    Returns one of SUPPORTED_LOCALES: the language part of a plain
-    identifier ('ru_RU.UTF-8' -> 'ru') when it is supported, else 'en'.
-    Path-shaped values ('/', '\\', '..') and values over _MAX_LOCALE_LEN
-    are rejected: gettext would otherwise use them as path components and
-    could open (or block on) files outside LOCALE_BASE.
+    Returns the language part ('ru_RU.UTF-8' -> 'ru') when supported, else
+    'en'. Path-shaped values and values over _MAX_LOCALE_LEN are rejected:
+    gettext would use them as path components and could open files outside
+    LOCALE_BASE.
     """
     if not isinstance(locale, str) or not locale:
         return "en"
@@ -116,8 +112,7 @@ def normalize_locale(locale):
 def translator(locale):
     """gettext for this helper invocation (locale supplied by the caller).
 
-    The locale is normalized to the allowlisted languages first (see
-    normalize_locale), so catalog loading stays inside LOCALE_BASE.
+    The locale goes through normalize_locale first.
     """
     language = normalize_locale(locale)
     langs = [language] if language == "en" else [language, "en"]
@@ -129,11 +124,10 @@ def translator(locale):
         return lambda s: s
 
 
-# In-progress operation lock: at most one mutating call (SetPrimary or
-# SetAuto) runs at a time; a concurrent one gets the Busy D-Bus error.
+# Operation lock: one mutating call at a time; a concurrent one gets Busy.
 _operation_in_progress = False
-# The invocation holding the lock, so a failure can release the lock only
-# when it belongs to the failing call.
+# The invocation holding the lock: a failure releases the lock only if it is
+# the failing call's.
 _active_invocation = None
 
 
@@ -244,9 +238,9 @@ def _set_primary_plan(pci, tr):
 
 
 def handle_set_primary(connection, sender, params, invocation) -> None:
-    """SetPrimary(pci, locale). Expected failures raise HelperFailure
-    (caught by handle_method_call); the async chain completes via
-    invocation.return_value."""
+    """SetPrimary(pci, locale). Expected failures raise HelperFailure (caught
+    by handle_method_call); otherwise the async chain replies through
+    finish()."""
     pci, locale = params
     tr = translator(locale)
     print(f"SetPrimary: pci={pci!r} locale={locale!r} sender={sender}", file=sys.stderr)
@@ -257,8 +251,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         )
         return
     card, vendor, device = _set_primary_plan(pci, tr)
-    # The real GDBusMethodInvocation exposes no get_cancellable() in this
-    # pygobject build, so use a fresh cancellable for the operation.
+    # GDBusMethodInvocation has no get_cancellable() in pygobject; use our own.
     cancellable = Gio.Cancellable.new()
 
     def finish(ok, message, backup, refresh_ok):
@@ -314,8 +307,8 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
 
 
 def _set_auto_apply(tr):
-    """Synchronous part of SetAuto after authorization; raises
-    HelperFailure. Returns (backup, leading, verified_sentence)."""
+    """Remove the managed rule after authorization; raises HelperFailure.
+    Returns (backup, leading, verified_sentence) for the reply message."""
     rule_store.check_not_symlink(
         tr("The managed rule is a symlink; refusing to remove it.")
     )
@@ -342,19 +335,18 @@ def _set_auto_apply(tr):
         )
     else:
         print("SetAuto: no managed rule; already auto", file=sys.stderr)
-        # A previous Reset may have removed the rule while its udev
-        # refresh failed, so the stale tags persist; refresh udev on the
-        # already-absent path too (as SetPrimary does for an unchanged
-        # rule).
+        # An earlier removal may have left stale tags (its refresh failed), so
+        # refresh even when the rule is already absent, as SetPrimary does
+        # for an unchanged rule.
         leading = tr("No managed rule (auto selection already in effect).")
         verified_sentence = tr("Udev rules reloaded.")
     return backup, leading, verified_sentence
 
 
 def handle_set_auto(connection, sender, params, invocation) -> None:
-    """SetAuto(locale). Authorization failure and post-authorization file
-    failures complete with the operation-failure tuple; the async udev
-    refresh completes via invocation.return_value."""
+    """SetAuto(locale). Authorization and file failures reply with the
+    failure tuple; otherwise the async udev refresh replies through
+    finish()."""
     locale = params[0]
     tr = translator(locale)
     print(f"SetAuto: locale={locale!r} sender={sender}", file=sys.stderr)
@@ -364,8 +356,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
             DBUS_ERROR_BUSY, "Another operation is in progress."
         )
         return
-    # The real GDBusMethodInvocation exposes no get_cancellable() in this
-    # pygobject build, so use a fresh cancellable for the operation.
+    # GDBusMethodInvocation has no get_cancellable() in pygobject; use our own.
     cancellable = Gio.Cancellable.new()
 
     def finish(ok, message, refresh_ok):
@@ -415,9 +406,8 @@ def handle_method_call(
         # GDBus dispatches only the methods declared in the introspection
         # node, so there is no "unknown method" case here.
     except HelperFailure as failure:
-        # An expected, user-facing failure: reply with the operation
-        # failure tuple for the method (the lock is released here - the
-        # async chain has not started, so finish() will not run).
+        # Expected failure: reply with the failure tuple. The async chain has
+        # not started, so finish() will not release the lock; do it here.
         _release_operation()
         if method_name == "SetPrimary":
             invocation.return_value(
@@ -435,10 +425,8 @@ def handle_method_call(
     _reset_idle_timer()
 
 
-# A D-Bus-activated helper stays alive as the name owner between calls; if it
-# never exits, it keeps serving stale code after a package upgrade. Quit
-# shortly after the last call: the broker re-activates a fresh process from
-# the on-disk code on the next call.
+# Quit shortly after the last call so a package upgrade is never served by a
+# stale process; the broker re-activates the helper from the on-disk code.
 IDLE_TIMEOUT_MS = 60000
 _IDLE_SOURCE = None
 
@@ -488,7 +476,7 @@ def on_name_lost(connection, name) -> None:
 def main() -> None:
     global _LOOP
     print(f"helper starting (uid={os.getuid()}, argv={sys.argv})", file=sys.stderr)
-    hud.check_udevadm()  # single availability check, cached for the process
+    hud.check_udevadm()
     _LOOP = GLib.MainLoop.new(None, False)
     # Register the object on the bus connection BEFORE owning the name:
     # the broker retries a client's pending call the instant the name is
@@ -512,9 +500,8 @@ def main() -> None:
         on_name_acquired,
         on_name_lost,
     )
-    # Arm the idle timer right away: a D-Bus-answered call (gdbus
-    # introspect) is not a handled call, and the helper must still exit
-    # after IDLE_TIMEOUT_MS instead of owning the name forever.
+    # Arm the timer now: calls the bus answers itself (introspection) never
+    # reach a handler, and the helper must still exit when idle.
     _reset_idle_timer()
     _LOOP.run()
     print("main loop ended", file=sys.stderr)
