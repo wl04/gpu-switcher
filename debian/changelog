@@ -1,3 +1,14 @@
+gpu-switcher (0.2.0-1) unstable; urgency=low
+
+  * New: GPU rows are accessible — the name is now the radio's child, so screen readers announce each card and clicking the label selects it; status banners use Adwaita's success/warning/error styling.
+  * Faster detection: the running primary is found by a /proc uid scan (no logind round trip) with journalctl filtering server-side, and GPU names come from the lspci machine format.
+  * The helper runs as a D-Bus-activated systemd service, is fully async with a busy lock, reports stable D-Bus error names, and is hardened (python3 -I -B, no site/user .pyc).
+  * Fixes: timeouts are matched as G_IO_ERROR_TIMEOUT (7), so real timeouts are reported and the stale polkit dialog is cancelled; the idle-exit timer is armed at startup; SetPrimary survives a non-UTF-8 existing rule; a second app start presents the existing window; a vanished selected card is refused instead of silently switching to auto; actions are disabled outside a GNOME Wayland session.
+  * Structure: code split into gpu_switcher.core and gpu_switcher.helper; string states are Enums; bus and selection logic de-duplicated; i18n honours LANGUAGE and derives locales; the hard-coded GPU table is gone (unknown cards show their PCI id).
+  * Tooling: CI (test/lint/typecheck, both .deb builds + lintian, systemd-analyze verify), pinned dev tools, a single install list in make install, and mypy now type-checks main.py with disallow_untyped_defs for the core and tests.
+
+ -- wl04 <wl04@users.noreply.github.com>  Sat, 07 Nov 2026 18:35:08 +0100
+
 gpu-switcher (0.1.1-1) unstable; urgency=low
 
   * Fix: the helper no longer crashes (NameError) when its rate-limit cleanup removes expired per-caller entries.
