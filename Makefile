@@ -10,8 +10,7 @@ lint:
 	ruff check src tests
 	ruff format --check src tests
 
-# Type-check (mypy; config in pyproject.toml). GTK widgets are declared with
-# their concrete (Any) type in main.py since PyGObject ships no stubs.
+# Type-check (mypy; config in pyproject.toml).
 typecheck:
 	mypy
 

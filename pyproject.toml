@@ -11,8 +11,7 @@ dependencies = []
 [tool.ruff]
 line-length = 88
 target-version = "py312"
-# Source root, so ruff treats gpu_switcher, helper and udev_rules as
-# first-party when sorting imports.
+# Source root, so ruff treats gpu_switcher as first-party when sorting imports.
 src = ["src"]
 
 [tool.ruff.lint]
@@ -27,12 +26,11 @@ ignore = ["E402", "E501", "RUF012", "UP031"]
 files = ["src", "tests"]
 mypy_path = ["src"]
 ignore_missing_imports = true
-# Resolve the package as gpu_switcher.* (via mypy_path) rather than as a
-# duplicate top-level module.
+# Resolve modules as gpu_switcher.* (via mypy_path), not as top-level duplicates.
 explicit_package_bases = true
 
-# disallow_untyped_defs is enforced for the pure modules and the test suite;
-# the helper package and the GTK UI (main.py) are still typed for errors only.
+# disallow_untyped_defs is enforced for the pure modules and the tests; the
+# helper package and the GTK UI (main.py) are checked for type errors only.
 [[tool.mypy.overrides]]
 module = [
     "gpu_switcher.core.*",

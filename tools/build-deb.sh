@@ -31,12 +31,10 @@ mkdir -p \
   "$ROOT/usr/share/doc/gpu-switcher" \
   "$ROOT/usr/share/man/man1"
 
-# Validation gate: the polkit policy must be well-formed XML and
-# structurally valid against the polkit policyconfig DTD, which allows
-# exactly one <defaults> per action containing (allow_any, allow_active)
-# or (allow_any, allow_active, allow_inactive) in that order. xmllint and
-# lxml are not available in the build environment, so the stdlib
-# ElementTree parse plus this explicit structural check is the guard.
+# Validation gate for the polkit policy: well-formed XML, and per the polkit
+# DTD exactly one <defaults> per action holding (allow_any, allow_active) or
+# (allow_any, allow_active, allow_inactive) in that order. xmllint and lxml may
+# be missing, so this uses the stdlib ElementTree plus an explicit check.
 python3 - <<'PY'
 import sys
 import xml.etree.ElementTree as ET
