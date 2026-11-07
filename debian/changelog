@@ -1,3 +1,12 @@
+gpu-switcher (0.2.2-1) unstable; urgency=high
+
+  * Fix: the udevadm refresh crashed with AttributeError ('Bytes' object has no
+    attribute 'decode'). g_subprocess_communicate_finish returns GLib.Bytes (or
+    None for an empty stream), not Python bytes. The stream is now decoded via a
+    helper that normalizes both forms.
+
+ -- wl04 <wl04@users.noreply.github.com>  Sat, 07 Nov 2026 20:01:36 +0100
+
 gpu-switcher (0.2.1-1) unstable; urgency=high
 
   * Fix: Apply and Reset to auto failed with Error.Internal. The helper called

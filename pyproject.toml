@@ -4,7 +4,7 @@
 # and PyGObject (GTK 4), which are not pip packages (see README "Install").
 [project]
 name = "gpu-switcher"
-version = "0.2.1"
+version = "0.2.2"
 requires-python = ">=3.12"
 dependencies = []
 
