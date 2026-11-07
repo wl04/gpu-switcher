@@ -21,13 +21,12 @@ from gpu_switcher.core.udev import G_IO_ERROR_TIMEOUT
 class Outcome(Enum):
     """What the last Apply/Reset left behind.
 
-    idle: no operation ran, or it changed nothing (startup state).
-    success_refreshed: the change was applied and the udev refresh
-        succeeded (tags fresh; fast-path logout is valid).
-    success_refresh_failed: the change was applied but the udev refresh
-        failed (rule on disk; a reboot is required).
-    unknown: the client call timed out; the helper's outcome is not
-        known (the app re-detects and reconciles with the rule on disk).
+    idle: nothing ran or nothing changed (also the startup state).
+    success_refreshed: applied and udev refreshed (tags fresh, so Log out
+        is valid).
+    success_refresh_failed: applied, but the refresh failed (reboot needed).
+    unknown: the client call timed out, so the outcome is unknown (the app
+        re-detects the rule on disk).
     """
 
     idle = "idle"

@@ -1,13 +1,11 @@
 """gettext setup.
 
-Looks for compiled catalogs in the installed location first, then in the
-source tree, and falls back to English (identity) when no catalog exists.
+Catalogs are looked up in the installed location, then in the source tree;
+without one the strings stay English (identity).
 
-The active language is resolved by gettext itself: with languages=None it
-honors the environment ordering (LANGUAGE, a colon-separated preference
-list, first, then LC_ALL / LC_MESSAGES / LANG). _requested_language() reads
-the same first preference as a single code, for callers (the helper's
-polkit dialog) that need one locale string.
+gettext picks the language from the environment (LANGUAGE, then LC_ALL /
+LC_MESSAGES / LANG). _requested_language() returns the same first preference
+as a single code, for the locale argument of the helper calls.
 """
 
 import gettext
@@ -30,9 +28,9 @@ def _localedirs() -> list[str]:
 def _requested_language() -> str:
     """The first preferred language as a single code.
 
-    Honors LANGUAGE (colon-separated list) before LC_ALL / LC_MESSAGES /
-    LANG, mirroring gettext's own ordering; "en" when none is set. This is
-    the locale the app passes to the helper (localized polkit dialog).
+    Follows gettext's order (LANGUAGE, then LC_ALL / LC_MESSAGES / LANG);
+    "en" when none is set. The app passes it to the helper so the helper's
+    replies are localized.
     """
     language = os.environ.get("LANGUAGE")
     if language:
@@ -48,10 +46,8 @@ def _requested_language() -> str:
 
 
 def _make_gettext() -> Callable[[str], str]:
-    # languages=None lets gettext resolve the active language from the
-    # environment (LANGUAGE, then LC_ALL / LC_MESSAGES / LANG). Try each
-    # search directory in turn (installed location first, then the source
-    # tree) and fall back to English (identity) when no catalog exists.
+    # languages=None: gettext resolves the language from the environment.
+    # Try each directory in turn, then fall back to identity (English).
     for localedir in _localedirs():
         try:
             return gettext.translation(

@@ -1,15 +1,11 @@
 """Primary GPU Switcher - GTK4 application.
 
-Unprivileged GUI over the root D-Bus helper: lists the DRM cards with
-"In use now" / "Preferred (configured)" badges, guards non-GNOME-Wayland
-sessions with a warning, and gates the privileged changes behind polkit
-(Apply / Reset to auto) with a contextual status banner. Reboot uses
-login1; Log out is the fast path (GNOME session manager Logout, no
-polkit prompt). The app tracks the explicit outcome of the last
-Apply/Reset (state.Outcome); Log out stays enabled only while not busy
-and after a successful, refreshed operation. A collapsible hint gives
-the journalctl command to verify the switch after restart. Detection runs
-on a worker thread, so the main loop never blocks on it.
+Unprivileged GUI over the root D-Bus helper: lists the GPUs with "In use
+now" / "Preferred (configured)" badges, warns outside GNOME Wayland, and
+sends Apply / Reset to the helper (polkit-gated) with a status banner. Reboot
+goes through login1, Log out through the GNOME session manager. The outcome
+of the last Apply/Reset (state.Outcome) decides whether Log out is enabled.
+Detection runs on a worker thread so the main loop never blocks.
 """
 
 from __future__ import annotations
@@ -49,13 +45,11 @@ def _badge(text: str) -> Gtk.Label:
 
 
 def _gpu_row(radio, name: str, sub: str, badges: list) -> Gtk.Box:
-    # The name is the radio's child: it is the row's accessible name (Orca
-    # announces it) and makes the whole name clickable. The PCI address and
-    # status badges sit on a second line so the row does not stretch the
-    # window to name + PCI + badges on one line.
+    # The name is the radio's child: it becomes the accessible name and the
+    # whole name is clickable. PCI address and badges go on a second line to
+    # keep the window narrow.
     name_label = Gtk.Label(label=name)
-    # A bare GtkLabel centers its text (default xalign is 0.5); the name must
-    # sit at the left edge.
+    # GtkLabel centers its text by default.
     name_label.set_xalign(0.0)
     radio.set_child(name_label)
     container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -77,9 +71,8 @@ def _gpu_row(radio, name: str, sub: str, badges: list) -> Gtk.Box:
 class GpuSwitcherApp(Gtk.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID)
-        # GTK widgets are declared with their concrete type (PyGObject ships no
-        # stubs, so these resolve to Any); each is None until the matching
-        # _build_* method assigns it, and is only used after the build.
+        # Widgets are typed as their GTK classes (PyGObject has no stubs, so
+        # they are Any) and stay None until the matching _build_* assigns them.
         self.window: Gtk.ApplicationWindow = None
         self.detection: detect.Detection | None = None
         self.selected_card: str = SELECTION_AUTO  # card name or a SELECTION_* sentinel
@@ -101,12 +94,8 @@ class GpuSwitcherApp(Gtk.Application):
             None  # shown after a rebuild
         )
 
-    # ------------------------------------------------------------------ UI
-
     def _build_loading(self) -> None:
-        """Minimal content while the first detection runs: a dim
-        'Detecting…' label; the full content replaces it when detection
-        finishes."""
+        """Placeholder shown until the first detection finishes."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         box.set_margin_top(24)
         box.set_margin_bottom(24)
@@ -153,15 +142,12 @@ class GpuSwitcherApp(Gtk.Application):
         return warning
 
     def _build_rows(self, result) -> None:
-        """One radio row per GPU, an optional disabled row for a
-        configured GPU that is not currently detected, plus the
-        always-present auto row.
+        """One radio row per GPU, a disabled row for a configured GPU that is
+        not detected (if any), and the auto row.
 
-        The auto row is created even when no GPUs are detected so
-        Reset / the revert path never touch a missing widget. The
-        selected radio always mirrors the configured state: the card
-        matching the managed rule, the unavailable row when the rule
-        pins a PCI no detected GPU carries, else auto.
+        The auto row always exists, so Reset and the revert path never touch
+        a missing widget. The selection mirrors the configured state
+        (selection.mirror_configured_state).
         """
         self.rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.radios_by_gpu = {}
@@ -219,8 +205,7 @@ class GpuSwitcherApp(Gtk.Application):
         self._select_radio(mirror_configured_state(result))
 
     def _select_radio(self, card: str) -> None:
-        """Point the radio group at card (auto, the unavailable sentinel,
-        or a real detected GPU)."""
+        """Select the radio for a card name or a SELECTION_* sentinel."""
         self.selected_card = card
         if card == SELECTION_AUTO:
             self.auto_radio.set_active(True)
@@ -230,8 +215,7 @@ class GpuSwitcherApp(Gtk.Application):
             self.radios_by_gpu[card].set_active(True)
 
     def _build_running_primary_note(self, result) -> Gtk.Label | None:
-        """Note when the running primary is unknown or the session journal
-        could not be read; None when a running primary is known."""
+        """Note when the running primary is unknown or unreadable, else None."""
         if result.running_card_error is not None:
             text = (
                 i18n._("Running primary: could not read the session journal (%s).")
@@ -251,10 +235,9 @@ class GpuSwitcherApp(Gtk.Application):
         return note
 
     def _build_banner(self, result) -> None:
-        """Status banner: Gtk.InfoBar is deprecated since GTK 4.10; the
-        documented replacement is a Revealer with a Box + Label using
-        Adwaita style classes (no custom CSS). A rule conflict is shown
-        as a warning before any action."""
+        """Status banner: a Revealer with a Box and Label styled with Adwaita
+        classes (Gtk.InfoBar is deprecated). Shows a warning up front for an
+        undetected configured GPU or a conflicting rule."""
         self.banner = Gtk.Revealer()
         self.banner_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.banner_label = Gtk.Label(label="")
@@ -315,16 +298,13 @@ class GpuSwitcherApp(Gtk.Application):
         return buttons
 
     def _build_verification_hint(self) -> Gtk.Expander:
-        """Collapsible verification hint: the exact command from
-        Mutter's multi-GPU docs. Prose lines use the regular font; only
-        the command and the expected journal line are monospace."""
+        """Collapsible hint with the journalctl command that verifies the
+        switch (from Mutter's multi-GPU docs); only commands are monospace."""
         hint = Gtk.Expander()
         hint.set_label(i18n._("How to verify the switch after restart"))
         hint_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         hint_box.set_margin_top(8)
-        # Left-align the block: the expander centers its child otherwise,
-        # and a bare GtkLabel centers its text inside the box (default
-        # xalign is 0.5), so each line needs an explicit xalign of 0.
+        # The expander and GtkLabel center by default; align every line left.
         lead = Gtk.Label(label=i18n._("Run in a terminal after reboot or login:"))
         lead.set_wrap(True)
         command = Gtk.Label(
@@ -369,9 +349,8 @@ class GpuSwitcherApp(Gtk.Application):
         self.banner.set_reveal_child(True)
 
     def _set_busy(self, busy: bool) -> None:
-        """Busy state for the action buttons; Log out goes through the
-        sensitivity rule (state.logout_enabled), so it is never
-        re-enabled by un-busy alone."""
+        """Enable/disable the action buttons. Log out follows
+        state.logout_enabled, so ending the busy state alone never enables it."""
         assert self.detection is not None  # actions are only reachable after detection
         actions = actions_enabled(self.detection.gnome_wayland)
         for button in (self.apply_btn, self.reset_btn, self.reboot_btn):
@@ -401,8 +380,6 @@ class GpuSwitcherApp(Gtk.Application):
             on_result(index == 1)
 
         dialog.choose(self.window, None, on_choose)
-
-    # ------------------------------------------------------------- actions
 
     def _on_apply(self, _button) -> None:
         assert self.detection is not None  # Apply is only enabled after detection
@@ -449,14 +426,8 @@ class GpuSwitcherApp(Gtk.Application):
         self._confirm(text, i18n._("Apply"), lambda ok: self._do_apply(ok, target))
 
     def _revert_selection(self) -> None:
-        """Reset the radio selection to the currently configured GPU.
-
-        Used when a pending action is cancelled or fails: nothing on disk
-        changed, so the UI must show the real configured state, not the
-        un-applied choice.
-        """
-        # Revert: nothing on disk changed, so re-mirror the real configured
-        # state instead of the un-applied choice.
+        """Show the configured GPU again after a cancelled or failed action
+        (nothing on disk changed)."""
         assert self.detection is not None
         self._select_radio(mirror_configured_state(self.detection))
 
@@ -472,8 +443,7 @@ class GpuSwitcherApp(Gtk.Application):
             bus.set_primary(target, locale, self._on_apply_done)
 
     def _on_apply_done(self, ok, message, refresh_ok, timed_out) -> None:
-        """Shared SetPrimary/SetAuto result (both normalize to the same
-        callback)."""
+        """Result of SetPrimary and SetAuto (same callback shape)."""
         if timed_out:
             self._on_helper_timeout()
             return
@@ -488,11 +458,8 @@ class GpuSwitcherApp(Gtk.Application):
             self._revert_selection()
 
     def _on_helper_timeout(self) -> None:
-        """The client call timed out: the helper's outcome is unknown.
-
-        Set the outcome, re-detect and reconcile with the rule on disk,
-        then report the unknown outcome.
-        """
+        """The call timed out, so the helper's outcome is unknown: re-detect
+        and report it."""
         self.outcome = Outcome.unknown
         self._set_busy(False)
         self._refresh(
@@ -542,8 +509,6 @@ class GpuSwitcherApp(Gtk.Application):
 
         bus.reboot(done)
 
-    # ------------------------------------------------------------- fast path
-
     def _on_logout(self, _button) -> None:
         self._confirm(
             i18n._(
@@ -569,26 +534,16 @@ class GpuSwitcherApp(Gtk.Application):
         self._banner_show(message or i18n._("Log out failed."), BannerKind.ERROR)
 
     def _refresh(self, banner=None) -> None:
-        """Re-detect (read-only) and rebuild the window after a change.
-
-        Detection runs on a worker thread (see _start_detection); the
-        rebuilt selection always mirrors the on-disk configured state (see
-        _build_rows), so no manual restore is needed here. `banner` is a
-        (text, kind) pair shown only after the rebuild completes, because
-        the rebuild replaces the banner widget.
+        """Re-detect and rebuild the window. `banner` is a (text, kind) pair
+        shown after the rebuild, since the rebuild replaces the banner widget.
         """
         self._pending_banner = banner
         self._start_detection()
 
     def _start_detection(self) -> None:
-        """Run detect.detect() on a worker thread and rebuild the UI on
-        the main loop.
-
-        A generation token discards stale results when a newer detection
-        has already superseded this one (rapid Apply/Reset cycles). While
-        the detection runs, the existing banner (if any) shows a dim
-        'Detecting…'; the pending banner is shown after the rebuild.
-        """
+        """Run detect.detect() on a worker thread and rebuild the UI on the
+        main loop. A generation counter drops results superseded by a newer
+        detection."""
         self._detect_generation += 1
         generation = self._detect_generation
         if self.banner is not None:
@@ -642,8 +597,6 @@ class GpuSwitcherApp(Gtk.Application):
             GLib.idle_add(apply, result)
 
         threading.Thread(target=worker, daemon=True).start()
-
-    # ------------------------------------------------------------- lifecycle
 
     def do_activate(self) -> None:
         # A second start of the app must not build a second window:

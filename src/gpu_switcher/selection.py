@@ -1,13 +1,9 @@
 """Pure radio-selection logic for the GPU list.
 
-The UI must always mirror the configured state. Three-way mirror: the
-selected card is the detected GPU matching the managed rule on disk; when
-the rule pins a PCI no detected GPU carries, the selection is the distinct
-configured-unavailable state (the rule still exists on disk, so this is not
-auto); and auto only when no rule pins a GPU. One entry point,
-mirror_configured_state, serves both the initial UI build and the revert
-after a cancelled or failed action; each call site documents why it
-selects.
+The selection mirrors the configured state: the detected GPU matching the
+managed rule; a separate "unavailable" state when the rule pins a PCI no
+detected GPU has (the rule is still on disk, so this is not auto); auto only
+when no rule pins a GPU.
 """
 
 from __future__ import annotations
@@ -42,12 +38,10 @@ def apply_target(
 ) -> tuple[str | None, str | None]:
     """Validate a radio selection for Apply.
 
-    Returns (target, error): target is SELECTION_AUTO or the selected
-    GPU's PCI when the selection can be applied; error is the
-    SELECTION_UNAVAILABLE sentinel for the unavailable row, or the
-    selected card name when it is no longer detected (the UI re-checks
-    and refuses instead of silently switching to auto). At most one of
-    the two is non-None.
+    Returns (target, error), at most one of them non-None. target is
+    SELECTION_AUTO or the selected GPU's PCI. error is SELECTION_UNAVAILABLE
+    for the unavailable row, or the card name when it is no longer detected
+    (the UI refuses and re-checks rather than falling back to auto).
     """
     if selected_card == SELECTION_AUTO:
         return SELECTION_AUTO, None
@@ -64,9 +58,8 @@ def mirror_configured_state(detection: detect.Detection) -> str:
     the managed rule, the unavailable sentinel when the rule pins an
     undetected GPU, or auto when no rule pins a GPU.
 
-    Both call sites rely on this single rule: the initial UI build and the
-    revert after a cancelled or failed action. Each call site in main.py
-    documents *why* it selects, since the logic here is intent-agnostic.
+    Used for the initial build and to revert after a cancelled or failed
+    action: the UI always shows what is on disk, not an un-applied choice.
     """
     card = _configured_card(detection)
     if card is not None:
