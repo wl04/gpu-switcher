@@ -130,6 +130,11 @@ def run_udev_async(argv, on_done, cancellable=None):
                 f"unhandled exception in {argv[0]} callback:\n{traceback.format_exc()}"
             )
 
+    # Cancelling communicate_async only abandons the read; the child keeps
+    # running (udevadm trigger --settle can block for minutes), so kill it.
+    step_cancellable.connect(lambda *_args: proc.force_exit())
+    if cancellable is not None:
+        cancellable.connect(lambda *_args: step_cancellable.cancel())
     proc.communicate_async(None, step_cancellable, on_communicate, None)
 
 

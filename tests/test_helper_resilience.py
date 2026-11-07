@@ -160,3 +160,28 @@ class LockRelease(unittest.TestCase):
         self.assertEqual(
             second.return_dbus_error.call_args[0][0], udev_rules.DBUS_ERROR_INTERNAL
         )
+
+
+class StepTimeout(unittest.TestCase):
+    def _start_step(self, outer: Any = None) -> tuple[Any, Any]:
+        proc = mock.Mock()
+        with mock.patch.object(hud.Gio.Subprocess, "new", return_value=proc):
+            hud.run_udev_async(["/usr/bin/udevadm", "x"], mock.Mock(), outer)
+        step_cancellable = proc.communicate_async.call_args[0][1]
+        return proc, step_cancellable
+
+    def test_run_udev_async_kills_child_when_step_times_out(self) -> None:
+        proc, step_cancellable = self._start_step()
+
+        step_cancellable.cancel()
+
+        proc.force_exit.assert_called_once_with()
+
+    def test_run_udev_async_cancels_step_when_operation_is_cancelled(self) -> None:
+        outer = hud.Gio.Cancellable.new()
+        proc, step_cancellable = self._start_step(outer)
+
+        outer.cancel()
+
+        self.assertTrue(step_cancellable.is_cancelled())
+        proc.force_exit.assert_called_once_with()
