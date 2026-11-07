@@ -73,10 +73,7 @@ def _decode(stream) -> str:
     """
     if stream is None:
         return ""
-    if isinstance(stream, bytes):
-        raw = stream
-    else:
-        raw = stream.get_data()
+    raw = stream if isinstance(stream, bytes) else stream.get_data()
     return raw.decode("utf-8", "replace")
 
 

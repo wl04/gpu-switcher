@@ -7,6 +7,7 @@ refusal. A failure here is either a HelperFailure (for the user) or a
 callback with ok=False (mid-transaction).
 """
 
+import contextlib
 import os
 import shutil
 import sys
@@ -19,6 +20,12 @@ from gpu_switcher.helper.errors import HelperFailure
 
 # Keep only the newest backups of the managed rule.
 BACKUP_KEEP = 5
+
+
+def _discard(path: str) -> None:
+    """Remove a file, ignoring failure (best-effort cleanup)."""
+    with contextlib.suppress(OSError):
+        os.unlink(path)
 
 
 def check_not_symlink(refusal_message: str) -> None:
@@ -59,11 +66,8 @@ def retain_backups(keep: int = BACKUP_KEEP) -> None:
     except OSError:
         return
     backups = [e for e in entries if e.startswith(base)]
-    for stale in backups[:-keep] if len(backups) > keep else []:
-        try:
-            os.unlink(os.path.join(directory, stale))
-        except OSError:
-            pass
+    for stale in backups[: max(len(backups) - keep, 0)]:
+        _discard(os.path.join(directory, stale))
 
 
 def fsync_dir(path) -> None:
@@ -123,10 +127,7 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
         try:
             os.rename(tmp_path, MANAGED_RULE)
         except OSError:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            _discard(tmp_path)
             print("SetPrimary: failed to move the rule into place", file=sys.stderr)
             on_done(
                 False,
@@ -159,10 +160,7 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
 
     def after_verify(state, tmp_path):
         if state == hud.RefreshState.FAILED:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            _discard(tmp_path)
             print("SetPrimary: udevadm verify rejected the rule", file=sys.stderr)
             on_done(
                 False,
@@ -174,10 +172,7 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
         if os.path.exists(MANAGED_RULE):
             backup = backup_rule()
             if backup == "":
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+                _discard(tmp_path)
                 print("SetPrimary: backup of the existing rule failed", file=sys.stderr)
                 on_done(
                     False,
@@ -202,10 +197,7 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
         os.chown(tmp_path, 0, 0)
         os.chmod(tmp_path, 0o644)
     except OSError:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        _discard(tmp_path)
         print("SetPrimary: failed to write the temporary rule", file=sys.stderr)
         on_done(
             False, tr("Failed to write the managed rule; nothing changed."), "", False

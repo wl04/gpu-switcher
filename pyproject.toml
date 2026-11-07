@@ -16,16 +16,12 @@ target-version = "py312"
 src = ["src"]
 
 [tool.ruff.lint]
-# Deliberate broad `except Exception` at documented service boundaries, not
-# bugs: the D-Bus helper's best-effort logging, the D-Bus handler's catch-all
-# error reply, and the UI's session-leader degradation to None.
-# S110: _log intentionally uses try/except: pass so logging can never crash the
-# helper. RUF012: read-only shared constant test data (a dict keyed by pid).
-# ISC004: implicit string concatenation in expected-value tuples is deliberate
-# (readable multi-line strings); parenthesizing it is cosmetic churn.
-# UP031: %-formatting is used deliberately (e.g. the bounded _log line with a
-# nested strftime); f-strings would be longer and noisier here.
-ignore = ["BLE001", "S110", "RUF012", "ISC004", "UP031"]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+# E402: gi.require_version() must run before the gi.repository imports.
+# E501: line length is handled by the formatter.
+# RUF012: read-only shared constant test data (a dict keyed by pid).
+# UP031: %-formatting is used deliberately for gettext messages.
+ignore = ["E402", "E501", "RUF012", "UP031"]
 
 [tool.mypy]
 files = ["src", "tests"]
@@ -35,30 +31,22 @@ ignore_missing_imports = true
 # duplicate top-level module.
 explicit_package_bases = true
 
-# disallow_untyped_defs is rolled out gradually (plan F4): the pure core
-# modules and the test suite are enforced now; the helper package and the
-# GTK UI (main.py) are typed for errors but not yet for untyped defs.
-[tool."mypy-gpu_switcher.core.*"]
-disallow_untyped_defs = true
-[tool."mypy-gpu_switcher.selection"]
-disallow_untyped_defs = true
-[tool."mypy-gpu_switcher.state"]
-disallow_untyped_defs = true
-[tool."mypy-gpu_switcher.detect"]
-disallow_untyped_defs = true
-[tool."mypy-test_bus"]
-disallow_untyped_defs = true
-[tool."mypy-test_detect"]
-disallow_untyped_defs = true
-[tool."mypy-test_helper"]
-disallow_untyped_defs = true
-[tool."mypy-test_i18n"]
-disallow_untyped_defs = true
-[tool."mypy-test_main"]
-disallow_untyped_defs = true
-[tool."mypy-test_selection"]
-disallow_untyped_defs = true
-[tool."mypy-test_state"]
-disallow_untyped_defs = true
-[tool."mypy-test_udev_rules"]
+# disallow_untyped_defs is enforced for the pure modules and the test suite;
+# the helper package and the GTK UI (main.py) are still typed for errors only.
+[[tool.mypy.overrides]]
+module = [
+    "gpu_switcher.core.*",
+    "gpu_switcher.selection",
+    "gpu_switcher.state",
+    "gpu_switcher.detect",
+    "test_bus",
+    "test_detect",
+    "test_helper",
+    "test_helper_resilience",
+    "test_i18n",
+    "test_main",
+    "test_selection",
+    "test_state",
+    "test_udev_rules",
+]
 disallow_untyped_defs = true

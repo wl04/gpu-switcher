@@ -92,7 +92,9 @@ def _fake_udev(results: dict[Any, Any], started: list[list[Any]]) -> Any:
         key = tuple(argv)
         spec = None
         for k, v in results.items():  # "*" matches any element (e.g. temp path)
-            if len(k) == len(key) and all(a == b or a == "*" for a, b in zip(k, key)):
+            if len(k) == len(key) and all(
+                a == b or a == "*" for a, b in zip(k, key, strict=True)
+            ):
                 spec = v
                 break
         if spec is None:
@@ -1047,6 +1049,7 @@ class BusContract(unittest.TestCase):
         for args, (method_name, signatures) in zip(
             sent,
             (("SetPrimary", expected["SetPrimary"]), ("SetAuto", expected["SetAuto"])),
+            strict=True,
         ):
             bus_name, bus_path, iface_name, method, params, reply_type = args[:6]
             self.assertEqual(

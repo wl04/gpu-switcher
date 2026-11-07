@@ -354,11 +354,11 @@ def _set_auto_apply(tr):
         rule_store.retain_backups()
         try:
             rule_store.unlink_managed_rule()
-        except OSError:
+        except OSError as error:
             print("SetAuto: failed to remove the managed rule", file=sys.stderr)
             raise HelperFailure(
                 tr("Failed to remove the managed rule; nothing changed.")
-            )
+            ) from error
         print(f"SetAuto: rule removed (backup: {backup})", file=sys.stderr)
         leading = tr("Managed rule removed.")
         verified_sentence = tr(

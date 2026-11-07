@@ -199,7 +199,7 @@ def rule_conflicts(
     if not isinstance(on_unreadable, OnUnreadable):
         # ValueError (not TypeError): an unknown mode is an invalid argument
         # value, and silently behaving like SKIP would mask the bug.
-        raise ValueError(f"unknown on_unreadable mode: {on_unreadable!r}")  # noqa: TRY004
+        raise ValueError(f"unknown on_unreadable mode: {on_unreadable!r}")
     conflicts = []
     seen = set()
     for d in rule_dirs:
