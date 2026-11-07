@@ -995,6 +995,10 @@ def main() -> None:
         on_name_acquired,
         on_name_lost,
     )
+    # Arm the idle timer right away: a D-Bus-answered call (gdbus
+    # introspect) is not a handled call, and the helper must still exit
+    # after IDLE_TIMEOUT_MS instead of owning the name forever.
+    _reset_idle_timer()
     _LOOP.run()
     _log("main loop ended")
 

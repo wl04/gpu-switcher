@@ -1001,6 +1001,22 @@ class SetAutoAlreadyAuto(unittest.TestCase):
         )
 
 
+class IdleTimerInMain(unittest.TestCase):
+    def test_main_arms_idle_timer_without_any_handled_call(self):
+        # A D-Bus-answered call (gdbus introspect) must not keep the
+        # helper alive: the idle timer is armed as soon as the name is
+        # owned, so 60 s after the last real call the process exits.
+        with (
+            mock.patch.object(Gio, "bus_get_sync", return_value=mock.Mock()),
+            mock.patch.object(Gio, "bus_own_name"),
+            mock.patch.object(GLib, "MainLoop") as loop_cls,
+            mock.patch.object(h, "_IDLE_SOURCE", None),
+        ):
+            loop_cls.return_value.run.return_value = None
+            h.main()
+            self.assertIsNotNone(h._IDLE_SOURCE)
+
+
 class BusContract(unittest.TestCase):
     def test_bus_contract_matches_helper_service_name_and_path_and_interface(self):
         self.assertEqual(bus.HELPER_NAME, h.SERVICE_NAME)
