@@ -67,11 +67,11 @@ from gi.repository import Gio, GLib
 # without pulling in the GUI package.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from udev_rules import (
-    DISPLAY_PCI_CLASSES,
     G_IO_ERROR_TIMEOUT,
     MANAGED_RULE,
     MUTTER_ENV,
     MUTTER_TAG,
+    is_display_gpu,
     read_text,
     rule_conflicts,
 )
@@ -387,42 +387,18 @@ def is_valid_pci_format(pci: str) -> bool:
 def _resolve_gpu(pci):
     """(card, vendor, device) for a valid display controller, else None.
 
-    Mirrors the reference script, extended to the 3D controller class:
-    class 0x030000 or 0x030200, a bound driver, and exactly one
-    /dev/dri/card* device bound to this PCI device.
+    Thin wrapper over the shared is_display_gpu contract (display class,
+    bound driver, exactly one /dev/dri card for this PCI); the PCI address
+    itself is validated first so no /sys read happens on bad input.
     """
     if not is_valid_pci_format(pci):
         return None
-    pdir = f"/sys/bus/pci/devices/{pci}"
-    if not os.path.isdir(pdir):
-        return None
-    vendor = read_text(f"{pdir}/vendor")
-    device = read_text(f"{pdir}/device")
-    if read_text(f"{pdir}/class") not in DISPLAY_PCI_CLASSES:
-        return None
-    driver_link = f"{pdir}/driver"
-    if not os.path.islink(driver_link):
-        return None
-    real = os.path.realpath(pdir)
-    try:
-        entries = sorted(os.listdir("/sys/class/drm"))
-    except OSError:
-        return None
-    card = None
-    for entry in entries:
-        if not re.fullmatch(r"card[0-9]+", entry):
-            continue
-        if os.path.realpath(f"/sys/class/drm/{entry}/device") != real:
-            continue
-        if not os.path.exists(f"/dev/dri/{entry}"):
-            continue
-        # Exactly one card must bind to this PCI: a second card would make
-        # the binding ambiguous, so refuse rather than pick one.
-        if card is not None:
-            return None
-        card = entry
+    card = is_display_gpu(pci)
     if card is None:
         return None
+    pdir = f"/sys/bus/pci/devices/{pci}"
+    vendor = read_text(f"{pdir}/vendor")
+    device = read_text(f"{pdir}/device")
     return card, vendor, device
 
 

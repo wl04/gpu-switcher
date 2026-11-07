@@ -20,7 +20,7 @@ import re
 import shutil
 import subprocess
 
-from udev_rules import DISPLAY_PCI_CLASSES, MANAGED_RULE, read_text, rule_conflicts
+from udev_rules import MANAGED_RULE, is_display_gpu, read_text, rule_conflicts
 
 JOURNAL_UNIT = "/usr/bin/gnome-shell"
 
@@ -270,21 +270,17 @@ def detect(leader_pid: int | None = None) -> Detection:
         if not re.match(r"^card[0-9]+$", entry):
             continue
         pci = os.path.basename(os.path.realpath(f"/sys/class/drm/{entry}/device"))
+        # The shared display-GPU contract (display class, bound driver,
+        # exactly one card per PCI, /dev/dri node).
+        if is_display_gpu(pci) != entry:
+            continue
         pdir = f"/sys/bus/pci/devices/{pci}"
-        if (
-            not os.path.isdir(pdir)
-            or read_text(f"{pdir}/class") not in DISPLAY_PCI_CLASSES
-        ):
-            continue
-        node = f"/dev/dri/{entry}"
-        if not os.path.exists(node):
-            continue
         vendor = read_text(f"{pdir}/vendor").removeprefix("0x").lower()
         device = read_text(f"{pdir}/device").removeprefix("0x").lower()
         gpus.append(
             Gpu(
                 card=entry,
-                node=node,
+                node=f"/dev/dri/{entry}",
                 pci=pci,
                 vendor=vendor,
                 device=device,

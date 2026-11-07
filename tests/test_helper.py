@@ -66,6 +66,7 @@ class ResolveGpu(unittest.TestCase):
         with (
             mock.patch("os.path.isdir", return_value=True),
             mock.patch("helper.gpu_switcher_helper.read_text", return_value="0x080000"),
+            mock.patch("udev_rules.read_text", return_value="0x080000"),
         ):
             self.assertIsNone(h._resolve_gpu("0000:12:00.0"))
 
@@ -76,6 +77,10 @@ class ResolveGpu(unittest.TestCase):
             mock.patch("os.path.realpath", return_value="/dev/pci/0000:12:00.0"),
             mock.patch("os.listdir", return_value=["card1"]),
             mock.patch("os.path.exists", return_value=True),
+            mock.patch(
+                "udev_rules.read_text",
+                side_effect=lambda path: "0x030200" if path.endswith("/class") else "",
+            ),
             mock.patch(
                 "helper.gpu_switcher_helper.read_text",
                 side_effect=lambda path: (
@@ -102,6 +107,10 @@ class ResolveGpu(unittest.TestCase):
             mock.patch("os.path.realpath", return_value="/dev/pci/0000:12:00.0"),
             mock.patch("os.listdir", return_value=["card1", "card2"]),
             mock.patch("os.path.exists", return_value=True),
+            mock.patch(
+                "udev_rules.read_text",
+                side_effect=lambda path: "0x030200" if path.endswith("/class") else "",
+            ),
             mock.patch(
                 "helper.gpu_switcher_helper.read_text",
                 side_effect=lambda path: (

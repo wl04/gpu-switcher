@@ -307,12 +307,11 @@ class RunningPrimary(unittest.TestCase):
 
 
 class DetectClassFilter(unittest.TestCase):
-    """detect() accepts both display-controller classes (VGA 0x030000 and
-    3D controller 0x030200) and skips every other PCI class; suitability
-    beyond the class is established by the DRM card with a /dev/dri
-    device."""
+    """detect() uses the shared is_display_gpu contract: display-controller
+    class (VGA 0x030000 / 3D 0x030200), a bound driver, and the DRM card
+    with a /dev/dri device; every other PCI is skipped."""
 
-    def _run_detect(self, pci_class):
+    def _run_detect(self, pci_class, driver_link=True):
         with (
             mock.patch(
                 "os.listdir",
@@ -320,6 +319,11 @@ class DetectClassFilter(unittest.TestCase):
             ),
             mock.patch("os.path.realpath", return_value="0000:12:00.0"),
             mock.patch("os.path.isdir", return_value=True),
+            mock.patch("os.path.islink", return_value=driver_link),
+            mock.patch(
+                "udev_rules.read_text",
+                side_effect=lambda p: pci_class if p.endswith("/class") else "",
+            ),
             mock.patch(
                 "gpu_switcher.detect.read_text",
                 side_effect=lambda p: pci_class if p.endswith("/class") else "",
@@ -345,6 +349,12 @@ class DetectClassFilter(unittest.TestCase):
 
     def test_detect_skips_pci_class_outside_display_controllers(self):
         result = self._run_detect("0x080000")  # system peripheral
+        self.assertEqual(result.gpus, [])
+
+    def test_detect_excludes_card_without_bound_driver(self):
+        # Display-class PCI, but the driver symlink is absent (unbound):
+        # the shared is_display_gpu contract excludes it.
+        result = self._run_detect("0x030000", driver_link=False)
         self.assertEqual(result.gpus, [])
 
 

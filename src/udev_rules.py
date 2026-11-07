@@ -12,6 +12,7 @@ the GUI package (`gpu_switcher/__init__` imports Gtk).
 from __future__ import annotations
 
 import os
+import re
 
 # The udev rule file managed by gpu-switcher (the same file the reference
 # script mutter-primary-gpu.sh writes).
@@ -44,6 +45,43 @@ RULE_DIRS = (
     "/usr/lib/udev/rules.d",
     "/lib/udev/rules.d",
 )
+
+
+def is_display_gpu(pci: str) -> str | None:
+    """The DRM card bound to this PCI, when it is a display GPU.
+
+    The shared display-GPU contract used by both the unprivileged app
+    (detection) and the root helper (SetPrimary): the PCI must be a
+    display class (DISPLAY_PCI_CLASSES), have a bound driver, and exactly
+    one /dev/dri card (card[0-9]+) in /sys/class/drm must resolve to it
+    with a /dev/dri/<card> node. No bound driver, no card, or two cards
+    (ambiguous binding) all yield None.
+    """
+    pdir = f"/sys/bus/pci/devices/{pci}"
+    if not os.path.isdir(pdir):
+        return None
+    if read_text(f"{pdir}/class") not in DISPLAY_PCI_CLASSES:
+        return None
+    if not os.path.islink(f"{pdir}/driver"):
+        return None
+    real = os.path.realpath(pdir)
+    try:
+        entries = sorted(os.listdir("/sys/class/drm"))
+    except OSError:
+        return None
+    card = None
+    for entry in entries:
+        if not re.fullmatch(r"card[0-9]+", entry):
+            continue
+        if os.path.realpath(f"/sys/class/drm/{entry}/device") != real:
+            continue
+        if not os.path.exists(f"/dev/dri/{entry}"):
+            continue
+        # A second card bound to this PCI makes the binding ambiguous.
+        if card is not None:
+            return None
+        card = entry
+    return card
 
 
 def read_text(path: str) -> str:
