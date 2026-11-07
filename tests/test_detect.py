@@ -65,6 +65,33 @@ class ManagedRulePciFromText(unittest.TestCase):
         self.assertIsNone(detect.managed_rule_pci_from_text(""))
 
 
+class ParseLspciMm(unittest.TestCase):
+    """parse_lspci_mm reads the `lspci -Dmmnn` machine format: it keeps only
+    display-controller classes and strips the trailing [id] from the vendor
+    and device fields so the name matches the `lspci -nn` text."""
+
+    def test_parse_lspci_mm_parses_machine_format(self):
+        output = (
+            '0000:03:00.0 "3D controller [0302]" '
+            '"Advanced Micro Devices, Inc. [AMD/ATI] [1002]" '
+            '"Czinger [Navi 32] [7550]" rev 0x1c\n'
+            '0000:00:02.0 "VGA compatible controller [0300]" '
+            '"Advanced Micro Devices, Inc. [AMD/ATI] [1002]" '
+            '"Radeon Graphics [13c0]" rev 0x00\n'
+            '0000:00:00.0 "Host bridge [0600]" "AMD [1022]" "Root [14d8]"\n'
+        )
+        names = detect.parse_lspci_mm(output)
+        self.assertEqual(
+            names,
+            {
+                "0000:03:00.0": (
+                    "Advanced Micro Devices, Inc. [AMD/ATI] Czinger [Navi 32]"
+                ),
+                "0000:00:02.0": "Advanced Micro Devices, Inc. [AMD/ATI] Radeon Graphics",
+            },
+        )
+
+
 class IsGnomeWayland(unittest.TestCase):
     def test_is_gnome_wayland_returns_true_when_wayland_session_and_gnome_desktop(self):
         self.assertTrue(detect.is_gnome_wayland("wayland", "GNOME", True))

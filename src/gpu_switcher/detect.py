@@ -52,37 +52,49 @@ class Detection:
     gnome_wayland: bool
 
 
-_LSPCI_LINE_RE = re.compile(
-    r"^\s*([0-9a-f]{4}:)?([0-9a-f]{2}:[0-9a-f]{2}\.[0-9])\s+.*?\]:\s+(.*)$"
-)
+# Display-controller PCI device classes: 0x0300 (VGA) and 0x0302 (3D).
+_LSPCI_DISPLAY_CLASSES = ("0300", "0302")
+_LSPCI_MM_ADDR_RE = re.compile(r'^\s*([0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9])\s+"')
+_LSPCI_CLASS_CODE_RE = re.compile(r"\[([0-9a-fA-F]{4})\]\s*$")
+_LSPCI_ID_TAIL_RE = re.compile(r"\s*\[[0-9a-fA-F]{4}\]$")
 
 
-def parse_lspci_names(output: str) -> dict[str, str]:
-    """Map PCI address -> display name from `lspci -nn` text.
+def parse_lspci_mm(output: str) -> dict[str, str]:
+    """Map PCI address -> display name from `lspci -Dmmnn` machine output.
 
-    Handles both `0000:03:00.0` and domain-omitted `03:00.0` address
-    forms, and strips the trailing `[1002:7550]` ID / `(rev ..)` parts.
+        Each line is `ADDR "CLASS [code]" "VENDOR [id]" "DEVICE [id]" ...` (the
+        address is a bare leading token; the fields are quoted). Only
+    display-controller classes (0x0300 VGA, 0x0302 3D) are kept; the trailing
+    `[id]` on the vendor and device fields is stripped so the name matches the
+    `lspci -nn` text (vendor + device).
     """
     names: dict[str, str] = {}
     for line in output.splitlines():
-        m = _LSPCI_LINE_RE.match(line)
-        if not m:
+        addr_match = _LSPCI_MM_ADDR_RE.match(line)
+        if not addr_match:
             continue
-        pci = (m.group(1) or "0000:") + m.group(2)
-        # Strip the trailing '(rev xx)', then the '[1002:7550]' ID that
-        # precedes it in `lspci -nn` output.
-        name = re.sub(r"\s*\([^)]*\)\s*$", "", m.group(3))
-        name = re.sub(r"\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]\s*$", "", name)
-        names[pci] = name.strip()
+        addr = addr_match.group(1)
+        fields = re.findall(r'"([^"]*)"', line)
+        if len(fields) < 3:
+            continue
+        class_field, vendor, device = fields[0], fields[1], fields[2]
+        code_match = _LSPCI_CLASS_CODE_RE.search(class_field)
+        if not code_match or code_match.group(1) not in _LSPCI_DISPLAY_CLASSES:
+            continue
+        vendor = _LSPCI_ID_TAIL_RE.sub("", vendor)
+        device = _LSPCI_ID_TAIL_RE.sub("", device)
+        name = " ".join(part for part in (vendor, device) if part).strip()
+        if name:
+            names[addr] = name
     return names
 
 
 def lspci_names() -> dict[str, str]:
-    """Map PCI address -> display name via `lspci -nn`; {} when lspci is
+    """Map PCI address -> display name via `lspci -Dmmnn`; {} when lspci is
     missing or fails (names then fall back to vendor:device)."""
     try:
         out = subprocess.run(
-            ["lspci", "-nn"],
+            ["lspci", "-Dmmnn"],
             capture_output=True,
             text=True,
             errors="replace",
@@ -93,7 +105,7 @@ def lspci_names() -> dict[str, str]:
         return {}
     if out.returncode != 0:
         return {}
-    return parse_lspci_names(out.stdout)
+    return parse_lspci_mm(out.stdout)
 
 
 def fallback_name(vendor: str, device: str) -> str:
