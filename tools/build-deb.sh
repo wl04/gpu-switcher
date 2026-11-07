@@ -31,12 +31,6 @@ mkdir -p \
   "$ROOT/usr/share/doc/gpu-switcher" \
   "$ROOT/usr/share/man/man1"
 
-# Compile the gettext catalogs with msgfmt (also leaves them in the source
-# tree for dev runs).
-mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
-msgfmt -o data/locale/en/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-en.po
-msgfmt -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-ru.po
-
 # Validation gate: the polkit policy must be well-formed XML and
 # structurally valid against the polkit policyconfig DTD, which allows
 # exactly one <defaults> per action containing (allow_any, allow_active)
@@ -84,34 +78,14 @@ if errors:
 print(f"polkit policy OK: {len(actions)} action(s)")
 PY
 
-install -D -m 0755 src/wrapper/gpu-switcher "$ROOT/usr/bin/gpu-switcher"
-# The whole package (including the core/ and helper/ subpackages) goes to
-# the standard dist-packages location; /usr/bin/python3 finds it without
-# any sys.path hack.
-for f in $(find src/gpu_switcher -name '*.py' | sort); do
-  install -D -m 0644 "$f" "$ROOT/usr/lib/python3/dist-packages/${f#src/}"
-done
-install -D -m 0644 data/gpu-switcher.desktop "$ROOT/usr/share/applications/com.github.wl04.gpu-switcher.desktop"
-install -D -m 0644 data/icons/gpu-switcher.svg "$ROOT/usr/share/icons/hicolor/scalable/apps/com.github.wl04.gpu-switcher.svg"
-install -D -m 0644 data/icons/symbolic/gpu-switcher-symbolic.svg "$ROOT/usr/share/icons/hicolor/symbolic/apps/com.github.wl04.gpu-switcher-symbolic.svg"
-install -D -m 0644 data/locale/en/LC_MESSAGES/gpu-switcher.mo "$ROOT/usr/share/gpu-switcher/locale/en/LC_MESSAGES/gpu-switcher.mo"
-install -D -m 0644 data/locale/ru/LC_MESSAGES/gpu-switcher.mo "$ROOT/usr/share/gpu-switcher/locale/ru/LC_MESSAGES/gpu-switcher.mo"
-install -D -m 0644 data/polkit/gpu-switcher.policy "$ROOT/usr/share/polkit-1/actions/gpu-switcher.policy"
-# D-Bus activation: service file (name must be <service name>.service)
-# and the security policy that lets root own the helper's name on the
-# locked-down system bus.
-install -D -m 0644 data/dbus/com.github.wl04.gpu_switcher.Helper.service \
-  "$ROOT/usr/share/dbus-1/system-services/com.github.wl04.gpu_switcher.Helper.service"
-install -D -m 0644 data/dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf \
-  "$ROOT/usr/share/dbus-1/system.d/com.github.wl04.gpu_switcher.Helper.conf"
-# systemd unit for the helper (D-Bus activation via SystemdService=).
-install -D -m 0644 debian/gpu-switcher-helper.service \
-  "$ROOT/usr/lib/systemd/system/gpu-switcher-helper.service"
+# The single package file list (binary, python package, data, locale,
+# polkit, D-Bus, systemd unit, copyright) lives in the Makefile `install`
+# target; calling it keeps this plain build in sync with the dh path.
+make install DESTDIR="$ROOT"
 # Debian docs and man page. Policy requires the installed changelog and
 # man page to be gzip-compressed; the copyright file stays plain text.
 # -n: no embedded name/timestamp, for reproducible builds.
 gzip -9n -c debian/changelog > "$ROOT/usr/share/doc/gpu-switcher/changelog.Debian.gz"
-install -D -m 0644 debian/copyright "$ROOT/usr/share/doc/gpu-switcher/copyright"
 gzip -9n -c man/gpu-switcher.1 > "$ROOT/usr/share/man/man1/gpu-switcher.1.gz"
 chmod 0644 "$ROOT/usr/share/doc/gpu-switcher/"* "$ROOT/usr/share/man/man1/"*
 # The postrm maintainer script.
@@ -127,15 +101,6 @@ mkdir -p "$ROOT/DEBIAN"
   echo "Maintainer: $MAINTAINER"
   awk '/^Package: /{found = 1; next} found {print}' debian/control
 } > "$ROOT/DEBIAN/control"
-
-# Guard: every .py file under src/gpu_switcher must be installed above
-# (the loop installs the whole tree; this verifies nothing was skipped).
-for f in $(find src/gpu_switcher -name '*.py'); do
-  [ -f "$ROOT/usr/lib/python3/dist-packages/${f#src/}" ] || {
-    echo "error: $f is missing from the package file list" >&2
-    exit 1
-  }
-done
 
 # md5sums
 ( cd "$ROOT" && find usr -type f | sort | xargs -r md5sum > DEBIAN/md5sums )

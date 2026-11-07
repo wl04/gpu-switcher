@@ -3,42 +3,12 @@
 %:
 	dh $@
 
-override_dh_auto_build:
-	# Same msgfmt invocation as tools/build-deb.sh, so both build paths
-	# produce identical catalogs.
-	mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
-	msgfmt -o data/locale/en/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-en.po
-	msgfmt -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-ru.po
-
 override_dh_auto_install:
-	install -D -m 0755 src/wrapper/gpu-switcher debian/gpu-switcher/usr/bin/gpu-switcher
-	# The whole package (including the core/ and helper/ subpackages) goes
-	# to the standard dist-packages location; /usr/bin/python3 finds it
-	# without any sys.path hack.
-	for f in $$(find src/gpu_switcher -name '*.py' | sort); do \
-	  install -D -m 0644 $$f debian/gpu-switcher/usr/lib/python3/dist-packages/$${f#src/}; \
-	done
-	install -D -m 0644 data/gpu-switcher.desktop debian/gpu-switcher/usr/share/applications/com.github.wl04.gpu-switcher.desktop
-	install -D -m 0644 data/icons/gpu-switcher.svg debian/gpu-switcher/usr/share/icons/hicolor/scalable/apps/com.github.wl04.gpu-switcher.svg
-	install -D -m 0644 data/icons/symbolic/gpu-switcher-symbolic.svg debian/gpu-switcher/usr/share/icons/hicolor/symbolic/apps/com.github.wl04.gpu-switcher-symbolic.svg
-	install -D -m 0644 data/locale/en/LC_MESSAGES/gpu-switcher.mo debian/gpu-switcher/usr/share/gpu-switcher/locale/en/LC_MESSAGES/gpu-switcher.mo
-	install -D -m 0644 data/locale/ru/LC_MESSAGES/gpu-switcher.mo debian/gpu-switcher/usr/share/gpu-switcher/locale/ru/LC_MESSAGES/gpu-switcher.mo
-	install -D -m 0644 data/polkit/gpu-switcher.policy debian/gpu-switcher/usr/share/polkit-1/actions/gpu-switcher.policy
-	# D-Bus activation: service file (name must be <service name>.service)
-	# plus the system-bus policy that lets root own the helper's name.
-	install -D -m 0644 data/dbus/com.github.wl04.gpu_switcher.Helper.service debian/gpu-switcher/usr/share/dbus-1/system-services/com.github.wl04.gpu_switcher.Helper.service
-	install -D -m 0644 data/dbus/system.d/com.github.wl04.gpu_switcher.Helper.conf debian/gpu-switcher/usr/share/dbus-1/system.d/com.github.wl04.gpu_switcher.Helper.conf
-	# systemd unit for the helper (D-Bus activation via SystemdService=).
-	install -D -m 0644 debian/gpu-switcher-helper.service debian/gpu-switcher/usr/lib/systemd/system/gpu-switcher-helper.service
-	# Guard: every .py file under src/gpu_switcher must be installed above
-	# (the loop installs the whole tree; this verifies nothing was skipped).
-	for f in $$(find src/gpu_switcher -name '*.py'); do \
-	  [ -f "debian/gpu-switcher/usr/lib/python3/dist-packages/$${f#src/}" ] || { \
-	    echo "error: $$f is missing from the package file list" >&2; exit 1; \
-	  }; \
-	done
-	# Debian docs: copyright is installed manually (kept plain text); the
-	# changelog and man page are handled by dh_installdocs/dh_installman and
-	# compressed by dh_compress. The postrm maintainer script is picked up
-	# from debian/ by dh_installdeb automatically.
-	install -D -m 0644 debian/copyright debian/gpu-switcher/usr/share/doc/gpu-switcher/copyright
+	# The single package file list lives in the Makefile `install` target;
+	# calling it here keeps this dh path in sync with tools/build-deb.sh.
+	# (It also compiles the gettext catalogs.)
+	$(MAKE) install DESTDIR=debian/gpu-switcher
+
+# Debian docs (changelog, man page) are installed and compressed by
+# dh_installdocs/dh_installman/dh_compress; copyright and the postrm script
+# are handled by the install target / dh_installdeb.
