@@ -83,22 +83,33 @@ def run_udev_async(argv, on_done, cancellable=None):
         on_done(1, "", "cancelled before start")
         return
     step_cancellable = Gio.Cancellable.new()
-    timeout_source = GLib.timeout_add(
-        UDEVADM_STEP_TIMEOUT_S * 1000, step_cancellable.cancel
-    )
+    timer_fired = False
+
+    def on_deadline() -> bool:
+        nonlocal timer_fired
+        timer_fired = True
+        step_cancellable.cancel()
+        return GLib.SOURCE_REMOVE
+
+    def stop_timer() -> None:
+        # A fired one-shot source is already gone; removing it again warns.
+        if not timer_fired:
+            GLib.source_remove(timeout_source)
+
+    timeout_source = GLib.timeout_add(UDEVADM_STEP_TIMEOUT_S * 1000, on_deadline)
     try:
         proc = Gio.Subprocess.new(
             list(argv),
             Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
         )
     except GLib.Error as error:
-        GLib.source_remove(timeout_source)
+        stop_timer()
         print(f"{argv[0]}: failed to start: {error}", file=sys.stderr)
         on_done(1, "", str(error))
         return
 
     def on_communicate(_source, result, _ud):
-        GLib.source_remove(timeout_source)
+        stop_timer()
         try:
             try:
                 _ok, out, err = proc.communicate_finish(result)

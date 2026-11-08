@@ -1,9 +1,15 @@
 """Helper resilience: the in-progress lock and the idle timer must stay
 correct when an operation is slow or fails unexpectedly."""
 
+import os
+import sys
+import tempfile
+import time
 import unittest
 from typing import Any
 from unittest import mock
+
+from gi.repository import GLib
 
 from gpu_switcher.core import udev as udev_rules
 from gpu_switcher.helper import auth, rule_store, service
@@ -185,3 +191,53 @@ class StepTimeout(unittest.TestCase):
 
         self.assertTrue(step_cancellable.is_cancelled())
         proc.force_exit.assert_called_once_with()
+
+
+class RealChildTimeout(unittest.TestCase):
+    def test_run_udev_async_child_cannot_act_after_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = os.path.join(tmp, "marker")
+            code = (
+                "import time, pathlib; time.sleep(1.0); "
+                f"pathlib.Path({marker!r}).write_text('late')"
+            )
+            loop = GLib.MainLoop()
+            results: list[tuple[int, str]] = []
+
+            def on_done(rc: int, _out: str, err: str) -> None:
+                results.append((rc, err))
+                loop.quit()
+
+            with (
+                mock.patch.object(hud, "UDEVADM_STEP_TIMEOUT_S", 0.2),
+                mock.patch.object(hud.sys, "stderr", mock.Mock()),
+            ):
+                hud.run_udev_async([sys.executable, "-c", code], on_done)
+                GLib.timeout_add(5000, loop.quit)
+                loop.run()
+            time.sleep(1.5)
+
+            self.assertEqual(len(results), 1)
+            self.assertNotEqual(results[0][0], 0)
+            self.assertFalse(os.path.exists(marker))
+
+
+class RuleWriteFailure(unittest.TestCase):
+    def test_write_rule_atomically_reports_nothing_changed_when_temp_creation_fails(
+        self,
+    ) -> None:
+        on_done = mock.Mock()
+
+        with (
+            mock.patch.object(
+                rule_store.tempfile, "mkstemp", side_effect=OSError("disk full")
+            ),
+            mock.patch.object(rule_store.sys, "stderr", mock.Mock()),
+        ):
+            rule_store.write_rule_atomically(
+                "0000:12:00.0", "x", "card0", lambda m: m, on_done
+            )
+
+        on_done.assert_called_once()
+        self.assertFalse(on_done.call_args[0][0])
+        self.assertIn("nothing changed", on_done.call_args[0][1])

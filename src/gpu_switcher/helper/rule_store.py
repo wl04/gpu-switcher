@@ -184,10 +184,11 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
             backup = ""
         move_into_place(tmp_path, backup)
 
-    tmp_fd, tmp_path = tempfile.mkstemp(
-        prefix=".gpu-switcher-", dir=os.path.dirname(MANAGED_RULE)
-    )
+    tmp_path = ""
     try:
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            prefix=".gpu-switcher-", dir=os.path.dirname(MANAGED_RULE)
+        )
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
             f.write(content)
             f.flush()
