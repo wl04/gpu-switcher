@@ -91,8 +91,10 @@ Consequences:
   the helper's main loop stays responsive. The client's call timeout is
   derived from the helper's worst case (`core/udev.py`).
 - `locale` is passed explicitly: a root-activated helper has **no user locale
-  in its environment**, so the localized polkit dialog message must come
-  from the caller.
+  in its environment**, so the helper's reply messages are translated from
+  the caller's locale (normalized to a shipped catalog language). The polkit
+  dialog text is not affected: it comes from the policy file and the
+  authentication agent's own locale.
 
 ### Polkit
 

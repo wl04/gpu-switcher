@@ -43,11 +43,11 @@ Also check that the packaged unit's sandbox (`ProtectSystem=strict`,
 multi-GPU machine with the package installed, apply a switch and inspect
 
 ```sh
-journalctl -u gpu-switcher-helper.service | grep -i 'udevadm trigger'
+journalctl -u gpu-switcher-helper.service | grep -i 'udev refresh'
 ```
 
-A `failed (rc=...)` line means the DRM refresh is blocked and the logout fast
-path is unavailable. `systemd-analyze verify` cannot detect this.
+Expect `udev refresh: reload-rules, DRM trigger and tag check succeeded`.
+`systemd-analyze verify` cannot detect a blocked refresh.
 
 ## Packaging
 
