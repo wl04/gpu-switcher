@@ -33,7 +33,7 @@ from gpu_switcher.helper import auth, rule_store, service
 from gpu_switcher.helper import udev as hud
 from gpu_switcher.helper.auth import AuthStatus
 
-_IO_QUARK = GLib.quark_from_string("g-io-error-quark")
+_IO_QUARK = Gio.io_error_quark()
 
 
 def _polkit_conn(reply: Any = None, call_error: Any = None) -> Any:
@@ -338,7 +338,9 @@ class Authorize(unittest.TestCase):
         self,
     ) -> None:
         conn = _polkit_conn(
-            call_error=GLib.Error.new_literal(_IO_QUARK, "timed out", 7)
+            call_error=GLib.Error.new_literal(
+                _IO_QUARK, "timed out", int(Gio.IOErrorEnum.TIMED_OUT)
+            )
         )
         cancellable = Gio.Cancellable.new()
         status, detail = _run_authorize(conn, cancellable=cancellable)

@@ -53,10 +53,6 @@ MUTTER_ENV = "MUTTER_DEVICE_PREFERRED_PRIMARY"
 # with a /dev/dri device, so render-only devices are still excluded.
 DISPLAY_PCI_CLASSES = ("0x030000", "0x030200")
 
-# GError code of G_IO_ERROR_TIMEOUT (glib/gio/giotypes.h), matched against
-# g-io-error-quark by the app and the helper; pygobject exposes no constant.
-G_IO_ERROR_TIMEOUT = 7
-
 # udev rule directories in load order; a rule name in an earlier directory
 # shadows the same name in a later one, as in udev itself.
 RULE_DIRS = (

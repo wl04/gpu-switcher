@@ -13,9 +13,10 @@ from enum import Enum
 import gi
 
 gi.require_version("GLib", "2.0")
-from gi.repository import GLib
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib
 
-from gpu_switcher.core.udev import G_IO_ERROR_TIMEOUT, POLKIT_TIMEOUT_MS
+from gpu_switcher.core.udev import POLKIT_TIMEOUT_MS
 
 
 class AuthStatus(Enum):
@@ -72,9 +73,7 @@ def authorize(connection, sender, locale, on_done, cancellable=None):
             result = _conn.call_finish(task)
         except GLib.Error as exc:
             message = getattr(exc, "message", None) or str(exc)
-            if exc.matches(
-                GLib.quark_from_string("g-io-error-quark"), G_IO_ERROR_TIMEOUT
-            ):
+            if exc.matches(Gio.io_error_quark(), Gio.IOErrorEnum.TIMED_OUT):
                 # G_IO_ERROR_TIMEOUT: the check is still pending in polkitd,
                 # cancel it so a stale dialog cannot linger.
                 print(f"polkit CheckAuthorization timed out: {exc}", file=sys.stderr)

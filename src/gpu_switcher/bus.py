@@ -126,7 +126,7 @@ def set_primary(pci: str, locale: str, callback) -> None:
         "(bssb)",
         HELPER_TIMEOUT_MS,
         lambda r: callback(bool(r[0]), r[1], bool(r[3]), False),
-        lambda e: callback(False, e.message, False, state.is_gio_timeout(e)),
+        lambda e: callback(False, e.message, False, state.is_outcome_unknown(e)),
         lambda e: callback(False, helper_unreachable % e.message, False, False),
     )
 
@@ -149,7 +149,7 @@ def set_auto(locale: str, callback) -> None:
         "(bsb)",
         HELPER_TIMEOUT_MS,
         lambda r: callback(bool(r[0]), r[1], bool(r[2]), False),
-        lambda e: callback(False, e.message, False, state.is_gio_timeout(e)),
+        lambda e: callback(False, e.message, False, state.is_outcome_unknown(e)),
         lambda e: callback(False, helper_unreachable % e.message, False, False),
     )
 

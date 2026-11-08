@@ -13,9 +13,8 @@ from enum import Enum
 import gi
 
 gi.require_version("GLib", "2.0")
-from gi.repository import GLib
-
-from gpu_switcher.core.udev import G_IO_ERROR_TIMEOUT
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib
 
 
 class Outcome(Enum):
@@ -58,9 +57,37 @@ def outcome_from_result(ok: bool, refresh_ok: bool, timed_out: bool) -> Outcome:
     return Outcome.success_refreshed if refresh_ok else Outcome.success_refresh_failed
 
 
+# Remote D-Bus errors meaning the helper vanished or never answered; the
+# rule may already have been committed.
+_AMBIGUOUS_DBUS_ERRORS = frozenset(
+    {
+        "org.freedesktop.DBus.Error.NoReply",
+        "org.freedesktop.DBus.Error.ServiceUnknown",
+        "org.freedesktop.DBus.Error.Disconnected",
+        "org.freedesktop.DBus.Error.NoServer",
+    }
+)
+
+
 def is_gio_timeout(error: GLib.Error) -> bool:
-    """True when a GLib.Error is G_IO_ERROR_TIMEOUT (g-io-error-quark, 7)."""
-    return error.matches(GLib.quark_from_string("g-io-error-quark"), G_IO_ERROR_TIMEOUT)
+    """True when a GLib.Error is Gio.IOErrorEnum.TIMED_OUT."""
+    return error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.TIMED_OUT)
+
+
+def is_outcome_unknown(error: GLib.Error) -> bool:
+    """True when a failed method call does not prove the helper changed nothing.
+
+    Covers the client timeout, a closed connection and D-Bus no-reply /
+    service-disappearance errors. An explicit helper rejection arrives as a
+    normal reply and never reaches this check.
+    """
+    if is_gio_timeout(error) or error.matches(
+        Gio.io_error_quark(), Gio.IOErrorEnum.CLOSED
+    ):
+        return True
+    if not Gio.DBusError.is_remote_error(error):
+        return False
+    return Gio.DBusError.get_remote_error(error) in _AMBIGUOUS_DBUS_ERRORS
 
 
 def actions_enabled(gnome_wayland: bool) -> bool:
