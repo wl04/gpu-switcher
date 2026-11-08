@@ -83,8 +83,10 @@ def fsync_dir(path) -> None:
 
 
 def unlink_managed_rule() -> None:
-    """Remove the managed rule; raises OSError on failure."""
+    """Remove the managed rule and fsync its directory so the removal is
+    durable; raises OSError when the removal fails."""
     os.unlink(MANAGED_RULE)
+    fsync_dir(os.path.dirname(MANAGED_RULE))
 
 
 def refresh_message(tr, state, *, leading, backup="", verified_sentence):

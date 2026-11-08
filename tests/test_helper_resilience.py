@@ -241,3 +241,20 @@ class RuleWriteFailure(unittest.TestCase):
         on_done.assert_called_once()
         self.assertFalse(on_done.call_args[0][0])
         self.assertIn("nothing changed", on_done.call_args[0][1])
+
+
+class RuleRemoval(unittest.TestCase):
+    def test_unlink_managed_rule_fsyncs_directory_after_removal(self) -> None:
+        calls: list[str] = []
+
+        with (
+            mock.patch.object(
+                rule_store.os, "unlink", side_effect=lambda _p: calls.append("unlink")
+            ),
+            mock.patch.object(
+                rule_store, "fsync_dir", side_effect=lambda _p: calls.append("fsync")
+            ),
+        ):
+            rule_store.unlink_managed_rule()
+
+        self.assertEqual(calls, ["unlink", "fsync"])

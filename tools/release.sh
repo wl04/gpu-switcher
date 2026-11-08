@@ -34,8 +34,11 @@ usage() {
 NEW_VERSION="$1"
 BULLETS_FILE="$2"
 DRY=0
-[ "${3:-}" = "--dry-run" ] && DRY=1
 [ $# -le 3 ] || usage
+if [ $# -eq 3 ]; then
+  [ "$3" = "--dry-run" ] || usage
+  DRY=1
+fi
 
 # --- validate inputs --------------------------------------------------------
 [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]] || {
