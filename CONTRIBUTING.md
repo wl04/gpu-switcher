@@ -71,3 +71,17 @@ Run with `--dry-run` first; the working tree must be clean.
   fails first.
 - Code and identifiers are in English; user-facing strings go through gettext
   (`po/`).
+
+## Updating the screenshot
+
+`docs/screenshot.png` is English regardless of your system language:
+
+```sh
+make locale
+tools/screenshot.sh        # en -> docs/screenshot.png
+tools/screenshot.sh ru     # ru -> docs/screenshot-ru.png
+```
+
+The script sets `LANGUAGE`/`LC_ALL` for the app (gettext and GTK) and, if
+`gnome-screenshot` is installed, captures the window; otherwise capture it
+manually. The window shows your real GPU names and PCI addresses.
