@@ -336,10 +336,7 @@ def _set_auto_apply(tr):
             ) from error
         print(f"SetAuto: rule removed (backup: {backup})", file=sys.stderr)
         leading = tr("Managed rule removed.")
-        verified_sentence = tr(
-            "Udev rules reloaded; auto selection applies after the next "
-            "login (or after a reboot)."
-        )
+        verified_sentence = tr("Udev rules reloaded.")
     else:
         print("SetAuto: no managed rule; already auto", file=sys.stderr)
         # An earlier removal may have left stale tags (its refresh failed), so
@@ -378,7 +375,7 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
             return
         print("SetAuto: authorized", file=sys.stderr)
         try:
-            backup, leading, verified_sentence = _set_auto_apply(tr)
+            _backup, leading, verified_sentence = _set_auto_apply(tr)
         except HelperFailure as failure:
             finish(False, failure.args[0], False)
             return
@@ -388,7 +385,6 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
                 tr,
                 state,
                 leading=leading,
-                backup=backup,
                 verified_sentence=verified_sentence,
             )
             finish(True, message, state == hud.RefreshState.VERIFIED)

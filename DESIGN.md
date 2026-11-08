@@ -163,8 +163,15 @@ One window (Adwaita, no custom CSS):
   succeeded (no polkit prompt of its own).
 - Contextual status banners: applied / denied / conflict / unavailable
   configured GPU / unknown outcome after a timeout.
+- State row (`gpu_state.py`): an icon + text derived from the running
+  primary, the managed rule, the rule's mtime versus gnome-shell's start time
+  and the last Apply/Reset outcome. States: auto, active (GNOME picked the
+  configured GPU), pending login / pending reboot (rule changed after the
+  session started; the refresh result is not persisted, so after an app
+  restart pending means reboot), ignored (an older rule was not honored),
+  unknown.
 - Collapsible verification hint: the exact `journalctl` command to confirm
-  after restart.
+  after restart; expanded only when the state is unknown or ignored.
 
 Interaction rules: privileged calls are async (the buttons are disabled while
 an operation or a re-detection runs; the UI never blocks, detection runs on a

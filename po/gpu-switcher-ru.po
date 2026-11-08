@@ -28,6 +28,27 @@ msgstr "Основной GPU сейчас: неизвестно (проверь�
 msgid "Running primary: could not read the session journal (%s)."
 msgstr "Основной GPU сейчас: не удалось прочитать журнал сеанса (%s)."
 
+msgid "Running on %s (automatic selection)."
+msgstr "Работает на %s (автоматический выбор)."
+
+msgid "GNOME is using the configured GPU."
+msgstr "GNOME использует назначенный GPU."
+
+msgid "Configured for next login. Log out and back in to apply it."
+msgstr "Назначено на следующий вход. Выйдите из сеанса и войдите снова, чтобы применить."
+
+msgid "Automatic selection applies at next login. Log out and back in."
+msgstr "Автоматический выбор вступит в силу при следующем входе. Выйдите из сеанса и войдите снова."
+
+msgid "The change applies after a reboot."
+msgstr "Изменение вступит в силу после перезагрузки."
+
+msgid "GNOME is running on %(running)s, not the configured %(configured)s. Check for conflicting rules or whether that GPU was available at login."
+msgstr "GNOME работает на %(running)s, а не на назначенном %(configured)s. Проверьте конфликтующие правила и был ли этот GPU доступен при входе."
+
+msgid "automatic selection"
+msgstr "автоматический выбор"
+
 # App UI: actions and dialogs
 
 msgid "Apply"
@@ -147,9 +168,6 @@ msgstr "Правило уже задано для %s."
 msgid "Rule written for %s."
 msgstr "Правило записано для %s."
 
-msgid "A backup was saved to %s."
-msgstr "Резервная копия сохранена: %s."
-
 msgid "No managed rule (auto selection already in effect)."
 msgstr "Управляемого правила нет (автовыбор уже действует)."
 
@@ -158,12 +176,6 @@ msgstr "Управляемое правило удалено."
 
 msgid "Udev rules reloaded."
 msgstr "udev-правила перезагружены."
-
-msgid "Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
-msgstr "udev-правила перезагружены; изменение вступит в силу после повторного входа (или после перезагрузки)."
-
-msgid "Udev rules reloaded; auto selection applies after the next login (or after a reboot)."
-msgstr "udev-правила перезагружены; автовыбор вступит в силу после повторного входа (или после перезагрузки)."
 
 msgid "The udev refresh could not be verified (udevadm unavailable); a reboot is required."
 msgstr "Обновление udev не удалось проверить (udevadm недоступен); требуется перезагрузка."
@@ -191,3 +203,12 @@ msgstr "Не удалось удалить управляемое правило
 
 msgid "Could not determine the logind session to log out."
 msgstr "Не удалось определить сессию logind для выхода."
+
+msgid "Detection failed: %s."
+msgstr "Не удалось выполнить обнаружение: %s."
+
+msgid "The selected GPU is no longer detected; re-checking…"
+msgstr "Выбранный GPU больше не обнаружен; выполняется повторная проверка…"
+
+msgid "The managed udev rule could not be interpreted, so the configured GPU is unknown (this is not automatic selection). Use 'Reset to auto' or Apply to rewrite it."
+msgstr "Управляемое udev-правило не удалось разобрать, поэтому назначенный GPU неизвестен (это не автоматический выбор). Используйте «Сбросить к авто» или «Применить», чтобы переписать его."

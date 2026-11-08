@@ -19,6 +19,7 @@ gi.require_version("GLib", "2.0")
 from gi.repository import GLib, Gtk
 
 from . import bus, detect, i18n
+from .gpu_state import GpuState, derive_state, describe, presentation
 from .selection import (
     SELECTION_AUTO,
     SELECTION_UNAVAILABLE,
@@ -88,6 +89,7 @@ class GpuSwitcherApp(Gtk.Application):
         self.reset_btn: Gtk.Button = None
         self.reboot_btn: Gtk.Button = None
         self.logout_btn: Gtk.Button = None
+        self.gpu_state: GpuState = GpuState.UNKNOWN
         self.outcome: Outcome = Outcome.idle  # explicit state of the last operation
         self._detect_generation: int = 0  # discards stale detection results
         self._pending_banner: tuple[str, BannerKind] | None = (
@@ -119,9 +121,11 @@ class GpuSwitcherApp(Gtk.Application):
             box.append(warning)
         self._build_rows(result)
         box.append(self.rows_box)
-        note = self._build_running_primary_note(result)
-        if note is not None:
-            box.append(note)
+        assert result is not None
+        self.gpu_state = derive_state(result, self.outcome)
+        status = self._build_state_status(result, self.gpu_state)
+        if status is not None:
+            box.append(status)
         self._build_banner(result)
         box.append(self.banner)
         box.append(self._build_buttons())
@@ -214,25 +218,34 @@ class GpuSwitcherApp(Gtk.Application):
         else:
             self.radios_by_gpu[card].set_active(True)
 
-    def _build_running_primary_note(self, result) -> Gtk.Label | None:
-        """Note when the running primary is unknown or unreadable, else None."""
-        if result.running_card_error is not None:
-            text = (
-                i18n._("Running primary: could not read the session journal (%s).")
-                % result.running_card_error
-            )
-        elif result.running_card is None:
-            text = i18n._(
-                "Running primary: unknown (verify in the journal after restart)."
-            )
-        else:
-            text = None
-        if text is None:
+    def _build_state_status(self, result, state: GpuState) -> Gtk.Box | None:
+        """Icon + text row for the derived GPU state, or None when there is
+        nothing to say (not GNOME Wayland, or a rule problem that the
+        startup banner already explains)."""
+        text = describe(state, result)
+        rule_problem = (
+            self.unavailable_pci is not None
+            or result.conflicts
+            or result.rule_state
+            in (detect.RuleState.UNRECOGNIZED, detect.RuleState.UNREADABLE)
+        )
+        if not text or (state is GpuState.UNKNOWN and rule_problem):
             return None
-        note = Gtk.Label(label=text)
-        note.set_wrap(True)
-        note.add_css_class("dim-label")
-        return note
+        kind, icon_name = presentation(state)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        if kind is BannerKind.INFO:
+            row.add_css_class("dim-label")
+        else:
+            row.add_css_class(kind.value)
+        icon = Gtk.Image.new_from_icon_name(icon_name)
+        icon.set_valign(Gtk.Align.START)
+        label = Gtk.Label(label=text)
+        label.set_wrap(True)
+        label.set_xalign(0.0)
+        label.set_hexpand(True)
+        row.append(icon)
+        row.append(label)
+        return row
 
     def _build_banner(self, result) -> None:
         """Status banner: a Revealer with a Box and Label styled with Adwaita
@@ -314,6 +327,8 @@ class GpuSwitcherApp(Gtk.Application):
         switch (from Mutter's multi-GPU docs); only commands are monospace."""
         hint = Gtk.Expander()
         hint.set_label(i18n._("How to verify the switch after restart"))
+        # The app could not confirm the result itself: show the evidence.
+        hint.set_expanded(self.gpu_state in (GpuState.UNKNOWN, GpuState.IGNORED))
         hint_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         hint_box.set_margin_top(8)
         # The expander and GtkLabel center by default; align every line left.

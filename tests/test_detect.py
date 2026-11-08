@@ -218,6 +218,58 @@ class ProcessTree(unittest.TestCase):
         self.assertIsNone(tree[100][2])
 
 
+class ProcessStartTime(unittest.TestCase):
+    # `pid (comm) state ppid ...`: starttime is field 22, i.e. index 19 after
+    # the closing parenthesis; comm may itself contain spaces and ")".
+    @staticmethod
+    def _stat(comm: str, starttime: int) -> str:
+        fields = ["S", "1"] + ["0"] * 17 + [str(starttime)] + ["0"] * 5
+        return f"200 ({comm}) " + " ".join(fields)
+
+    def _proc(self, root: str, stat: str | None, btime: str | None) -> None:
+        if stat is not None:
+            os.makedirs(os.path.join(root, "200"))
+            with open(os.path.join(root, "200", "stat"), "w") as f:
+                f.write(stat)
+        if btime is not None:
+            with open(os.path.join(root, "stat"), "w") as f:
+                f.write(f"cpu 1 2 3\nbtime {btime}\nprocesses 5\n")
+
+    def test_process_start_time_adds_boot_time_and_ticks(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            self._proc(root, self._stat("gnome-shell", 5000), "1000")
+            result = detect.process_start_time(200, root, clock_ticks=100)
+        self.assertEqual(result, 1050.0)
+
+    def test_process_start_time_handles_parenthesis_in_comm(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            self._proc(root, self._stat("a) b (c", 200), "1000")
+            result = detect.process_start_time(200, root, clock_ticks=100)
+        self.assertEqual(result, 1002.0)
+
+    def test_process_start_time_returns_none_when_process_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            self._proc(root, None, "1000")
+            result = detect.process_start_time(200, root, clock_ticks=100)
+        self.assertIsNone(result)
+
+    def test_process_start_time_returns_none_without_boot_time(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            self._proc(root, self._stat("gnome-shell", 5000), None)
+            result = detect.process_start_time(200, root, clock_ticks=100)
+        self.assertIsNone(result)
+
+
+class RuleMtime(unittest.TestCase):
+    def test_rule_mtime_returns_modification_time(self) -> None:
+        with tempfile.NamedTemporaryFile() as f:
+            os.utime(f.name, (1, 1234.0))
+            self.assertEqual(detect.rule_mtime(f.name), 1234.0)
+
+    def test_rule_mtime_returns_none_when_file_missing(self) -> None:
+        self.assertIsNone(detect.rule_mtime("/nonexistent/rule"))
+
+
 class RunningPrimary(unittest.TestCase):
     """A failed journal read must be reported as an error, not masked as
     "no selection line". The journal is scoped to the single gnome-shell pid

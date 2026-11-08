@@ -89,17 +89,16 @@ def unlink_managed_rule() -> None:
     fsync_dir(os.path.dirname(MANAGED_RULE))
 
 
-def refresh_message(tr, state, *, leading, backup="", verified_sentence):
+def refresh_message(tr, state, *, leading, verified_sentence):
     """Full localized reply after a udev refresh.
 
-    Joins, with single spaces, the caller's leading sentence, the optional
-    backup sentence and the sentence for the refresh outcome. The po/
-    entries are whole sentences, so the result reads naturally in every
-    shipped language. `backup` is '' when there is none.
+    Joins, with single spaces, the caller's leading sentence and the
+    sentence for the refresh outcome. The po/ entries are whole sentences,
+    so the result reads naturally in every shipped language. When the
+    change takes effect is the app's state row to say, not the reply; the
+    backup path travels in the reply's backup_path field.
     """
     prefix = leading
-    if backup:
-        prefix += " " + tr("A backup was saved to %s.") % backup
     if state == hud.RefreshState.UNSUPPORTED:
         return (
             prefix
@@ -148,11 +147,7 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
                 tr,
                 state,
                 leading=tr("Rule written for %s.") % pci,
-                backup=backup,
-                verified_sentence=tr(
-                    "Udev rules reloaded; the change takes effect after the next "
-                    "login (or after a reboot)."
-                ),
+                verified_sentence=tr("Udev rules reloaded."),
             )
             on_done(True, message, backup, refresh_ok)
 

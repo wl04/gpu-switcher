@@ -28,6 +28,27 @@ msgstr "Running primary: unknown (verify in the journal after restart)."
 msgid "Running primary: could not read the session journal (%s)."
 msgstr "Running primary: could not read the session journal (%s)."
 
+msgid "Running on %s (automatic selection)."
+msgstr "Running on %s (automatic selection)."
+
+msgid "GNOME is using the configured GPU."
+msgstr "GNOME is using the configured GPU."
+
+msgid "Configured for next login. Log out and back in to apply it."
+msgstr "Configured for next login. Log out and back in to apply it."
+
+msgid "Automatic selection applies at next login. Log out and back in."
+msgstr "Automatic selection applies at next login. Log out and back in."
+
+msgid "The change applies after a reboot."
+msgstr "The change applies after a reboot."
+
+msgid "GNOME is running on %(running)s, not the configured %(configured)s. Check for conflicting rules or whether that GPU was available at login."
+msgstr "GNOME is running on %(running)s, not the configured %(configured)s. Check for conflicting rules or whether that GPU was available at login."
+
+msgid "automatic selection"
+msgstr "automatic selection"
+
 # App UI: actions and dialogs
 
 msgid "Apply"
@@ -147,9 +168,6 @@ msgstr "The rule is already set for %s."
 msgid "Rule written for %s."
 msgstr "Rule written for %s."
 
-msgid "A backup was saved to %s."
-msgstr "A backup was saved to %s."
-
 msgid "No managed rule (auto selection already in effect)."
 msgstr "No managed rule (auto selection already in effect)."
 
@@ -158,12 +176,6 @@ msgstr "Managed rule removed."
 
 msgid "Udev rules reloaded."
 msgstr "Udev rules reloaded."
-
-msgid "Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
-msgstr "Udev rules reloaded; the change takes effect after the next login (or after a reboot)."
-
-msgid "Udev rules reloaded; auto selection applies after the next login (or after a reboot)."
-msgstr "Udev rules reloaded; auto selection applies after the next login (or after a reboot)."
 
 msgid "The udev refresh could not be verified (udevadm unavailable); a reboot is required."
 msgstr "The udev refresh could not be verified (udevadm unavailable); a reboot is required."
@@ -191,3 +203,12 @@ msgstr "Failed to remove the managed rule; nothing changed."
 
 msgid "Could not determine the logind session to log out."
 msgstr "Could not determine the logind session to log out."
+
+msgid "Detection failed: %s."
+msgstr "Detection failed: %s."
+
+msgid "The selected GPU is no longer detected; re-checking…"
+msgstr "The selected GPU is no longer detected; re-checking…"
+
+msgid "The managed udev rule could not be interpreted, so the configured GPU is unknown (this is not automatic selection). Use 'Reset to auto' or Apply to rewrite it."
+msgstr "The managed udev rule could not be interpreted, so the configured GPU is unknown (this is not automatic selection). Use 'Reset to auto' or Apply to rewrite it."

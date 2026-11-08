@@ -6,6 +6,7 @@ completeness (every msgid translated in every shipped locale), `msgfmt -c`
 consistency, and that CPython's gettext can read a msgfmt-built catalog.
 """
 
+import ast
 import gettext
 import os
 import shutil
@@ -210,6 +211,46 @@ class CatalogCompleteness(unittest.TestCase):
                 self.assertNotEqual(
                     msgstr, "", f"{name}: missing translation: {msgid!r}"
                 )
+
+
+def _translatable_msgids() -> set[str]:
+    """Literal first arguments of _() / i18n._() / tr() calls in src/."""
+    root = os.path.join(os.path.dirname(i18n.__file__))
+    found: set[str] = set()
+    for dirpath, _dirs, files in os.walk(root):
+        for filename in files:
+            if not filename.endswith(".py"):
+                continue
+            with open(os.path.join(dirpath, filename), encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or not node.args:
+                    continue
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else None
+                if isinstance(func, ast.Name):
+                    name = func.id
+                arg = node.args[0]
+                if (
+                    name in ("_", "tr")
+                    and isinstance(arg, ast.Constant)
+                    and isinstance(arg.value, str)
+                ):
+                    found.add(arg.value)
+    return found
+
+
+class CatalogCoversSource(unittest.TestCase):
+    def test_every_translatable_string_in_source_is_in_each_catalog(self) -> None:
+        used = _translatable_msgids()
+        self.assertIn("In use now", used)  # the scan itself works
+        for name in ("gpu-switcher-en.po", "gpu-switcher-ru.po"):
+            known = {
+                msgid.replace("\\n", "\n")  # the parser keeps .po escapes
+                for msgid, _msgstr, _fuzzy in _po_entries(_po(name))
+            }
+            missing = sorted(used - known)
+            self.assertEqual(missing, [], f"{name}: strings missing from catalog")
 
 
 if __name__ == "__main__":

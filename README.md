@@ -24,7 +24,10 @@ integrated graphics plus one or more discrete GPUs.
   **Preferred (configured)** (managed udev rule on disk)
 - **Apply** / **Reset to auto** under polkit authorization
 - **Reboot now** and a **Log out** fast path, enabled after a successful apply
-- Confirmation dialogs, status banners and a built-in verification hint
+- **State row**: what is running now versus what is configured for the next
+  login, whether a log out or a reboot is needed, and, after login, whether
+  GNOME actually picked the configured GPU (or ignored the rule)
+- Confirmation dialogs, result banners and a manual verification hint
 - English and Russian
 
 ## Compatibility
@@ -82,7 +85,10 @@ need it (see [Recovery](#recovery)).
    **Reset to auto** removes the rule and returns to automatic selection.
 3. Click **Log out** (or **Reboot now**) so GNOME picks the new GPU at the next
    session start.
-4. Verify the switch after logging back in:
+4. After logging back in, the state row confirms that GNOME is using the
+   configured GPU. If the app cannot tell (for example the journal is
+   unreadable), or GNOME ignored the rule, the window opens the manual check
+   instead; you can also run it yourself:
 
 ```sh
 journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'

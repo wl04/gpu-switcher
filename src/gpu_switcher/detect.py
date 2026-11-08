@@ -67,6 +67,8 @@ class Detection:
     conflicts: list[str]  # other udev rules setting the tag
     gnome_wayland: bool
     rule_state: RuleState = RuleState.ABSENT  # managed rule on disk
+    rule_mtime: float | None = None  # epoch seconds of the managed rule file
+    session_start: float | None = None  # epoch seconds gnome-shell started
 
 
 # Display-controller PCI device classes: 0x0300 (VGA) and 0x0302 (3D).
@@ -258,6 +260,47 @@ def running_primary() -> tuple[str | None, str | None]:
     return last_primary_card(out.stdout.splitlines()), None
 
 
+def process_start_time(
+    pid: int, proc_root: str = "/proc", clock_ticks: int | None = None
+) -> float | None:
+    """Epoch seconds when `pid` started, or None when unreadable.
+
+    /proc/<pid>/stat field 22 counts clock ticks since boot; /proc/stat
+    `btime` is the boot epoch. The stat line is split at the last ')'
+    because comm may contain spaces and parentheses.
+    """
+    if clock_ticks is None:
+        clock_ticks = os.sysconf("SC_CLK_TCK")
+    stat = read_text(f"{proc_root}/{pid}/stat")
+    try:
+        ticks = int(stat.rsplit(")", 1)[1].split()[19])
+    except (ValueError, IndexError):
+        return None
+    for line in read_text(f"{proc_root}/stat").splitlines():
+        if line.startswith("btime "):
+            try:
+                return int(line.split()[1]) + ticks / clock_ticks
+            except (ValueError, IndexError):
+                return None
+    return None
+
+
+def session_start_time() -> float | None:
+    """Start time of our uid's single gnome-shell, or None when the
+    attribution is ambiguous (same scoping as running_primary)."""
+    pids = gnome_shell_pids_for_uid(_process_tree(), os.getuid())
+    return process_start_time(pids[0]) if len(pids) == 1 else None
+
+
+def rule_mtime(path: str = MANAGED_RULE) -> float | None:
+    """Modification time of the managed rule file, or None when absent or
+    unreadable."""
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return None
+
+
 _KERNELS_RE = re.compile(r'(?<!\w)KERNELS\s*==\s*"([^"]+)"')
 
 
@@ -363,4 +406,6 @@ def detect() -> Detection:
         conflicts=rule_conflicts(on_unreadable=OnUnreadable.SKIP),
         gnome_wayland=gnome_wayland_session(),
         rule_state=rule_state,
+        rule_mtime=rule_mtime(),
+        session_start=session_start_time(),
     )

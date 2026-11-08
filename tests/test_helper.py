@@ -717,7 +717,7 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
         self.assertTrue(ok)
         self.assertTrue(refresh_ok)
         self.assertTrue(message.startswith("Rule written for 0000:12:00.0."))
-        self.assertIn("A backup was saved to", message)
+        self.assertNotIn("backup", message.lower())
         self.assertTrue(backup.startswith(self.rule + ".bak."))
         self.assertTrue(os.path.exists(backup))
         with open(self.rule, encoding="utf-8") as f:
@@ -896,7 +896,7 @@ class SetAutoTransaction(SetAutoTransactionBase):
         self.assertTrue(refresh_ok)
         self.assertFalse(os.path.exists(self.rule))
         self.assertIn("Managed rule removed.", message)
-        self.assertIn("A backup was saved to", message)
+        self.assertNotIn("backup", message.lower())
         self.assertEqual(
             len(
                 [
