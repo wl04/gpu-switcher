@@ -9,6 +9,7 @@ import os
 import tempfile
 import unittest
 from typing import cast
+from unittest import mock
 
 from gpu_switcher.core.udev import (
     MUTTER_ENV,
@@ -156,6 +157,33 @@ class RuleConflicts(unittest.TestCase):
         self._make_unreadable(path)
         self.assertEqual(
             rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.FLAG), [path]
+        )
+
+    def test_rule_conflicts_matches_each_assignment_with_its_own_key(self) -> None:
+        cases = [
+            ('TAG=="seat", TAG+="%s"' % MUTTER_TAG, True),
+            ('ENV{OTHER}=="x", ENV{%s}="1"' % MUTTER_ENV, True),
+            ('TAG+="seat", ENV{NOTE}="%s"' % MUTTER_TAG, False),
+            ('TAG+="seat", \\\nTAG+="%s"' % MUTTER_TAG, True),
+        ]
+        for line, expected in cases:
+            with self.subTest(line=line):
+                with open(os.path.join(self.dir_a, "10-x.rules"), "w") as f:
+                    f.write(line + "\n")
+                found = rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP)
+                self.assertEqual(bool(found), expected)
+
+    def test_rule_conflicts_flags_unlistable_directory_in_helper_mode(self) -> None:
+        with mock.patch("os.listdir", side_effect=PermissionError("denied")):
+            self.assertEqual(
+                rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.FLAG),
+                [self.dir_a],
+            )
+
+    def test_rule_conflicts_ignores_missing_directory_in_helper_mode(self) -> None:
+        missing = os.path.join(self.root, "missing")
+        self.assertEqual(
+            rule_conflicts((missing,), on_unreadable=OnUnreadable.FLAG), []
         )
 
     def test_rule_conflicts_raises_on_unknown_on_unreadable(self) -> None:

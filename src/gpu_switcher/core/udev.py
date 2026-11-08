@@ -184,7 +184,12 @@ def rule_conflicts(
     for d in rule_dirs:
         try:
             entries = sorted(os.listdir(d))
+        except (FileNotFoundError, NotADirectoryError):
+            continue
         except OSError:
+            # A directory root cannot list may still hold a conflicting rule.
+            if on_unreadable is OnUnreadable.FLAG:
+                conflicts.append(d)
             continue
         for entry in entries:
             if not entry.endswith(".rules") or entry in seen:
