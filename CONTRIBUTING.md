@@ -38,6 +38,17 @@ polkit prompt, restart the session, then confirm with
 journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
 ```
 
+Also check that the packaged unit's sandbox (`ProtectSystem=strict`,
+`ProtectKernelTunables=yes`) still lets the helper re-emit DRM uevents. On a
+multi-GPU machine with the package installed, apply a switch and inspect
+
+```sh
+journalctl -u gpu-switcher-helper.service | grep -i 'udevadm trigger'
+```
+
+A `failed (rc=...)` line means the DRM refresh is blocked and the logout fast
+path is unavailable. `systemd-analyze verify` cannot detect this.
+
 ## Packaging
 
 - `tools/build-deb.sh` — plain `dpkg-deb` build.
