@@ -260,6 +260,18 @@ class GpuSwitcherApp(Gtk.Application):
                 % self.unavailable_pci,
                 BannerKind.WARNING,
             )
+        elif result.rule_state in (
+            detect.RuleState.UNRECOGNIZED,
+            detect.RuleState.UNREADABLE,
+        ):
+            self._banner_show(
+                i18n._(
+                    "The managed udev rule could not be interpreted, so the "
+                    "configured GPU is unknown (this is not automatic "
+                    "selection). Use 'Reset to auto' or Apply to rewrite it."
+                ),
+                BannerKind.WARNING,
+            )
         elif result.conflicts:
             self._banner_show(
                 i18n._(

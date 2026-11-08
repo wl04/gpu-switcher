@@ -128,7 +128,7 @@ _ENV_ASSIGN_RE = re.compile(
 )
 
 
-def _join_continuations(text: str) -> list[str]:
+def join_continuations(text: str) -> list[str]:
     """Logical rule lines: a trailing backslash joins the next line."""
     lines: list[str] = []
     pending = ""
@@ -143,7 +143,7 @@ def _join_continuations(text: str) -> list[str]:
     return lines
 
 
-def _sets_preferred_gpu(line: str) -> bool:
+def sets_preferred_gpu(line: str) -> bool:
     """True when this line assigns the preferred-GPU tag to the device.
 
     Only assignment forms count: TAG+=/TAG= with the tag as the assigned
@@ -167,7 +167,7 @@ def rule_conflicts(
 
     Scans `*.rules` in `rule_dirs` in order, skipping comment lines. A file
     conflicts when a line assigns the mutter tag or the ENV variable (see
-    _sets_preferred_gpu). The managed rule itself never conflicts, and a base
+    sets_preferred_gpu). The managed rule itself never conflicts, and a base
     name in an earlier directory shadows the same name in a later one.
 
     `on_unreadable`: SKIP ignores unreadable files (the app side; the helper
@@ -206,8 +206,8 @@ def rule_conflicts(
                     conflicts.append(path)
                 continue
             if any(
-                _sets_preferred_gpu(line)
-                for line in _join_continuations(text)
+                sets_preferred_gpu(line)
+                for line in join_continuations(text)
                 if not line.strip().startswith("#")
             ):
                 conflicts.append(path)

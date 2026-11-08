@@ -58,13 +58,62 @@ class LastPrimaryCard(unittest.TestCase):
 
 class ManagedRulePciFromText(unittest.TestCase):
     def test_managed_rule_pci_from_text_extracts_pci_from_rule_text(self) -> None:
-        text = 'KERNELS=="0000:12:00.0", ATTRS{vendor}=="0x1002"\n'
+        text = (
+            'KERNELS=="0000:12:00.0", ATTRS{vendor}=="0x1002", '
+            'TAG+="mutter-device-preferred-primary"\n'
+        )
         self.assertEqual(detect.managed_rule_pci_from_text(text), "0000:12:00.0")
 
     def test_managed_rule_pci_from_text_returns_none_when_rule_text_absent(
         self,
     ) -> None:
         self.assertIsNone(detect.managed_rule_pci_from_text(""))
+
+
+class ManagedRuleStatus(unittest.TestCase):
+    PCI = "0000:12:00.0"
+
+    def test_managed_rule_pci_from_text_ignores_commented_rule(self) -> None:
+        text = f'# KERNELS=="{self.PCI}"\n'
+        self.assertIsNone(detect.managed_rule_pci_from_text(text))
+
+    def test_managed_rule_pci_from_text_ignores_kernels_without_tag(self) -> None:
+        text = f'SUBSYSTEMS=="pci", KERNELS=="{self.PCI}"\n'
+        self.assertIsNone(detect.managed_rule_pci_from_text(text))
+
+    def test_managed_rule_pci_from_text_reads_generated_rule(self) -> None:
+        from gpu_switcher.core.gpu import rule_text
+
+        text = rule_text(self.PCI, "1002", "13c0")
+        self.assertEqual(detect.managed_rule_pci_from_text(text), self.PCI)
+
+    def test_managed_rule_pci_from_text_skips_commented_then_reads_active(self) -> None:
+        active = f'KERNELS=="{self.PCI}", TAG+="mutter-device-preferred-primary"\n'
+        text = '# KERNELS=="0000:99:00.0"\n' + active
+        self.assertEqual(detect.managed_rule_pci_from_text(text), self.PCI)
+
+    def _status(self, text: str | None) -> tuple[detect.RuleState, str | None]:
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "rule")
+            if text is not None:
+                with open(path, "w") as f:
+                    f.write(text)
+            return detect.managed_rule_status(path)
+
+    def test_managed_rule_status_absent_when_file_missing(self) -> None:
+        self.assertEqual(self._status(None), (detect.RuleState.ABSENT, None))
+
+    def test_managed_rule_status_unrecognized_when_only_comments(self) -> None:
+        state, pci = self._status(f'# KERNELS=="{self.PCI}"\n')
+        self.assertEqual((state, pci), (detect.RuleState.UNRECOGNIZED, None))
+
+    def test_managed_rule_status_unreadable_when_open_fails(self) -> None:
+        with mock.patch("builtins.open", side_effect=PermissionError("denied")):
+            state, pci = detect.managed_rule_status("/x")
+        self.assertEqual((state, pci), (detect.RuleState.UNREADABLE, None))
 
 
 class ParseLspciMm(unittest.TestCase):
@@ -362,7 +411,10 @@ class DetectClassFilter(unittest.TestCase):
             mock.patch(
                 "gpu_switcher.detect.running_primary", return_value=(None, None)
             ),
-            mock.patch("gpu_switcher.detect.managed_rule_pci", return_value=None),
+            mock.patch(
+                "gpu_switcher.detect.managed_rule_status",
+                return_value=(detect.RuleState.ABSENT, None),
+            ),
             mock.patch("gpu_switcher.detect.rule_conflicts", return_value=[]),
             mock.patch("gpu_switcher.detect.gnome_wayland_session", return_value=True),
         ):

@@ -12,6 +12,7 @@ ambiguous and the running primary is unknown.
 from __future__ import annotations
 
 import dataclasses
+import enum
 import os
 import re
 import shutil
@@ -21,11 +22,28 @@ from gpu_switcher.core.udev import (
     MANAGED_RULE,
     OnUnreadable,
     is_display_gpu,
+    join_continuations,
     read_text,
     rule_conflicts,
+    sets_preferred_gpu,
 )
 
 JOURNAL_UNIT = "/usr/bin/gnome-shell"
+
+
+class RuleState(enum.Enum):
+    """Condition of the managed rule file.
+
+    ABSENT: no file, so automatic selection. VALID: an active supported rule
+    pins a PCI. UNRECOGNIZED: the file exists but holds no active supported
+    rule (commented out, malformed, edited by hand). UNREADABLE: it could not
+    be read, so the configured state is unknown.
+    """
+
+    ABSENT = "absent"
+    VALID = "valid"
+    UNRECOGNIZED = "unrecognized"
+    UNREADABLE = "unreadable"
 
 
 @dataclasses.dataclass
@@ -48,6 +66,7 @@ class Detection:
     preferred_pci: str | None  # PCI from the managed rule on disk
     conflicts: list[str]  # other udev rules setting the tag
     gnome_wayland: bool
+    rule_state: RuleState = RuleState.ABSENT  # managed rule on disk
 
 
 # Display-controller PCI device classes: 0x0300 (VGA) and 0x0302 (3D).
@@ -239,15 +258,37 @@ def running_primary() -> tuple[str | None, str | None]:
     return last_primary_card(out.stdout.splitlines()), None
 
 
+_KERNELS_RE = re.compile(r'(?<!\w)KERNELS\s*==\s*"([^"]+)"')
+
+
 def managed_rule_pci_from_text(text: str) -> str | None:
-    """PCI address from a managed udev rule's text, or None (auto selection)."""
-    m = re.search(r'KERNELS=="([^"]+)"', text)
-    return m.group(1) if m else None
+    """PCI address pinned by an active preferred-GPU rule in `text`, or None.
+
+    Comment lines and lines that do not assign the preferred-GPU tag are
+    ignored, so a commented-out or unrelated KERNELS== never counts.
+    """
+    for line in join_continuations(text):
+        if line.lstrip().startswith("#") or not sets_preferred_gpu(line):
+            continue
+        match = _KERNELS_RE.search(line)
+        if match:
+            return match.group(1)
+    return None
 
 
-def managed_rule_pci() -> str | None:
-    """PCI address from the managed rule file, or None (auto selection)."""
-    return managed_rule_pci_from_text(read_text(MANAGED_RULE))
+def managed_rule_status(path: str = MANAGED_RULE) -> tuple[RuleState, str | None]:
+    """Condition of the managed rule file and the PCI it pins (VALID only)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return RuleState.ABSENT, None
+    except OSError:
+        return RuleState.UNREADABLE, None
+    pci = managed_rule_pci_from_text(text)
+    if pci is None:
+        return RuleState.UNRECOGNIZED, None
+    return RuleState.VALID, pci
 
 
 def is_gnome_wayland(
@@ -310,7 +351,7 @@ def detect() -> Detection:
             )
         )
     running_card, running_card_error = running_primary()
-    preferred = managed_rule_pci()
+    rule_state, preferred = managed_rule_status()
     for g in gpus:
         g.in_use = g.card == running_card
         g.preferred = g.pci == preferred
@@ -321,4 +362,5 @@ def detect() -> Detection:
         preferred_pci=preferred,
         conflicts=rule_conflicts(on_unreadable=OnUnreadable.SKIP),
         gnome_wayland=gnome_wayland_session(),
+        rule_state=rule_state,
     )
