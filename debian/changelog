@@ -1,3 +1,13 @@
+gpu-switcher (0.2.4-1) unstable; urgency=low
+
+  * Fix: real GIO timeouts are now recognized (the code was wrong); a lost or silent helper connection is treated as an unknown outcome and the state is rechecked instead of restoring the old selection.
+  * Fix: the managed rule is read from active lines only; a commented-out, unrecognized or unreadable rule is reported with a warning instead of being shown as the configured GPU or as automatic selection.
+  * Fix: an unlistable udev rule directory is reported as a conflict by the helper; a failure creating the temporary rule file is reported as "nothing changed".
+  * Fix: SetPrimary rechecks the GPU, conflicts and the rule path after authorization; removing the managed rule now fsyncs its directory.
+  * Tooling: release.sh rejects an unknown third argument; new regression tests for helper lifecycle and rule parsing.
+
+ -- wl04 <wl04@users.noreply.github.com>  Sun, 08 Nov 2026 14:12:02 +0100
+
 gpu-switcher (0.2.3-1) unstable; urgency=low
 
   * Fix: the helper no longer exits during a long polkit dialog; its operation lock is released after unexpected errors instead of leaving it answering Busy.
