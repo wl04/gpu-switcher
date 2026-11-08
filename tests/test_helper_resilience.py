@@ -124,6 +124,34 @@ class LockRelease(unittest.TestCase):
         )
         invocation.return_value.assert_not_called()
 
+    def test_set_primary_rechecks_gpu_after_authorization(self) -> None:
+        invocation = _invocation()
+        gpu: dict[str, Any] = {"value": ("card1", "0x1002", "0x7550")}
+
+        def authorize_after_gpu_removed(
+            _c: Any, _s: Any, _l: Any, on_done: Any, _x: Any = None
+        ) -> None:
+            gpu["value"] = None  # hot-unplugged while the prompt was open
+            on_done(AuthStatus.AUTHORIZED, "")
+
+        with (
+            mock.patch.object(auth, "authorize", authorize_after_gpu_removed),
+            mock.patch.object(service, "rule_conflicts", return_value=[]),
+            mock.patch.object(
+                service, "resolve_gpu", side_effect=lambda _pci: gpu["value"]
+            ),
+            mock.patch.object(rule_store, "write_rule_atomically") as write,
+        ):
+            self._call_set_primary(invocation, ("0000:12:00.0", "en"))
+
+        write.assert_not_called()
+        ok, message, _backup, _refresh = invocation.return_value.call_args[0][
+            0
+        ].unpack()
+        self.assertFalse(ok)
+        self.assertIn("not a valid display controller", message)
+        self.assertFalse(service._operation_in_progress)
+
     def test_set_primary_releases_lock_when_udev_callback_raises(self) -> None:
         invocation = _invocation()
 

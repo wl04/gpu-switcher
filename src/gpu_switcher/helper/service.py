@@ -250,7 +250,7 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
             DBUS_ERROR_BUSY, "Another operation is in progress."
         )
         return
-    card, vendor, device = _set_primary_plan(pci, tr)
+    _set_primary_plan(pci, tr)  # validate early; rechecked after authorization
     # GDBusMethodInvocation has no get_cancellable() in pygobject; use our own.
     cancellable = Gio.Cancellable.new()
 
@@ -269,6 +269,13 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
             finish(False, authorization_message(tr, status, detail), "", False)
             return
         print("SetPrimary: authorized", file=sys.stderr)
+        # The authorization wait can last minutes: recheck the GPU, the
+        # conflicts and the rule path before touching anything.
+        try:
+            card, vendor, device = _set_primary_plan(pci, tr)
+        except HelperFailure as failure:
+            finish(False, failure.args[0], "", False)
+            return
         content = rule_text(pci, vendor, device)
         # Read as bytes: the existing rule may hold invalid UTF-8 (a broken
         # hand edit); comparing bytes keeps the overwrite path working.
