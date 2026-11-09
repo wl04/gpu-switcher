@@ -82,6 +82,7 @@ tools/screenshot.sh        # en -> docs/screenshot.png
 tools/screenshot.sh ru     # ru -> docs/screenshot-ru.png
 ```
 
-The script sets `LANGUAGE`/`LC_ALL` for the app (gettext and GTK) and, if
-`gnome-screenshot` is installed, captures the window; otherwise capture it
-manually. The window shows your real GPU names and PCI addresses.
+The script sets `LANGUAGE`/`LC_ALL` for the app (gettext and GTK) and renders
+the window to PNG with GTK itself (`tools/screenshot.py`), so it needs no
+screenshot tool and works on Wayland. It must run in a graphical session; the
+window shows your real GPU names and PCI addresses.
