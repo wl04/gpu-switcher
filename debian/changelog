@@ -1,3 +1,14 @@
+gpu-switcher (0.3.0-1) unstable; urgency=low
+
+  * New: state row shows running vs configured GPU and what applies when.
+  * New: after login the app confirms GNOME used the configured GPU.
+  * Change: helper replies no longer repeat timing and the backup path.
+  * Fix: three Russian strings that appeared in English are translated.
+  * Tooling: screenshot.sh renders the window with GTK, not gnome-screenshot.
+  * Tooling: a test requires all translatable strings in each catalog.
+
+ -- wl04 <wl04@users.noreply.github.com>  Mon, 09 Nov 2026 21:43:59 +0100
+
 gpu-switcher (0.2.4-1) unstable; urgency=low
 
   * Fix: real GIO timeouts are now recognized (the code was wrong); a lost or silent helper connection is treated as an unknown outcome and the state is rechecked instead of restoring the old selection.
