@@ -111,13 +111,48 @@ def _call_async(
     )
 
 
+def _helper_failure_text(error: GLib.Error, message: str) -> str:
+    """The app's sentence for a failed helper call, in the user's language.
+
+    Some failures are answered by the bus itself in English: no service owns
+    the helper's name, the helper stopped answering, the client gave up. A
+    rejection the helper composed in the requested locale already explains
+    itself and is passed through unchanged.
+    """
+    if state.is_helper_missing(error):
+        return i18n._(
+            "The GPU helper is not available. Install the gpu-switcher package."
+        )
+    if state.is_gio_timeout(error):
+        return i18n._("The GPU helper did not answer in time.")
+    if state.is_outcome_unknown(error):
+        return i18n._("The GPU helper stopped answering.")
+    return message
+
+
+def _on_helper_error(callback, error: GLib.Error, message: str) -> None:
+    """Dispatch a failed SetPrimary/SetAuto call to the app callback.
+
+    A helper no service owns never received the call, so nothing changed.
+    A helper that was reached and then vanished leaves the outcome unknown:
+    the rule may already be on disk.
+    """
+    callback(
+        False,
+        _helper_failure_text(error, message),
+        False,
+        state.is_outcome_unknown(error),
+    )
+
+
 def set_primary(pci: str, locale: str, callback) -> None:
     """Ask the helper to write the managed rule for this PCI address.
 
     The helper also refreshes udev under the same authorization, so no second
-    prompt is needed. callback(ok, message, refresh_ok, timed_out): timed_out
-    means the client call timed out and the helper's outcome is unknown. The
-    helper's backup path is not passed on to the UI.
+    prompt is needed. callback(ok, message, refresh_ok, outcome_unknown):
+    outcome_unknown means the helper may already have changed the rule, so the
+    app re-detects instead of assuming nothing happened. The helper's backup
+    path is not passed on to the UI.
     """
     helper_unreachable = i18n._("Could not reach the GPU helper: %s.")
     _call_async(
@@ -130,9 +165,7 @@ def set_primary(pci: str, locale: str, callback) -> None:
         "(bssb)",
         HELPER_TIMEOUT_MS,
         lambda r: callback(bool(r[0]), r[1], bool(r[3]), False),
-        lambda error, message: callback(
-            False, message, False, state.is_outcome_unknown(error)
-        ),
+        lambda error, message: _on_helper_error(callback, error, message),
         lambda e: callback(False, helper_unreachable % e.message, False, False),
     )
 
@@ -141,8 +174,8 @@ def set_auto(locale: str, callback) -> None:
     """Ask the helper to remove the managed rule (auto selection).
 
     The helper also refreshes udev under the same authorization.
-    callback(ok, message, refresh_ok, timed_out): timed_out means the client
-    call timed out and the helper's outcome is unknown.
+    callback(ok, message, refresh_ok, outcome_unknown): outcome_unknown means
+    the helper may already have changed the rule.
     """
     helper_unreachable = i18n._("Could not reach the GPU helper: %s.")
     _call_async(
@@ -155,9 +188,7 @@ def set_auto(locale: str, callback) -> None:
         "(bsb)",
         HELPER_TIMEOUT_MS,
         lambda r: callback(bool(r[0]), r[1], bool(r[2]), False),
-        lambda error, message: callback(
-            False, message, False, state.is_outcome_unknown(error)
-        ),
+        lambda error, message: _on_helper_error(callback, error, message),
         lambda e: callback(False, helper_unreachable % e.message, False, False),
     )
 

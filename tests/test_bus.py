@@ -27,6 +27,35 @@ import gpu_switcher.core.udev as udev_rules
 from gpu_switcher import bus
 
 
+def _failed_helper_call(start: Any, error: GLib.Error) -> tuple[Any, ...]:
+    """Run a helper call over a mocked connection whose reply is this error,
+    and return the arguments the completion callback received.
+
+    `start(callback)` begins the call (bus.set_primary or bus.set_auto); the
+    ready callback the call registered on the connection is then invoked by
+    hand, the way the GLib main loop would invoke it.
+    """
+    conn = mock.Mock()
+    conn.call_finish.side_effect = error
+    results: list[tuple[Any, ...]] = []
+
+    with mock.patch.object(Gio, "bus_get_sync", return_value=conn):
+        start(lambda *args: results.append(args))
+        conn.call.call_args[0][9](conn, None)
+
+    return results[0]
+
+
+def _set_primary_failed(error: GLib.Error) -> tuple[Any, ...]:
+    return _failed_helper_call(
+        lambda cb: bus.set_primary("0000:12:00.0", "en", cb), error
+    )
+
+
+def _set_auto_failed(error: GLib.Error) -> tuple[Any, ...]:
+    return _failed_helper_call(lambda cb: bus.set_auto("en", cb), error)
+
+
 class TimeoutBudget(unittest.TestCase):
     def test_helper_timeout_exceeds_helper_worst_case(self) -> None:
         # Worst case: the interactive polkit dialog plus every udevadm
@@ -178,61 +207,47 @@ class OutcomeUnknownAfterCall(unittest.TestCase):
 
     UNKNOWN_ERROR_NAMES = (
         "org.freedesktop.DBus.Error.NoReply",
-        "org.freedesktop.DBus.Error.ServiceUnknown",
         "org.freedesktop.DBus.Error.Disconnected",
         "org.freedesktop.DBus.Error.NoServer",
     )
-
-    def _set_primary(self, error: GLib.Error) -> tuple[Any, ...]:
-        conn = mock.Mock()
-        conn.call_finish.side_effect = error
-        results: list[tuple[Any, ...]] = []
-
-        with mock.patch.object(Gio, "bus_get_sync", return_value=conn):
-            bus.set_primary("0000:12:00.0", "en", lambda *args: results.append(args))
-            conn.call.call_args[0][9](conn, None)
-
-        self.assertEqual(len(results), 1)
-        return results[0]
 
     def test_set_primary_reports_unknown_outcome_for_every_lost_helper_error(
         self,
     ) -> None:
         for name in self.UNKNOWN_ERROR_NAMES:
             with self.subTest(error=name):
-                _ok, _message, _refresh_ok, timed_out = self._set_primary(
+                _ok, _message, _refresh_ok, timed_out = _set_primary_failed(
                     Gio.DBusError.new_for_dbus_error(name, "The helper went away.")
                 )
 
                 self.assertTrue(timed_out)
 
-    def test_set_primary_reports_unknown_outcome_with_helper_message(self) -> None:
-        _ok, message, _refresh_ok, timed_out = self._set_primary(
+    def test_set_primary_reports_unknown_outcome_as_a_full_result(self) -> None:
+        # The callback shape the app relies on: failed, the app's own sentence
+        # for a helper that vanished, no refresh, outcome unknown.
+        result = _set_primary_failed(
             Gio.DBusError.new_for_dbus_error(
-                "org.freedesktop.DBus.Error.NoReply",
-                "The helper did not respond.",
+                "org.freedesktop.DBus.Error.NoReply", "Did not receive a reply"
             )
         )
 
-        self.assertTrue(timed_out)
-        self.assertEqual(message, "The helper did not respond.")
+        self.assertEqual(
+            result,
+            (False, "The GPU helper stopped answering.", False, True),
+        )
 
     def test_set_auto_reports_unknown_outcome_for_lost_helper_error(self) -> None:
-        conn = mock.Mock()
-        conn.call_finish.side_effect = Gio.DBusError.new_for_dbus_error(
-            "org.freedesktop.DBus.Error.ServiceUnknown", "The name was not provided."
+        results = _set_auto_failed(
+            Gio.DBusError.new_for_dbus_error(
+                "org.freedesktop.DBus.Error.Disconnected", "Connection closed"
+            )
         )
-        results: list[tuple[Any, ...]] = []
 
-        with mock.patch.object(Gio, "bus_get_sync", return_value=conn):
-            bus.set_auto("en", lambda *args: results.append(args))
-            conn.call.call_args[0][9](conn, None)
-
-        self.assertTrue(results[0][3])
+        self.assertTrue(results[3])
 
     def test_set_primary_reports_known_outcome_for_helper_rejection(self) -> None:
         # The helper answered: it refused the call, so nothing changed.
-        _ok, message, _refresh_ok, timed_out = self._set_primary(
+        _ok, message, _refresh_ok, timed_out = _set_primary_failed(
             Gio.DBusError.new_for_dbus_error(
                 "com.github.wl04.gpu_switcher.Error.Busy",
                 "Another operation is in progress.",
@@ -243,7 +258,7 @@ class OutcomeUnknownAfterCall(unittest.TestCase):
         self.assertEqual(message, "Another operation is in progress.")
 
     def test_set_primary_reports_known_outcome_for_failed_authorization(self) -> None:
-        _ok, _message, _refresh_ok, timed_out = self._set_primary(
+        _ok, _message, _refresh_ok, timed_out = _set_primary_failed(
             Gio.DBusError.new_for_dbus_error(
                 "org.freedesktop.PolicyKit1.Error.Failed",
                 "The authorization check failed.",
@@ -251,3 +266,78 @@ class OutcomeUnknownAfterCall(unittest.TestCase):
         )
 
         self.assertFalse(timed_out)
+
+
+class HelperFailureText(unittest.TestCase):
+    """What the user is told when a helper call fails.
+
+    Failures the bus answers for us are English D-Bus text, so the app says
+    them in the user's language. A rejection the helper composed in the
+    requested locale already explains itself and must reach the banner
+    unchanged.
+    """
+
+    def test_set_primary_names_the_missing_helper_when_bus_has_no_such_service(
+        self,
+    ) -> None:
+        _ok, message, _refresh_ok, _timed_out = _set_primary_failed(
+            Gio.DBusError.new_for_dbus_error(
+                "org.freedesktop.DBus.Error.ServiceUnknown",
+                "The name com.github.wl04.gpu_switcher.Helper was not provided "
+                "by any .service files",
+            )
+        )
+
+        self.assertEqual(
+            message,
+            "The GPU helper is not available. Install the gpu-switcher package.",
+        )
+
+    def test_set_primary_names_its_own_timeout_when_helper_never_replied(self) -> None:
+        _ok, message, _refresh_ok, _timed_out = _set_primary_failed(
+            GLib.Error.new_literal(
+                Gio.io_error_quark(),
+                "Timeout was reached",
+                int(Gio.IOErrorEnum.TIMED_OUT),
+            )
+        )
+
+        self.assertEqual(message, "The GPU helper did not answer in time.")
+
+    def test_set_primary_names_a_helper_that_stopped_answering(self) -> None:
+        _ok, message, _refresh_ok, _timed_out = _set_primary_failed(
+            Gio.DBusError.new_for_dbus_error(
+                "org.freedesktop.DBus.Error.NoReply", "Did not receive a reply"
+            )
+        )
+
+        self.assertEqual(message, "The GPU helper stopped answering.")
+
+    def test_set_auto_reports_the_same_helper_failure_texts(self) -> None:
+        cases = (
+            (
+                Gio.DBusError.new_for_dbus_error(
+                    "org.freedesktop.DBus.Error.ServiceUnknown", "no such service"
+                ),
+                "The GPU helper is not available. Install the gpu-switcher package.",
+            ),
+            (
+                Gio.DBusError.new_for_dbus_error(
+                    "org.freedesktop.DBus.Error.NoServer", "Failed to connect"
+                ),
+                "The GPU helper stopped answering.",
+            ),
+        )
+        for error, expected in cases:
+            with self.subTest(error=error.message):
+                self.assertEqual(_set_auto_failed(error)[1], expected)
+
+    def test_set_primary_keeps_the_helper_own_rejection_message(self) -> None:
+        _ok, message, _refresh_ok, _timed_out = _set_primary_failed(
+            Gio.DBusError.new_for_dbus_error(
+                "com.github.wl04.gpu_switcher.Error.Busy",
+                "Another operation is in progress.",
+            )
+        )
+
+        self.assertEqual(message, "Another operation is in progress.")

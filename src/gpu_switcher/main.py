@@ -469,10 +469,10 @@ class GpuSwitcherApp(Gtk.Application):
         else:
             bus.set_primary(target, locale, self._on_apply_done)
 
-    def _on_apply_done(self, ok, message, refresh_ok, timed_out) -> None:
+    def _on_apply_done(self, ok, message, refresh_ok, outcome_unknown) -> None:
         """Result of SetPrimary and SetAuto (same callback shape)."""
-        if timed_out:
-            self._on_helper_timeout()
+        if outcome_unknown:
+            self._on_unknown_outcome(message)
             return
         self.outcome = outcome_from_result(ok, refresh_ok, False)
         self._set_busy(False)
@@ -484,20 +484,18 @@ class GpuSwitcherApp(Gtk.Application):
             self._banner_show(message, BannerKind.ERROR)
             self._revert_selection()
 
-    def _on_helper_timeout(self) -> None:
-        """The call timed out, so the helper's outcome is unknown: re-detect
-        and report it."""
+    def _on_unknown_outcome(self, reason: str) -> None:
+        """The call gave no answer that proves nothing changed: re-detect the
+        rule on disk and report what is known instead of guessing.
+
+        `reason` is what bus.py concluded about the helper (it ran out of
+        time, it stopped answering); the outcome sentence is what the app
+        adds on top of it.
+        """
         self.outcome = Outcome.unknown
         self._set_busy(False)
-        self._refresh(
-            banner=(
-                i18n._(
-                    "The operation timed out; the outcome is unknown. "
-                    "The current state was rechecked."
-                ),
-                BannerKind.WARNING,
-            )
-        )
+        unknown = i18n._("The outcome is unknown; the current state was rechecked.")
+        self._refresh(banner=(f"{reason} {unknown}", BannerKind.WARNING))
 
     def _on_reset(self, _button) -> None:
         self.selected_card = SELECTION_AUTO

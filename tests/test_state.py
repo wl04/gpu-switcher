@@ -26,6 +26,7 @@ from gpu_switcher.state import (
     actions_enabled,
     banner_kind,
     is_gio_timeout,
+    is_helper_missing,
     is_outcome_unknown,
     logout_enabled,
     outcome_from_result,
@@ -68,11 +69,42 @@ class OutcomeMapping(unittest.TestCase):
             self.assertTrue(is_outcome_unknown(error))
 
     def test_is_outcome_unknown_true_for_dbus_no_reply(self) -> None:
-        for name in ("NoReply", "ServiceUnknown", "Disconnected"):
+        for name in ("NoReply", "Disconnected", "NoServer"):
             error = Gio.DBusError.new_for_dbus_error(
                 f"org.freedesktop.DBus.Error.{name}", "gone"
             )
             self.assertTrue(is_outcome_unknown(error), name)
+
+    def test_is_helper_missing_true_for_service_unknown(self) -> None:
+        error = Gio.DBusError.new_for_dbus_error(
+            "org.freedesktop.DBus.Error.ServiceUnknown",
+            "The name com.github.wl04.gpu_switcher.Helper was not provided by any .service files",
+        )
+
+        self.assertTrue(is_helper_missing(error))
+
+    def test_is_outcome_unknown_false_when_no_service_owns_the_helper(self) -> None:
+        # The bus refused to dispatch the call, so the helper never received
+        # it and could not have changed the rule.
+        error = Gio.DBusError.new_for_dbus_error(
+            "org.freedesktop.DBus.Error.ServiceUnknown", "The name was not provided"
+        )
+
+        self.assertFalse(is_outcome_unknown(error))
+
+    def test_is_helper_missing_false_for_errors_that_reached_the_helper(self) -> None:
+        for name in ("NoReply", "Disconnected"):
+            error = Gio.DBusError.new_for_dbus_error(
+                f"org.freedesktop.DBus.Error.{name}", "gone"
+            )
+            self.assertFalse(is_helper_missing(error), name)
+        self.assertFalse(is_helper_missing(self.io_error()))
+
+    @staticmethod
+    def io_error() -> GLib.Error:
+        return GLib.Error.new_literal(
+            Gio.io_error_quark(), "io error", int(Gio.IOErrorEnum.FAILED)
+        )
 
     def test_is_outcome_unknown_false_for_other_failures(self) -> None:
         quark = Gio.io_error_quark()
