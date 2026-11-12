@@ -175,14 +175,14 @@ available.
    `gnome-shell` present when it is unset) — warning banner, privileged
    actions disabled.
 
-### Commands in a terminal (read-only front-end)
+### Commands in a terminal
 
 `gpu-switcher list`, `status` and `version` answer the two questions a terminal
 user has, from the same `detect()` snapshot and the same `decisions.py` answers
 the window uses — the two front-ends cannot disagree about the machine.
 
-- **Read-only on purpose.** The write verbs need three things a shell does not
-  provide: an announced consequence, a confirmation, and a polkit prompt a
+- **Why there is no `set` verb.** Writing a rule needs three things a shell does
+  not provide: an announced consequence, a confirmation, and a polkit prompt a
   terminal cannot show (`CheckAuthorization` describes the caller's window). So
   Apply and Reset exist only in the UI, and a script cannot talk the CLI into a
   change — which also leaves the helper's authorization model unchanged.

@@ -36,10 +36,8 @@ display layout itself settles after the reboot or the logout the app offers.
 .SH COMMANDS
 With no command
 .B gpu-switcher
-opens the window. With a command it answers in the terminal instead: it needs no
-display and no polkit authorization, and it changes nothing - the verbs that
-write a rule (\fBApply\fR and \fBReset to auto\fR) exist only in the window,
-where an operation is announced, confirmed and authorized.
+opens the window. With a command it answers in the terminal, and it needs no
+display, so it works over SSH as well:
 .TP
 .B list
 One row per display GPU: the

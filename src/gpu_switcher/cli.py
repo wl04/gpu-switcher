@@ -1,7 +1,7 @@
-"""Read-only command-line front-end for the GPU situation.
+"""Command-line front-end that reads the GPU situation.
 
-`gpu-switcher` with no command opens the window. Given a command it answers, in a
-terminal, the two questions that do not need a polkit dialog or a display:
+`gpu-switcher` with no command opens the window. Given a command it answers in a
+terminal, and it needs no display:
 
     list     which display GPUs this machine has, and what marks each of them
     status   what the rule on disk pins, which tag udev applies, what runs now,
@@ -9,9 +9,7 @@ terminal, the two questions that do not need a polkit dialog or a display:
     version  the version of this package
 
 It reads the same detection snapshot and shares the same decisions as the window,
-so the two front-ends cannot disagree about what the machine is doing. It changes
-nothing: the verbs that write are only in the window, where an operation is
-announced, confirmed and authorized.
+so the two front-ends cannot disagree about what the machine is doing.
 
 Exit codes: 0 when the answer was given, 2 when the command line itself was wrong
 (usage on stderr), 1 when nothing could be read.
@@ -60,8 +58,7 @@ def help_text() -> str:
             "           adapter and what that adds up to",
             "  version  the version of this package",
             "",
-            "With no COMMAND, opens the window. A command changes nothing; the",
-            "verbs that write a rule are only in the window.",
+            "With no COMMAND, opens the window.",
         )
     )
 
@@ -222,8 +219,7 @@ def run(
 ) -> int:
     """Answer the command line and return the exit code.
 
-    Writes the answer to `stdout`, usage and read failures to `stderr`, and never
-    changes anything. `detect.detect()` may fail on a machine without the tools
+    Writes the answer to `stdout`, usage and read failures to `stderr`. `detect.detect()` may fail on a machine without the tools
     installed; that is reported as a sentence rather than a traceback.
     """
     out = sys.stdout if stdout is None else stdout
