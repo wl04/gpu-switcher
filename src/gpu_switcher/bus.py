@@ -40,7 +40,12 @@ SESSION_MANAGER_LOGOUT_MODE = 1
 
 # The helper's call timeout (HELPER_TIMEOUT_MS) comes from core/udev.py, where
 # it is derived from the helper's worst case.
+#
+# The two session-lifecycle calls are separate budgets because they are separate
+# jobs on the far side: logind starting a reboot transaction, and the GNOME
+# session manager ending this session. Neither one inherits the other's number.
 LOGIN1_TIMEOUT_MS = 15000
+SESSION_MANAGER_TIMEOUT_MS = 15000
 
 
 _REMOTE_ERROR_PREFIX = "GDBus.Error:"
@@ -235,7 +240,7 @@ def logout(callback) -> None:
         "Logout",
         GLib.Variant("(u)", (SESSION_MANAGER_LOGOUT_MODE,)),
         "()",
-        LOGIN1_TIMEOUT_MS,
+        SESSION_MANAGER_TIMEOUT_MS,
         lambda r: callback(True, ""),
         lambda _error, message: callback(False, logout_failed % message),
         lambda e: callback(False, logout_failed % e.message),
