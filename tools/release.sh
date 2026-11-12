@@ -12,6 +12,10 @@
 #       e.g.:
 #         * First bullet.
 #         * Second bullet.
+#       Keep it outside the repository (../release-notes/<version>-bullets.txt,
+#       next to the built .deb): the package build runs `make clean`, which
+#       removes build/, so a bullets file kept there does not survive the very
+#       release it describes.
 #   --dry-run
 #       Do everything except git commit/push and the gh release step;
 #       debian/changelog, pyproject.toml and gpu_switcher/__init__.py are
@@ -50,6 +54,8 @@ fi
 }
 [ -s "$BULLETS_FILE" ] || {
   echo "error: changelog bullets file not found or empty: $BULLETS_FILE" >&2
+  echo "       the build runs 'make clean', which removes build/ - keep bullets" >&2
+  echo "       outside the repository, e.g. ../release-notes/<version>-bullets.txt" >&2
   exit 1
 }
 if grep -qv '^  \* ' "$BULLETS_FILE"; then
