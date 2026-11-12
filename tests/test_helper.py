@@ -14,6 +14,7 @@ whose communicate_async callback fires immediately.
 """
 
 import contextlib
+import io
 import os
 import tempfile
 import unittest
@@ -32,6 +33,7 @@ from gpu_switcher.core import udev as udev_rules
 from gpu_switcher.helper import auth, rule_store, service
 from gpu_switcher.helper import udev as hud
 from gpu_switcher.helper.auth import AuthStatus
+from gpu_switcher.helper.errors import HelperFailure
 
 _IO_QUARK = Gio.io_error_quark()
 
@@ -133,11 +135,18 @@ def _fake_authorize(status: AuthStatus, detail: str) -> Any:
     return fake
 
 
-def _invocation() -> Any:
+def _invocation(sender: str = ":1.42") -> Any:
     # Model the real GDBusMethodInvocation API, which has NO get_cancellable()
     # in this pygobject build. The handler must not rely on it. return_value /
     # return_dbus_error / get_message are the members the handler actually uses.
-    return mock.Mock(spec_set=["return_value", "return_dbus_error", "get_message"])
+    # get_message().get_sender() must be a string: auth.authorize puts it into
+    # a GVariant('s'), which rejects any other type.
+    message = mock.Mock()
+    message.get_sender.return_value = sender
+    return mock.Mock(
+        spec_set=["return_value", "return_dbus_error", "get_message"],
+        get_message=mock.Mock(return_value=message),
+    )
 
 
 RELOAD_ARGV = (hud.UDEVADM, "control", "--reload-rules")
@@ -519,6 +528,393 @@ class OperationInProgress(unittest.TestCase):
             self.assertEqual(
                 inv2.return_dbus_error.call_args[0][0], udev_rules.DBUS_ERROR_BUSY
             )
+
+
+class OperationLock(unittest.TestCase):
+    """Claim and release of the single-operation lock, including the
+    active-invocation bookkeeping every failure path depends on."""
+
+    def setUp(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+        service._IDLE_SOURCE = None
+
+    def tearDown(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+        service._IDLE_SOURCE = None
+
+    def test_claim_operation_grants_the_lock_when_idle(self) -> None:
+        invocation = _invocation()
+
+        self.assertTrue(service._claim_operation(invocation))
+
+        self.assertTrue(service._operation_in_progress)
+        self.assertIs(service._active_invocation, invocation)
+
+    def test_claim_operation_refuses_a_second_call_while_in_progress(self) -> None:
+        holder = _invocation()
+        service._claim_operation(holder)
+
+        self.assertFalse(service._claim_operation(_invocation()))
+
+        self.assertIs(service._active_invocation, holder)
+
+    def test_release_operation_frees_the_lock_for_the_next_call(self) -> None:
+        service._claim_operation(_invocation())
+
+        service._release_operation()
+
+        self.assertFalse(service._operation_in_progress)
+        self.assertIsNone(service._active_invocation)
+        self.assertTrue(service._claim_operation(_invocation()))
+
+
+class FailOperation(unittest.TestCase):
+    """A failure releases the lock only for the call that holds it, so a
+    late reply from a finished call cannot unlock an operation in flight."""
+
+    def setUp(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+
+    def tearDown(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+
+    def test_fail_operation_answers_internal_error_and_logs_detail(self) -> None:
+        invocation = _invocation()
+        service._claim_operation(invocation)
+        log = io.StringIO()
+
+        with contextlib.redirect_stderr(log):
+            service._fail_operation(invocation, "disk full")
+
+        invocation.return_dbus_error.assert_called_once_with(
+            udev_rules.DBUS_ERROR_INTERNAL, "Internal error; see the journal."
+        )
+        self.assertIn("disk full", log.getvalue())
+        self.assertFalse(service._operation_in_progress)
+
+    def test_fail_operation_keeps_the_lock_of_another_in_flight_call(self) -> None:
+        holder = _invocation()
+        service._claim_operation(holder)
+        other = _invocation()
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            service._fail_operation(other, "a finished call failed late")
+
+        other.return_dbus_error.assert_called_once()
+        self.assertTrue(service._operation_in_progress)
+        self.assertIs(service._active_invocation, holder)
+
+
+class AbortActiveOperation(unittest.TestCase):
+    """A failure reported by an asynchronous step of the in-flight
+    operation: it answers the call that owns the lock and re-arms the idle
+    timer."""
+
+    def setUp(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+        service._IDLE_SOURCE = None
+
+    def tearDown(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+        service._IDLE_SOURCE = None
+
+    def test_abort_active_operation_answers_the_active_invocation(self) -> None:
+        invocation = _invocation()
+        service._claim_operation(invocation)
+        log = io.StringIO()
+
+        with (
+            contextlib.redirect_stderr(log),
+            mock.patch.object(GLib, "timeout_add", return_value=1) as armed,
+            mock.patch.object(GLib, "source_remove"),
+        ):
+            service._abort_active_operation("udev step failed")
+
+        invocation.return_dbus_error.assert_called_once_with(
+            udev_rules.DBUS_ERROR_INTERNAL, "Internal error; see the journal."
+        )
+        self.assertIn("udev step failed", log.getvalue())
+        self.assertFalse(service._operation_in_progress)
+        armed.assert_called_once()
+
+    def test_abort_active_operation_releases_lock_when_no_call_is_active(self) -> None:
+        service._operation_in_progress = True
+        log = io.StringIO()
+
+        with (
+            contextlib.redirect_stderr(log),
+            mock.patch.object(GLib, "timeout_add", return_value=1),
+            mock.patch.object(GLib, "source_remove"),
+        ):
+            service._abort_active_operation("failure with no owning call")
+
+        self.assertFalse(service._operation_in_progress)
+        self.assertIn("failure with no owning call", log.getvalue())
+
+    def test_udev_step_failures_are_routed_to_the_active_operation_abort(self) -> None:
+        # helper/udev.py reports a callback error through this hook, so a
+        # step failure can never leave the lock held.
+        self.assertIs(hud.callback_error_handler, service._abort_active_operation)
+
+
+class GuardedCallback(unittest.TestCase):
+    """_guarded keeps the main loop responsive: an unexpected exception in a
+    callback answers the call and frees the lock instead of wedging it."""
+
+    def setUp(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+        service._IDLE_SOURCE = None
+
+    def tearDown(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+        service._IDLE_SOURCE = None
+
+    def test_guarded_callback_runs_the_callback_unchanged(self) -> None:
+        seen: list[str] = []
+
+        service._guarded(_invocation(), lambda: seen.append("ran"))()
+
+        self.assertEqual(seen, ["ran"])
+
+    def test_guarded_callback_answers_call_when_callback_raises(self) -> None:
+        invocation = _invocation()
+        service._claim_operation(invocation)
+        log = io.StringIO()
+
+        def explode() -> None:
+            raise RuntimeError("callback exploded")
+
+        with (
+            contextlib.redirect_stderr(log),
+            mock.patch.object(GLib, "timeout_add", return_value=1),
+            mock.patch.object(GLib, "source_remove"),
+        ):
+            service._guarded(invocation, explode)()
+
+        invocation.return_dbus_error.assert_called_once_with(
+            udev_rules.DBUS_ERROR_INTERNAL, "Internal error; see the journal."
+        )
+        self.assertIn("callback exploded", log.getvalue())
+        self.assertFalse(service._operation_in_progress)
+
+
+class IdleTimerSource(unittest.TestCase):
+    """The idle timer makes a package upgrade take effect: it waits out an
+    in-flight operation and never stacks duplicate sources."""
+
+    def setUp(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+        service._IDLE_SOURCE = None
+
+    def tearDown(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+        if service._IDLE_SOURCE is not None:
+            GLib.source_remove(service._IDLE_SOURCE)
+        service._IDLE_SOURCE = None
+
+    def test_idle_timeout_keeps_timer_while_operation_in_progress(self) -> None:
+        service._operation_in_progress = True
+        loop = mock.Mock()
+
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            mock.patch.object(service, "_LOOP", loop),
+        ):
+            keep = service._on_idle_timeout()
+
+        self.assertTrue(keep)
+        loop.quit.assert_not_called()
+
+    def test_idle_timeout_quits_loop_and_stops_when_idle(self) -> None:
+        loop = mock.Mock()
+
+        with (
+            contextlib.redirect_stderr(io.StringIO()),
+            mock.patch.object(service, "_LOOP", loop),
+        ):
+            keep = service._on_idle_timeout()
+
+        self.assertFalse(keep)
+        loop.quit.assert_called_once()
+
+    def test_reset_idle_timer_removes_previous_source_before_arming(self) -> None:
+        armed: list[int] = []
+
+        def arm(interval: int, _callback: Any) -> int:
+            armed.append(interval)
+            return 4242
+
+        with (
+            mock.patch.object(service, "_IDLE_SOURCE", 777),
+            mock.patch.object(GLib, "source_remove") as removed_source,
+            mock.patch.object(GLib, "timeout_add", arm),
+        ):
+            service._reset_idle_timer()
+
+            removed_source.assert_called_once_with(777)
+            self.assertEqual(armed, [service.IDLE_TIMEOUT_MS])
+            self.assertEqual(service._IDLE_SOURCE, 4242)
+
+
+class AuthorizationMessage(unittest.TestCase):
+    """The user must be able to tell a denied dialog from a dismissed one and
+    from a check that never answered; every reply states nothing changed."""
+
+    @staticmethod
+    def _identity(text: str) -> str:
+        return text
+
+    def test_authorization_message_replies_distinct_text_per_status(self) -> None:
+        messages = [
+            service.authorization_message(self._identity, status, "")
+            for status in (
+                AuthStatus.DENIED,
+                AuthStatus.CANCELLED,
+                AuthStatus.TIMEOUT,
+            )
+        ]
+
+        self.assertEqual(len(set(messages)), 3)
+        for message in messages:
+            self.assertIn("Nothing changed.", message)
+
+    def test_authorization_message_includes_detail_of_failed_check(self) -> None:
+        message = service.authorization_message(
+            self._identity, AuthStatus.ERROR, "polkitd is unavailable"
+        )
+
+        self.assertIn("polkitd is unavailable", message)
+        self.assertIn("Nothing changed.", message)
+
+
+class MethodCallCleanup(unittest.TestCase):
+    """handle_method_call must not leave the lock held when a handler fails
+    before its asynchronous chain starts."""
+
+    def setUp(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+        service._IDLE_SOURCE = None
+
+    def tearDown(self) -> None:
+        service._operation_in_progress = False
+        service._active_invocation = None
+        service._IDLE_SOURCE = None
+
+    def _call(self, method: str, invocation: Any) -> Any:
+        return service.handle_method_call(
+            mock.Mock(),
+            ":1.42",
+            service.OBJECT_PATH,
+            service.INTERFACE,
+            method,
+            ("0000:12:00.0", "en") if method == "SetPrimary" else ("en",),
+            invocation,
+        )
+
+    def test_method_call_releases_lock_after_preauthorization_failure(self) -> None:
+        invocation = _invocation()
+
+        with (
+            mock.patch.object(
+                service,
+                "_set_primary_plan",
+                side_effect=HelperFailure("Another udev rule sets the preferred GPU."),
+            ),
+            mock.patch.object(auth, "authorize") as authorize,
+            mock.patch.object(GLib, "timeout_add", return_value=1),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            self._call("SetPrimary", invocation)
+
+        invocation.return_value.assert_called_once_with(
+            GLib.Variant(
+                "(bssb)",
+                (False, "Another udev rule sets the preferred GPU.", "", False),
+            )
+        )
+        authorize.assert_not_called()
+        self.assertFalse(service._operation_in_progress)
+        self.assertIsNone(service._active_invocation)
+
+    def test_method_call_replies_failure_tuple_shape_for_set_auto(self) -> None:
+        # A synchronous HelperFailure (before the async chain starts) must be
+        # answered with the SetAuto reply shape, not the SetPrimary one.
+        invocation = _invocation()
+
+        def refusing_translator(_locale: str) -> Any:
+            raise HelperFailure("The managed rule is a symlink; refusing to remove it.")
+
+        with (
+            mock.patch.object(service, "translator", refusing_translator),
+            mock.patch.object(GLib, "timeout_add", return_value=1),
+            mock.patch.object(GLib, "source_remove"),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            self._call("SetAuto", invocation)
+
+        invocation.return_value.assert_called_once_with(
+            GLib.Variant(
+                "(bsb)",
+                (False, "The managed rule is a symlink; refusing to remove it.", False),
+            )
+        )
+        self.assertFalse(service._operation_in_progress)
+
+    def test_method_call_reports_internal_error_for_unexpected_exception(self) -> None:
+        invocation = _invocation()
+
+        with (
+            mock.patch.object(
+                service, "_set_primary_plan", side_effect=RuntimeError("boom")
+            ),
+            mock.patch.object(GLib, "timeout_add", return_value=1),
+            mock.patch.object(GLib, "source_remove"),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            self._call("SetPrimary", invocation)
+
+        invocation.return_dbus_error.assert_called_once_with(
+            udev_rules.DBUS_ERROR_INTERNAL, "Internal error; see the journal."
+        )
+        self.assertFalse(service._operation_in_progress)
+
+    def test_method_call_failure_does_not_make_next_call_busy(self) -> None:
+        invocation = _invocation()
+
+        with (
+            mock.patch.object(
+                service,
+                "_set_primary_plan",
+                side_effect=HelperFailure("conflicting rule"),
+            ),
+            mock.patch.object(
+                auth, "authorize", _fake_authorize(AuthStatus.DENIED, "")
+            ),
+            mock.patch.object(GLib, "timeout_add", return_value=1),
+            mock.patch.object(GLib, "source_remove"),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            self._call("SetPrimary", invocation)
+            self._call("SetAuto", invocation)
+
+        invocation.return_dbus_error.assert_not_called()
+        replies = [
+            call.args[0].unpack() for call in invocation.return_value.call_args_list
+        ]
+        self.assertEqual(len(replies), 2)
+        self.assertEqual(replies[0], (False, "conflicting rule", "", False))
+        self.assertIn("Authorization was denied.", replies[1][1])
 
 
 class ErrorNames(unittest.TestCase):
