@@ -10,6 +10,19 @@ msgstr "In use now"
 msgid "Preferred (configured)"
 msgstr "Preferred (configured)"
 
+msgid "No display connected"
+msgstr "No display connected"
+
+msgid "Display: %s"
+msgstr "Display: %s"
+
+msgid ""
+"Warning: no display is currently connected to %s. Switching to it may leave the "
+"session without a screen until a monitor is plugged into one of its outputs."
+msgstr ""
+"Warning: no display is currently connected to %s. Switching to it may leave the "
+"session without a screen until a monitor is plugged into one of its outputs."
+
 msgid "System default (auto)"
 msgstr "System default (auto)"
 

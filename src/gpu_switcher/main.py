@@ -19,6 +19,7 @@ gi.require_version("GLib", "2.0")
 from gi.repository import GLib, Gtk
 
 from . import bus, detect, i18n
+from .core.connectors import DisplayState
 from .gpu_state import GpuState, derive_state, describe, presentation
 from .selection import (
     SELECTION_AUTO,
@@ -43,6 +44,44 @@ def _badge(text: str) -> Gtk.Label:
     label = Gtk.Label(label=text)
     label.add_css_class("dim-label")
     return label
+
+
+def _gpu_badges(gpu: detect.Gpu) -> list[str]:
+    """What a GPU row advertises about this card.
+
+    The display marks come last: which adapter GNOME runs on and which one is
+    configured to run on it is what the rest of the window is about, while whether
+    a cable is plugged into the card is a property of the card itself.
+    """
+    badges: list[str] = []
+    if gpu.in_use:
+        badges.append(i18n._("In use now"))
+    if gpu.preferred:
+        badges.append(i18n._("Preferred (configured)"))
+    if gpu.display_state is DisplayState.NONE:
+        badges.append(i18n._("No display connected"))
+    elif gpu.connected_displays:
+        badges.append(i18n._("Display: %s") % ", ".join(gpu.connected_displays))
+    return badges
+
+
+def _apply_warning(gpu: detect.Gpu) -> str | None:
+    """A risk the confirmation has to name, or None when the target is ordinary.
+
+    Switching the primary adapter to a card whose outputs are all free leaves the
+    session without a screen until a cable is moved onto one of them. Apply cannot
+    fix that, so the user has to be able to expect it.
+    """
+    if gpu.display_state is not DisplayState.NONE:
+        return None
+    return (
+        i18n._(
+            "Warning: no display is currently connected to %s. Switching to it may "
+            "leave the session without a screen until a monitor is plugged into one of "
+            "its outputs."
+        )
+        % gpu.name
+    )
 
 
 def _gpu_row(radio, name: str, sub: str, badges: list) -> Gtk.Box:
@@ -157,11 +196,7 @@ class GpuSwitcherApp(Gtk.Application):
         self.radios_by_gpu = {}
         first_radio = None
         for gpu in result.gpus:
-            badges = []
-            if gpu.in_use:
-                badges.append(i18n._("In use now"))
-            if gpu.preferred:
-                badges.append(i18n._("Preferred (configured)"))
+            badges = _gpu_badges(gpu)
             radio = Gtk.CheckButton(label="")
             radio.add_css_class("radio")
             if first_radio is not None:
@@ -449,6 +484,9 @@ class GpuSwitcherApp(Gtk.Application):
                 "backup is saved. The change takes effect after a reboot, or "
                 "after logging out and back in."
             ) % (gpu.name, gpu.pci)
+            warning = _apply_warning(gpu)
+            if warning is not None:
+                text += "\n\n" + warning
 
         self._confirm(text, i18n._("Apply"), lambda ok: self._do_apply(ok, target))
 

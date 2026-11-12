@@ -178,7 +178,14 @@ available.
 One window (Adwaita, no custom CSS):
 
 - GPU rows: `lspci` name, `PCI <addr> · /dev/dri/cardN`, badges **"In use
-  now"** (running primary) and **"Preferred (configured)"** (managed rule).
+  now"** (running primary), **"Preferred (configured)"** (managed rule), and
+  what is plugged into the card: **"Display: HDMI-A-1"** for outputs the kernel
+  reports connected, **"No display connected"** when the card has outputs and
+  none of them is occupied. Nothing is said when sysfs did not answer (see
+  *Detection*): "no display" is a claim a user acts on.
+- Apply to a card whose outputs are all free adds a warning to the confirmation:
+  the session can end up with no screen until a cable is moved onto one of that
+  card's outputs, which the app cannot fix from software.
 - Radio selection: each GPU + **"System default (auto)"**.
 - **Apply** — confirmation dialog → polkit → `SetPrimary` (+ backup notice).
 - **Reset to auto** — `SetAuto` (+ note that auto-selection applies after

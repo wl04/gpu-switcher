@@ -10,6 +10,19 @@ msgstr "Используется сейчас"
 msgid "Preferred (configured)"
 msgstr "Назначен (конфигурация)"
 
+msgid "No display connected"
+msgstr "Монитор не подключён"
+
+msgid "Display: %s"
+msgstr "Монитор: %s"
+
+msgid ""
+"Warning: no display is currently connected to %s. Switching to it may leave the "
+"session without a screen until a monitor is plugged into one of its outputs."
+msgstr ""
+"Внимание: к %s сейчас не подключён монитор. После переключения сессия может "
+"остаться без экрана, пока монитор не будет подключён к одному из его разъёмов."
+
 msgid "System default (auto)"
 msgstr "Системный по умолчанию (авто)"
 
