@@ -14,9 +14,20 @@ from collections.abc import Callable
 
 APP_NAME = "gpu-switcher"
 
+# The catalog directory an installed system ships. A source checkout has no
+# such directory, which is why the lookup also consults the tree next to this
+# module; the helper shares these directories and that reasoning.
+INSTALLED_LOCALE_DIR = "/usr/share/gpu-switcher/locale"
 
-def _localedirs() -> list[str]:
-    dirs = ["/usr/share/gpu-switcher/locale"]
+
+def localedirs() -> list[str]:
+    """Catalog directories to consult: the installed tree, then this checkout's.
+
+    Only these are ever consulted, and a language is combined with them as a
+    path component — so a language supplied by someone else must already be a
+    plain code (the helper checks that in normalize_locale).
+    """
+    dirs = [INSTALLED_LOCALE_DIR]
     src = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "..", "data", "locale")
     )
@@ -48,7 +59,7 @@ def _requested_language() -> str:
 def _make_gettext() -> Callable[[str], str]:
     # languages=None: gettext resolves the language from the environment.
     # Try each directory in turn, then fall back to identity (English).
-    for localedir in _localedirs():
+    for localedir in localedirs():
         try:
             return gettext.translation(
                 APP_NAME, localedir, languages=None, fallback=False

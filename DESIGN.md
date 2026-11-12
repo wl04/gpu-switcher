@@ -22,7 +22,11 @@ Python 3 + GTK 4 (PyGObject); no compilation step.
 i18n: all strings go through gettext — `po/gpu-switcher-{en,ru}.po` compiled
 with `msgfmt` (build-time `gettext` dependency) and installed to
 `/usr/share/gpu-switcher/locale/{lang}/LC_MESSAGES/`. Adding a language =
-adding one `.po` file.
+adding one `.po` file. Catalogs are looked up in that installed directory and
+then in the checkout's `data/locale/` (`i18n.localedirs()`); the helper consults
+the same list, so running it from a source tree answers in the caller's language
+as well. The languages the helper accepts are derived from the catalogs that are
+actually shipped, never from a list kept by hand.
 
 ## How activation works (why a reboot is not strictly required)
 
@@ -217,7 +221,8 @@ gpu-switcher/
 │       ├── state.py                   # operation outcome, banner/button rules
 │       ├── bus.py                     # D-Bus clients: helper, login1, session
 │       │                              #   manager
-│       ├── i18n.py                    # gettext setup
+│       ├── i18n.py                    # gettext setup; the helper shares its
+│       │                              #   catalog directories
 │       ├── core/                      # shared by app and helper (stdlib only,
 │       │   │                          #   no gi import)
 │       │   ├── udev.py                # rule constants, timeouts, conflict scan

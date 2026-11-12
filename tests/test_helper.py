@@ -27,7 +27,7 @@ gi.require_version("GLib", "2.0")
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib
 
-from gpu_switcher import bus
+from gpu_switcher import bus, i18n
 from gpu_switcher.core import gpu
 from gpu_switcher.core import udev as udev_rules
 from gpu_switcher.helper import auth, rule_store, service
@@ -255,10 +255,54 @@ class ShippedLocales(unittest.TestCase):
             os.makedirs(os.path.join(tmp, "en", "LC_MESSAGES"))
             # A stray non-directory entry must not count as a locale.
             open(os.path.join(tmp, "README"), "w").close()
-            self.assertEqual(service._shipped_locales(tmp), ("en", "ru"))
+            self.assertEqual(service._shipped_locales((tmp,)), ("en", "ru"))
+
+    def test_shipped_locales_collects_languages_from_every_directory(self) -> None:
+        # A source checkout keeps its catalogs under data/locale instead of
+        # /usr/share/gpu-switcher, so the accepted languages come from both.
+        with tempfile.TemporaryDirectory() as tmp:
+            installed = os.path.join(tmp, "installed")
+            checkout = os.path.join(tmp, "checkout")
+            os.makedirs(os.path.join(installed, "ru", "LC_MESSAGES"))
+            os.makedirs(os.path.join(checkout, "de", "LC_MESSAGES"))
+            self.assertEqual(
+                service._shipped_locales((installed, checkout)), ("en", "de", "ru")
+            )
 
     def test_shipped_locales_falls_back_to_english_when_dir_missing(self) -> None:
-        self.assertEqual(service._shipped_locales("/nonexistent/locale"), ("en",))
+        self.assertEqual(service._shipped_locales(("/nonexistent/locale",)), ("en",))
+
+
+class HelperLocaleFallback(unittest.TestCase):
+    """Only the app knew that a source checkout keeps its catalogs in the tree.
+    Run from a checkout — `make dev`, the tests, CI — the installed directory
+    was absent, so the helper answered English while the dialog answered
+    Russian."""
+
+    MSGID = "Authorization was denied. Nothing changed."
+    SRC = os.path.abspath(
+        os.path.join(os.path.dirname(i18n.__file__), "..", "..", "data", "locale")
+    )
+
+    def test_supported_locales_include_the_checkout_catalogs(self) -> None:
+        # The catalog directory shipped next to the sources must be accepted,
+        # not only the one an installed system has.
+        self.assertTrue(os.path.isdir(self.SRC), "data/locale is missing")
+        self.assertIn("ru", service.SUPPORTED_LOCALES)
+
+    def test_translator_reads_checkout_catalogs_when_installed_ones_are_absent(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            service, "LOCALE_DIRS", ["/nonexistent/gpu-switcher/locale", self.SRC]
+        ):
+            self.assertNotEqual(service.translator("ru")(self.MSGID), self.MSGID)
+
+    def test_translator_answers_english_when_no_catalog_exists_anywhere(self) -> None:
+        with mock.patch.object(
+            service, "LOCALE_DIRS", ["/nonexistent/a", "/nonexistent/b"]
+        ):
+            self.assertEqual(service.translator("ru")(self.MSGID), self.MSGID)
 
 
 class NormalizeLocale(unittest.TestCase):

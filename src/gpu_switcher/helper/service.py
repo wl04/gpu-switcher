@@ -26,6 +26,7 @@ import gettext
 import os
 import sys
 import traceback
+from collections.abc import Sequence
 
 import gi
 
@@ -33,6 +34,7 @@ gi.require_version("Gio", "2.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gio, GLib
 
+from gpu_switcher import i18n
 from gpu_switcher.core.gpu import resolve_gpu, rule_text
 from gpu_switcher.core.udev import (
     DBUS_ERROR_BUSY,
@@ -48,8 +50,6 @@ from gpu_switcher.helper.errors import HelperFailure
 SERVICE_NAME = "com.github.wl04.gpu_switcher.Helper"
 OBJECT_PATH = "/com/github/wl04/gpu_switcher/Helper"
 INTERFACE = "com.github.wl04.gpu_switcher.Helper"
-
-LOCALE_BASE = "/usr/share/gpu-switcher/locale"
 
 INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
   <interface name="{INTERFACE}">
@@ -72,22 +72,29 @@ INTROSPECTION_XML = f"""<node name="{OBJECT_PATH}">
 """
 
 
-# The locale arrives from an unauthenticated caller. Only shipped catalog
-# languages are accepted; anything else (unknown, path-shaped, over-long)
-# becomes English, so catalog lookups never leave LOCALE_BASE.
-def _shipped_locales(localedir: str) -> tuple[str, ...]:
-    """The languages shipped under localedir, plus the English fallback. A
-    missing or unreadable directory yields just "en"."""
-    try:
-        entries = os.listdir(localedir)
-    except OSError:
-        entries = []
-    locales = sorted(e for e in entries if os.path.isdir(os.path.join(localedir, e)))
-    return tuple(dict.fromkeys(["en", *locales]))
+# The locale arrives from an unauthenticated caller. Only catalog languages
+# that are actually shipped are accepted; anything else (unknown, path-shaped,
+# over-long) becomes English, so a catalog lookup never leaves LOCALE_DIRS.
+def _shipped_locales(localedirs: Sequence[str]) -> tuple[str, ...]:
+    """The languages with catalogs in these directories, plus the English
+    fallback. A missing or unreadable directory contributes nothing."""
+    languages: set[str] = set()
+    for localedir in localedirs:
+        try:
+            entries = os.listdir(localedir)
+        except OSError:
+            continue
+        languages.update(
+            e for e in entries if os.path.isdir(os.path.join(localedir, e))
+        )
+    return tuple(("en", *sorted(languages - {"en"})))
 
 
-# Read from the installed locale tree so it matches the packaged catalogs.
-SUPPORTED_LOCALES = _shipped_locales(LOCALE_BASE)
+# The installed tree, plus this checkout's data/locale when that is all there
+# is: running the helper from sources answered English while the dialog answered
+# Russian, because only the UI knew that fallback.
+LOCALE_DIRS = i18n.localedirs()
+SUPPORTED_LOCALES = _shipped_locales(LOCALE_DIRS)
 _MAX_LOCALE_LEN = 32
 
 
@@ -97,7 +104,7 @@ def normalize_locale(locale):
     Returns the language part ('ru_RU.UTF-8' -> 'ru') when supported, else
     'en'. Path-shaped values and values over _MAX_LOCALE_LEN are rejected:
     gettext would use them as path components and could open files outside
-    LOCALE_BASE.
+    LOCALE_DIRS.
     """
     if not isinstance(locale, str) or not locale:
         return "en"
@@ -112,16 +119,19 @@ def normalize_locale(locale):
 def translator(locale):
     """gettext for this helper invocation (locale supplied by the caller).
 
-    The locale goes through normalize_locale first.
+    The locale goes through normalize_locale first, and catalogs are read from
+    LOCALE_DIRS only. English when no catalog ships the language anywhere.
     """
     language = normalize_locale(locale)
     langs = [language] if language == "en" else [language, "en"]
-    try:
-        return gettext.translation(
-            "gpu-switcher", LOCALE_BASE, languages=langs, fallback=True
-        ).gettext
-    except OSError:
-        return lambda s: s
+    for localedir in LOCALE_DIRS:
+        try:
+            return gettext.translation(
+                "gpu-switcher", localedir, languages=langs, fallback=False
+            ).gettext
+        except OSError:
+            continue
+    return lambda s: s
 
 
 # Operation lock: one mutating call at a time; a concurrent one gets Busy.

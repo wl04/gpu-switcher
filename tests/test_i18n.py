@@ -74,11 +74,11 @@ class RequestedLanguage(unittest.TestCase):
 
 class Localedirs(unittest.TestCase):
     def test_localedirs_lists_installed_dir_before_source_tree(self) -> None:
-        installed = "/usr/share/gpu-switcher/locale"
+        installed = i18n.INSTALLED_LOCALE_DIR
         src = os.path.abspath(
             os.path.join(os.path.dirname(i18n.__file__), "..", "..", "data", "locale")
         )
-        dirs = i18n._localedirs()
+        dirs = i18n.localedirs()
         self.assertEqual(dirs[0], installed)
         if os.path.isdir(src):
             self.assertEqual(dirs, [installed, src])
