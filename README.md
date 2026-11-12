@@ -12,7 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Switch which GPU GNOME (Mutter) uses as the **primary display adapter** - no
-hand-edited udev rules, no terminal. Built for multi-GPU machines, e.g. a CPU's
+hand-edited udev rules. Built for multi-GPU machines, e.g. a CPU's
 integrated graphics plus one or more discrete GPUs.
 
 ![gpu-switcher](docs/screenshot.png)
