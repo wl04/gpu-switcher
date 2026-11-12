@@ -43,6 +43,7 @@ module = [
     "test_helper_resilience",
     "test_i18n",
     "test_main",
+    "test_rule_store",
     "test_selection",
     "test_state",
     "test_udev_rules",
