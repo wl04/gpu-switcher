@@ -26,6 +26,7 @@ from gpu_switcher.core.udev import (
     read_text,
     scan_rules,
     sets_preferred_gpu,
+    tag_applied,
 )
 
 JOURNAL_UNIT = "/usr/bin/gnome-shell"
@@ -72,6 +73,9 @@ class Detection:
     rule_state: RuleState = RuleState.ABSENT  # managed rule on disk
     rule_mtime: float | None = None  # epoch seconds of the managed rule file
     session_start: float | None = None  # epoch seconds gnome-shell started
+    # Whether udev currently carries the preferred-GPU tag on the configured card;
+    # None when nothing was configured or udev could not be asked.
+    tag_applied: bool | None = None
 
 
 # Display-controller PCI device classes: 0x0300 (VGA) and 0x0302 (3D).
@@ -420,6 +424,26 @@ def gnome_wayland_session() -> bool:
     )
 
 
+def configured_tag_applied(
+    gpus: list[Gpu], preferred_pci: str | None, rule_state: RuleState
+) -> bool | None:
+    """Ask udev whether the preferred-GPU tag is on the configured card now.
+
+    None when there is no answer to give: automatic selection has no tag for udev
+    to hold, the configured GPU is not among the detected cards, or udev could not
+    be consulted.
+
+    One udevadm call per refresh buys a fact no file on disk can give: whether the
+    rule written earlier is the rule udev is acting on now.
+    """
+    if rule_state is RuleState.ABSENT:
+        return None
+    card = next((g.card for g in gpus if g.pci == preferred_pci), None)
+    if card is None:
+        return None
+    return tag_applied(card)
+
+
 def detect() -> Detection:
     """Full detection snapshot used by the UI."""
     gpus = []
@@ -470,4 +494,5 @@ def detect() -> Detection:
         rule_state=rule_state,
         rule_mtime=rule_mtime(),
         session_start=session_start_time(),
+        tag_applied=configured_tag_applied(gpus, preferred, rule_state),
     )

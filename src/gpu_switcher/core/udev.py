@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
@@ -47,6 +48,9 @@ HELPER_TIMEOUT_MS = (
 # variable is kept for compatibility with rules that still use it.
 MUTTER_TAG = "mutter-device-preferred-primary"
 MUTTER_ENV = "MUTTER_DEVICE_PREFERRED_PRIMARY"
+
+# A DRM card node name. Anything else is not allowed to build a /sys path.
+CARD_NAME_RE = re.compile(r"card[0-9]+")
 
 # PCI classes that may act as a display primary: VGA compatible
 # (0x030000) and 3D controller (0x030200). The class alone is not
@@ -100,7 +104,7 @@ def is_display_gpu(pci: str) -> str | None:
         return None
     card = None
     for entry in entries:
-        if not re.fullmatch(r"card[0-9]+", entry):
+        if not CARD_NAME_RE.fullmatch(entry):
             continue
         if os.path.realpath(f"/sys/class/drm/{entry}/device") != real:
             continue
@@ -213,3 +217,45 @@ def scan_rules(
             ):
                 conflicts.append(path)
     return RuleScan(conflicts=conflicts, unreadable=unreadable)
+
+
+TAG_QUERY_TIMEOUT_S = 10
+
+
+def tag_applied(card: str, *, tag: str = MUTTER_TAG) -> bool | None:
+    """Ask udev — without privileges — whether a card carries a rule tag now.
+
+    `udevadm info --query=property` reports the TAGS list udev currently holds for
+    a device. That is the only unprivileged way to tell whether a written rule
+    actually took effect: the rule file on disk says what should happen, the tag
+    says what udev is doing.
+
+    Returns None when udev cannot be consulted at all (udevadm missing or
+    refusing, a device udev does not know, no answer in time). Unknown is not the
+    same as not applied: reporting an untagged card would tell the user their rule
+    had no effect. A device udev answers with no TAGS line carries no tags, so it
+    is honestly False.
+    """
+    if not CARD_NAME_RE.fullmatch(card):
+        # The device path is built from this name, so nothing that is not a plain
+        # card name is handed to udevadm at all.
+        return None
+    try:
+        completed = subprocess.run(
+            ["udevadm", "info", "--query=property", f"--path=/sys/class/drm/{card}"],
+            capture_output=True,
+            text=True,
+            timeout=TAG_QUERY_TIMEOUT_S,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    for line in completed.stdout.splitlines():
+        name, separator, value = line.partition("=")
+        if separator and name == "TAGS":
+            # Tags arrive colon-delimited with a colon at both ends, so a whole tag
+            # is always wrapped in colons and a longer tag that merely starts with
+            # this one does not match.
+            return f":{tag}:" in value
+    return False

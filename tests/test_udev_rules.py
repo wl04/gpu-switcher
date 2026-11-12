@@ -2,14 +2,17 @@
 
 The scan reports two findings that are not the same thing: *.rules that really
 assign the preferred-GPU tag, and rules it could not read. udev's load order is
-tested too (an earlier directory shadows a later one).
+tested too (an earlier directory shadows a later one), as is the unprivileged
+question of whether a tag udev holds right now carries the managed tag.
 """
 
 import os
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
 
+from gpu_switcher.core import udev
 from gpu_switcher.core.udev import (
     MUTTER_ENV,
     MUTTER_TAG,
@@ -192,6 +195,81 @@ class ReadText(unittest.TestCase):
             with open(path, "wb") as f:
                 f.write(b"ab\xff\xfe\n")
             self.assertEqual(read_text(path), "ab\ufffd\ufffd")
+
+
+class TagApplied(unittest.TestCase):
+    """`udevadm info --query=property` reports the TAGS list udev currently holds
+    for a device, which is the only unprivileged view of whether a written rule
+    actually took effect. udevadm is replaced wholesale: what is under test is how
+    the answer is read and what a missing answer means.
+    """
+
+    # The real format: colon-delimited, with a leading and a trailing colon.
+    _TAGS = f":seat:master-of-seat:{MUTTER_TAG}:uaccess:"
+
+    def _udev_answers(self, returncode=0, stdout="", stderr="", error=None):
+        completed = mock.Mock(returncode=returncode, stdout=stdout, stderr=stderr)
+        return mock.patch(
+            "gpu_switcher.core.udev.subprocess.run",
+            return_value=completed,
+            side_effect=error,
+        )
+
+    def test_tag_applied_reports_true_when_udev_carries_the_tag(self) -> None:
+        with self._udev_answers(
+            stdout=f"TAGS={self._TAGS}\nID_PATH_TAG=pci-0000_01_00_0\n"
+        ):
+            self.assertTrue(udev.tag_applied("card1", tag=MUTTER_TAG))
+
+    def test_tag_applied_reports_false_when_udev_carries_other_tags_only(self) -> None:
+        with self._udev_answers(stdout="TAGS=:seat:uaccess:\n"):
+            self.assertFalse(udev.tag_applied("card1", tag=MUTTER_TAG))
+
+    def test_tag_applied_reports_false_when_udev_reports_no_tags_at_all(self) -> None:
+        with self._udev_answers(stdout="ID_PATH_TAG=pci-0000_01_00_0\n"):
+            self.assertFalse(udev.tag_applied("card1", tag=MUTTER_TAG))
+
+    def test_tag_applied_needs_the_whole_tag_not_a_longer_one_starting_with_it(
+        self,
+    ) -> None:
+        with self._udev_answers(stdout=f"TAGS=:master-of-{MUTTER_TAG}-policy:\n"):
+            self.assertFalse(udev.tag_applied("card1", tag=MUTTER_TAG))
+
+    def test_tag_applied_is_unknown_when_udev_does_not_know_the_device(self) -> None:
+        # udevadm exits 1 with "Unknown device" for a card that is not there.
+        with self._udev_answers(returncode=1, stderr="Unknown device: No such device"):
+            self.assertIsNone(udev.tag_applied("card99", tag=MUTTER_TAG))
+
+    def test_tag_applied_is_unknown_when_udevadm_cannot_be_run(self) -> None:
+        with self._udev_answers(
+            error=FileNotFoundError(2, "No such file or directory")
+        ):
+            self.assertIsNone(udev.tag_applied("card1", tag=MUTTER_TAG))
+
+    def test_tag_applied_is_unknown_when_udevadm_never_answers(self) -> None:
+        with self._udev_answers(
+            error=subprocess.TimeoutExpired(cmd="udevadm", timeout=1)
+        ):
+            self.assertIsNone(udev.tag_applied("card1", tag=MUTTER_TAG))
+
+    def test_tag_applied_refuses_a_name_that_is_not_a_card_without_asking_udev(
+        self,
+    ) -> None:
+        run = mock.Mock()
+        with mock.patch("gpu_switcher.core.udev.subprocess.run", run):
+            self.assertIsNone(udev.tag_applied("card1/../../etc", tag=MUTTER_TAG))
+            self.assertIsNone(udev.tag_applied("", tag=MUTTER_TAG))
+        run.assert_not_called()
+
+    def test_tag_applied_asks_udev_for_the_card_with_a_bounded_wait(self) -> None:
+        run = mock.Mock(return_value=mock.Mock(returncode=0, stdout="", stderr=""))
+        with mock.patch("gpu_switcher.core.udev.subprocess.run", run):
+            udev.tag_applied("card2", tag=MUTTER_TAG)
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[0], "udevadm")
+        self.assertIn("--query=property", argv)
+        self.assertIn("--path=/sys/class/drm/card2", argv)
+        self.assertGreater(run.call_args.kwargs["timeout"], 0)
 
 
 if __name__ == "__main__":

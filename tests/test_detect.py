@@ -603,5 +603,84 @@ class DetectClassFilter(unittest.TestCase):
         self.assertEqual(result.gpus, [])
 
 
+class ConfiguredTagApplied(unittest.TestCase):
+    """detect asks udev — without privileges — whether the preferred-GPU tag is on
+    the configured card now, and asks only when there is a configured card whose
+    rule could be applied.
+    """
+
+    _CARD1_PCI = "0000:01:00.0"
+    _CARD2_PCI = "0000:12:00.0"
+
+    def _gpus(self) -> list[detect.Gpu]:
+        return [
+            detect.Gpu(
+                card=card,
+                node=f"/dev/dri/{card}",
+                pci=pci,
+                vendor="1002",
+                device="13c0",
+                name=f"GPU {card}",
+                in_use=False,
+                preferred=False,
+            )
+            for card, pci in (("card1", self._CARD1_PCI), ("card2", self._CARD2_PCI))
+        ]
+
+    def _udev_answers(self, answer: bool | None):
+        return mock.patch.object(detect, "tag_applied", return_value=answer)
+
+    def test_configured_tag_applied_asks_udev_about_the_configured_card(self) -> None:
+        with self._udev_answers(True) as ask:
+            answer = detect.configured_tag_applied(
+                self._gpus(), self._CARD2_PCI, detect.RuleState.VALID
+            )
+        self.assertIs(answer, True)
+        ask.assert_called_once_with("card2")
+
+    def test_configured_tag_applied_does_not_ask_when_nothing_is_configured(
+        self,
+    ) -> None:
+        # Automatic selection writes no rule, so there is no tag for udev to hold.
+        with self._udev_answers(True) as ask:
+            self.assertIsNone(
+                detect.configured_tag_applied(
+                    self._gpus(), self._CARD2_PCI, detect.RuleState.ABSENT
+                )
+            )
+        ask.assert_not_called()
+
+    def test_configured_tag_applied_does_not_ask_when_the_configured_gpu_is_not_present(
+        self,
+    ) -> None:
+        with self._udev_answers(True) as ask:
+            self.assertIsNone(
+                detect.configured_tag_applied(
+                    self._gpus(), "0000:99:00.0", detect.RuleState.VALID
+                )
+            )
+        ask.assert_not_called()
+
+    def test_configured_tag_applied_passes_udev_unknown_through_as_unknown(
+        self,
+    ) -> None:
+        with self._udev_answers(None):
+            self.assertIs(
+                detect.configured_tag_applied(
+                    self._gpus(), self._CARD1_PCI, detect.RuleState.VALID
+                ),
+                None,
+            )
+
+    def test_configured_tag_applied_reports_udev_answer_of_false_as_false(self) -> None:
+        with self._udev_answers(False):
+            self.assertIs(
+                detect.configured_tag_applied(
+                    self._gpus(), self._CARD1_PCI, detect.RuleState.VALID
+                ),
+                False,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

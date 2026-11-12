@@ -162,7 +162,13 @@ available.
    Zero or multiple in-scope pids leave the running primary unknown.
 4. **Configured preference**: the managed rule's `KERNELS` value, plus the
    conflict scan (the root helper repeats it authoritatively).
-5. **Session guard**: if the session is not GNOME/Wayland
+5. **Tag evidence**: `udevadm info --query=property` reports the TAGS list udev
+   holds for the configured card, which an ordinary user may read. It answers a
+   question the rule file cannot: whether udev is acting on that rule now. Asked
+   only when a rule and a configured card exist; "udev could not be asked" is kept
+   apart from "udev does not carry the tag", and the evidence is only ever used to
+   make the diagnosis worse, never better (a tag can survive a reload that failed).
+6. **Session guard**: if the session is not GNOME/Wayland
    (`XDG_SESSION_TYPE=wayland` and `XDG_CURRENT_DESKTOP` is GNOME, or
    `gnome-shell` present when it is unset) — warning banner, privileged
    actions disabled.
@@ -184,12 +190,13 @@ One window (Adwaita, no custom CSS):
 - Contextual status banners: applied / denied / conflict / unavailable
   configured GPU / unknown outcome after a timeout.
 - State row (`gpu_state.py`): an icon + text derived from the running
-  primary, the managed rule, the rule's mtime versus gnome-shell's start time
-  and the last Apply/Reset outcome. States: auto, active (GNOME picked the
-  configured GPU), pending login / pending reboot (rule changed after the
-  session started; the refresh result is not persisted, so after an app
-  restart pending means reboot), ignored (an older rule was not honored),
-  unknown.
+  primary, the managed rule, the rule's mtime versus gnome-shell's start time,
+  the tag evidence and the last Apply/Reset outcome. States: auto, active (GNOME
+  picked the configured GPU), pending login / pending reboot (rule changed after
+  the session started; the refresh result is not persisted, so after an app
+  restart pending means reboot — and pending reboot also when udev provably does
+  not carry the tag at all), ignored (udev applies the rule and GNOME still chose
+  another GPU), unknown.
 - Collapsible verification hint: the exact `journalctl` command to confirm
   after restart; expanded only when the state is unknown or ignored.
 

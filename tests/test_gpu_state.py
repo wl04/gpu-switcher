@@ -38,6 +38,7 @@ def _detection(
     rule_mtime: float | None = RULE_BEFORE_SESSION,
     conflicts: list[str] | None = None,
     gnome_wayland: bool = True,
+    tag_applied: bool | None = None,
 ) -> detect.Detection:
     if rule_state is None:
         rule_state = (
@@ -53,6 +54,7 @@ def _detection(
         rule_state=rule_state,
         rule_mtime=rule_mtime,
         session_start=SESSION_START,
+        tag_applied=tag_applied,
     )
 
 
@@ -181,6 +183,84 @@ class Describe(unittest.TestCase):
 
     def test_describe_returns_empty_when_not_applicable(self) -> None:
         self.assertEqual(describe(GpuState.NOT_APPLICABLE, _detection()), "")
+
+
+class TagEvidence(unittest.TestCase):
+    """udev can be asked, without privileges, whether the tag is on the card now
+    (`Detection.tag_applied`). A rule file that udev does not apply is a different
+    problem from a rule udev applied and GNOME overrode, so the evidence changes
+    the diagnosis - and only when the evidence exists.
+    """
+
+    def test_derive_state_pending_reboot_when_udev_does_not_carry_the_tag_after_a_refresh(
+        self,
+    ) -> None:
+        # The helper reported a successful reload, yet the card udev was asked
+        # about does not carry the tag: a logout cannot be what is missing.
+        detection = _detection(
+            running_card="card1",
+            rule_mtime=RULE_AFTER_SESSION,
+            tag_applied=False,
+        )
+        self.assertIs(
+            derive_state(detection, Outcome.success_refreshed),
+            GpuState.PENDING_REBOOT,
+        )
+
+    def test_derive_state_pending_login_when_udev_carries_the_tag_after_a_refresh(
+        self,
+    ) -> None:
+        detection = _detection(
+            running_card="card1",
+            rule_mtime=RULE_AFTER_SESSION,
+            tag_applied=True,
+        )
+        self.assertIs(
+            derive_state(detection, Outcome.success_refreshed),
+            GpuState.PENDING_LOGIN,
+        )
+
+    def test_derive_state_pending_reboot_when_an_older_rule_is_not_applied_by_udev(
+        self,
+    ) -> None:
+        # The rule has been on disk since before this session and udev does not
+        # carry its tag at all: the rule never reached udev, which is not
+        # GNOME overriding an applied rule.
+        detection = _detection(running_card="card1", tag_applied=False)
+        self.assertIs(derive_state(detection, Outcome.idle), GpuState.PENDING_REBOOT)
+
+    def test_derive_state_ignored_when_udev_applies_the_tag_but_gnome_chose_another(
+        self,
+    ) -> None:
+        detection = _detection(running_card="card1", tag_applied=True)
+        self.assertIs(derive_state(detection, Outcome.idle), GpuState.IGNORED)
+
+    def test_derive_state_ignored_when_tag_evidence_is_unavailable(self) -> None:
+        # Without the evidence the older reading stands: no blame on udev.
+        detection = _detection(running_card="card1", tag_applied=None)
+        self.assertIs(derive_state(detection, Outcome.idle), GpuState.IGNORED)
+
+    def test_derive_state_ignored_when_running_primary_is_unknown_and_the_tag_is_not_applied(
+        self,
+    ) -> None:
+        # Unknown what GNOME picked, so the tag alone does not justify claiming a
+        # change is waiting for a reboot.
+        detection = _detection(running_card=None, tag_applied=False)
+        self.assertIs(derive_state(detection, Outcome.idle), GpuState.UNKNOWN)
+
+    def test_derive_state_active_when_gnome_uses_the_configured_card_even_if_the_tag_is_absent(
+        self,
+    ) -> None:
+        # What GNOME actually runs on is stronger evidence than what udev holds.
+        detection = _detection(running_card="card2", tag_applied=False)
+        self.assertIs(derive_state(detection, Outcome.idle), GpuState.ACTIVE)
+
+    def test_describe_names_a_reboot_for_a_rule_udev_never_applied(self) -> None:
+        detection = _detection(running_card="card1", tag_applied=False)
+        self.assertEqual(
+            describe(GpuState.PENDING_REBOOT, detection),
+            "The change applies after a reboot.",
+        )
 
 
 if __name__ == "__main__":

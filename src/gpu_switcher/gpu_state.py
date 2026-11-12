@@ -19,9 +19,10 @@ class GpuState(Enum):
     ACTIVE: the running primary is the configured GPU (verified).
     PENDING_LOGIN: the rule changed this session and the udev refresh
         succeeded; a logout/login applies it.
-    PENDING_REBOOT: the rule changed and the refresh failed or is unknown;
-        a reboot is the safe path.
-    IGNORED: the rule predates the session but GNOME picked another GPU.
+    PENDING_REBOOT: the rule changed and the refresh failed or is unknown, or udev
+        does not carry the tag at all; a reboot is the safe path.
+    IGNORED: the rule predates the session and udev applies it, but GNOME picked
+        another GPU.
     UNKNOWN: the state cannot be determined (journal unreadable, rule
         unreadable or unrecognized, conflicting rule, GPU not detected).
     NOT_APPLICABLE: not a GNOME Wayland session.
@@ -70,9 +71,12 @@ def _changed_since_session_start(detection: detect.Detection, outcome: Outcome) 
     return mtime is not None and start is not None and mtime > start
 
 
-def _pending(outcome: Outcome) -> GpuState:
+def _pending(outcome: Outcome, tag_applied: bool | None) -> GpuState:
     # The refresh result is not persisted: with none known, advise a reboot.
-    if outcome is Outcome.success_refreshed:
+    # udev is used to make the news worse, never better. A tag the device does not
+    # carry cannot be waiting only for a logout; a tag it does carry could be left
+    # over from an earlier reload, so it does not upgrade a failed refresh.
+    if outcome is Outcome.success_refreshed and tag_applied is not False:
         return GpuState.PENDING_LOGIN
     return GpuState.PENDING_REBOOT
 
@@ -90,7 +94,7 @@ def derive_state(detection: detect.Detection, outcome: Outcome) -> GpuState:
     running = detection.running_card
     if detection.rule_state is detect.RuleState.ABSENT:
         if changed:
-            return _pending(outcome)
+            return _pending(outcome, detection.tag_applied)
         return GpuState.AUTO if running is not None else GpuState.UNKNOWN
     configured = _configured_card(detection)
     if configured is None:
@@ -98,8 +102,15 @@ def derive_state(detection: detect.Detection, outcome: Outcome) -> GpuState:
     if running == configured:
         return GpuState.ACTIVE
     if changed:
-        return _pending(outcome)
-    return GpuState.IGNORED if running is not None else GpuState.UNKNOWN
+        return _pending(outcome, detection.tag_applied)
+    if running is None:
+        return GpuState.UNKNOWN
+    if detection.tag_applied is False:
+        # The rule has been on disk since before this session and udev does not
+        # carry its tag at all: it never reached udev, which is a different fault
+        # from GNOME overriding a rule udev did apply.
+        return GpuState.PENDING_REBOOT
+    return GpuState.IGNORED
 
 
 def _gpu_name(detection: detect.Detection, card: str | None) -> str:
