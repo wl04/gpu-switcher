@@ -175,6 +175,30 @@ available.
    `gnome-shell` present when it is unset) — warning banner, privileged
    actions disabled.
 
+### Commands in a terminal (read-only front-end)
+
+`gpu-switcher list`, `status` and `version` answer the two questions a terminal
+user has, from the same `detect()` snapshot and the same `decisions.py` answers
+the window uses — the two front-ends cannot disagree about the machine.
+
+- **Read-only on purpose.** The write verbs need three things a shell does not
+  provide: an announced consequence, a confirmation, and a polkit prompt a
+  terminal cannot show (`CheckAuthorization` describes the caller's window). So
+  Apply and Reset exist only in the UI, and a script cannot talk the CLI into a
+  change — which also leaves the helper's authorization model unchanged.
+- **GTK is imported only for the window.** The wrapper hands every command line
+  to `cli.run()`, which imports `main` in the no-command branch. `gpu-switcher
+  list` therefore works over SSH, where the user has no display server.
+- **Answers use the window's own wording.** Badges, rule findings and the derived
+  state come from the localized strings already in the catalogs, so a terminal and
+  the window describe one card the same way, in the user's language.
+- **The state is read with `Outcome.idle`.** A terminal read has no Apply/Reset
+  behind it and must not claim one; the state comes from the disk and session
+  evidence alone.
+- **Exit codes are the contract.** 0 when the answer was given, 2 when the command
+  line was wrong (usage on stderr), 1 when nothing could be read. A read that finds
+  a problem still exits 0: the problem is the answer.
+
 ## UI
 
 One window (Adwaita, no custom CSS):
@@ -292,6 +316,9 @@ gpu-switcher/
 │   └── gpu_switcher/
 │       ├── main.py                    # GTK4 UI: builds widgets, decides
 │       │                              #   nothing (see decisions.py)
+│       ├── cli.py                     # read-only terminal front-end: list,
+│       │                              #   status, version; imports GTK only for
+│       │                              #   the window
 │       ├── detect.py                  # GPU enumeration, names, running/configured
 │       │                              #   primary, conflicts, session guard
 │       ├── selection.py               # pure radio-selection logic
@@ -371,6 +398,10 @@ gpu-switcher/
   `<upstream>` is the semver-style app version, `<revision>` counts
   public releases. The top entry of `debian/changelog` is the single
   source of truth (per Debian policy, `debian/control` has no `Version:`).
+- `gpu_switcher.__version__` (what `gpu-switcher version` prints) and
+  `pyproject.toml` carry the upstream part, kept equal by `tools/release.sh`
+  rewriting both from the changelog; a test compares them, so a hand-edited
+  release cannot drift silently.
 - **Revision `-NN`**: bumped by every public release.
 - **Patch (`0.1.0 → 0.1.1`)**: bug fixes, hardening, and maintenance
   only — no new user-facing features, no breaking changes.

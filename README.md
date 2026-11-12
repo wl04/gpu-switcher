@@ -28,6 +28,8 @@ integrated graphics plus one or more discrete GPUs.
   login, whether a log out or a reboot is needed, and, after login, whether
   GNOME actually picked the configured GPU (or ignored the rule)
 - Confirmation dialogs, result banners and a manual verification hint
+- Read-only terminal commands - `gpu-switcher list` and `gpu-switcher status`
+  answer the same questions without a display and without authorization
 - English and Russian
 
 ## Compatibility
@@ -93,6 +95,24 @@ need it (see [Recovery](#recovery)).
 ```sh
 journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
 ```
+
+### In a terminal
+
+With no command, `gpu-switcher` opens the window. With a command it answers in
+the terminal instead - no display, no polkit prompt, and nothing is changed, so
+it also works over SSH:
+
+```sh
+gpu-switcher list      # every GPU: card, PCI address, model, what marks it
+gpu-switcher status    # the rule on disk, the tag udev applies, what runs now
+gpu-switcher version   # the version of the package
+```
+
+`list` prints the window's own badges (**In use now**, **Preferred
+(configured)**, the outputs that report a monitor), and `status` says what the
+rule pins, whether udev applies that tag, which adapter the desktop runs on and
+what that adds up to. The commands share the window's detection and decision
+logic, so the two cannot disagree about the machine.
 
 ## Recovery
 

@@ -2,7 +2,10 @@
 .SH NAME
 gpu-switcher \- switch the primary display adapter (GNOME/Mutter)
 .SH SYNOPSIS
+.nf
 .B gpu-switcher
+.B gpu-switcher list | status | version
+.fi
 .SH DESCRIPTION
 .B gpu-switcher
 is a small GTK 4 GUI application for machines with more than one GPU. It picks
@@ -30,6 +33,39 @@ re-triggered
 .BR "udevadm info" ),
 so the primary tag appears on the card without waiting for a reboot. The
 display layout itself settles after the reboot or the logout the app offers.
+.SH COMMANDS
+With no command
+.B gpu-switcher
+opens the window. With a command it answers in the terminal instead: it needs no
+display and no polkit authorization, and it changes nothing - the verbs that
+write a rule (\fBApply\fR and \fBReset to auto\fR) exist only in the window,
+where an operation is announced, confirmed and authorized.
+.TP
+.B list
+One row per display GPU: the
+.B /dev/dri
+card name, its PCI address, the model name, then what marks the card - the same
+badges the window shows:
+.BR "In use now" ,
+.BR "Preferred (configured)" ,
+the outputs that report a monitor, or
+.BR "No display connected" .
+A card whose kernel data could not be read carries no display badge at all.
+.TP
+.B status
+What the managed rule pins (or that there is none), any other udev rule that
+sets the same tag, whether udev currently applies the tag on the configured
+card, which adapter the desktop runs on now, and what all of that adds up to -
+for example
+.IR "The change applies after a reboot."
+or
+.IR "GNOME is using the configured GPU."
+.TP
+.B version
+Prints the version of the installed package.
+.PP
+A command exits 0 when it answered, 2 when the command line was wrong (usage on
+stderr) and 1 when nothing could be read.
 .SH FILES
 .TP
 .B /etc/udev/rules.d/61-mutter-primary-gpu.rules
