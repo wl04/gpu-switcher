@@ -80,11 +80,15 @@ PY
 # polkit, D-Bus, systemd unit, copyright) lives in the Makefile `install`
 # target; calling it keeps this plain build in sync with the dh path.
 make install DESTDIR="$ROOT"
-# Debian docs and man page. Policy requires the installed changelog and
-# man page to be gzip-compressed; the copyright file stays plain text.
+# The man page header (@VERSION@ / @DATE@) is rendered from debian/changelog by
+# the Makefile; the dh path installs the same file via
+# debian/gpu-switcher.manpages.
+make man
+# Debian docs. Policy requires the installed changelog and man page to be
+# gzip-compressed; the copyright file stays plain text.
 # -n: no embedded name/timestamp, for reproducible builds.
 gzip -9n -c debian/changelog > "$ROOT/usr/share/doc/gpu-switcher/changelog.Debian.gz"
-gzip -9n -c man/gpu-switcher.1 > "$ROOT/usr/share/man/man1/gpu-switcher.1.gz"
+gzip -9n -c build/man/gpu-switcher.1 > "$ROOT/usr/share/man/man1/gpu-switcher.1.gz"
 chmod 0644 "$ROOT/usr/share/doc/gpu-switcher/"* "$ROOT/usr/share/man/man1/"*
 # The maintainer scripts. Same files the dh path installs via dh_installdeb,
 # so both build paths ship identical lifecycle handling. The lintian override

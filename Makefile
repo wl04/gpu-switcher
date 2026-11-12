@@ -1,6 +1,12 @@
 # Build & install helpers for gpu-switcher (see DESIGN.md).
 SHELL := /bin/bash
 
+# The top entry of debian/changelog is the single source of truth for the
+# package version (dpkg-buildpackage and tools/build-deb.sh read the very same
+# entry), so it is also what the man page header is rendered from — see
+# tools/render-man.sh.
+CHANGELOG := debian/changelog
+
 # Run the unit tests (stdlib unittest; tests live in tests/).
 test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -19,6 +25,17 @@ locale:
 	mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
 	msgfmt -o data/locale/en/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-en.po
 	msgfmt -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-ru.po
+
+# Render the man page header (@VERSION@ / @DATE@ in man/gpu-switcher.1) into
+# build/. Both packaging paths install that file: debian/gpu-switcher.manpages
+# for the dh path, tools/build-deb.sh for the plain one.
+man: build/man/gpu-switcher.1
+
+build/man/gpu-switcher.1: man/gpu-switcher.1 $(CHANGELOG)
+	./tools/render-man.sh $@ man/gpu-switcher.1 $(CHANGELOG)
+
+clean:
+	rm -rf build
 
 # Build the .deb (lands in the parent directory).
 package:
@@ -66,4 +83,4 @@ install:
 uninstall:
 	sudo apt remove gpu-switcher
 
-.PHONY: test lint typecheck locale package install uninstall
+.PHONY: test lint typecheck locale man clean package install uninstall

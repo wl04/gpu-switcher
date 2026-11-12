@@ -205,7 +205,7 @@ gpu-switcher/
 │   ├── control  gpu-switcher.manpages  source/format  rules
 │   ├── changelog  copyright  postinst  postrm  lintian-overrides
 │   └── gpu-switcher-helper.service    # systemd unit for the helper
-├── man/gpu-switcher.1
+├── man/gpu-switcher.1        # @VERSION@ / @DATE@ rendered by `make man`
 ├── po/                 # gpu-switcher-en.po  gpu-switcher-ru.po
 ├── src/
 │   ├── wrapper/gpu-switcher           # installed as /usr/bin/gpu-switcher
@@ -258,7 +258,11 @@ gpu-switcher/
   `.deb` version is read from the top entry of `debian/changelog` (single
   source of truth).
 - Installed docs: `changelog.Debian.gz` (gzip-compressed per Debian policy),
-  plain `copyright`, gzipped man page.
+  plain `copyright`, gzipped man page. Its `.TH` header comes from `make man`,
+  which renders the `@VERSION@` / `@DATE@` tokens in `man/gpu-switcher.1` from
+  the changelog's top entry into `build/man/` (both build paths install that
+  file), so an installed page cannot name a version or a date the package never
+  had.
 - Maintainer scripts are written here rather than generated: `dh_installsystemd`
   is disabled in `debian/rules` so both build paths ship the same `postinst` /
   `postrm`. `postinst` reloads systemd (an upgraded unit file is not picked up

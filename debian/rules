@@ -4,9 +4,11 @@
 	dh $@
 
 override_dh_auto_build:
-	# Pure Python: nothing to compile. File installation happens in
-	# dh_auto_install (the Makefile install target). Without this override,
-	# dh runs bare `make`, whose default goal is `test`.
+	# Pure Python: nothing to compile, except the rendered man page header
+	# (dh_installman installs build/man/gpu-switcher.1). File installation
+	# happens in dh_auto_install (the Makefile install target). Without this
+	# override, dh runs bare `make`, whose default goal is `test`.
+	$(MAKE) man
 
 override_dh_auto_test:
 	# The test suite runs in CI (the check job) under a virtual display; the
