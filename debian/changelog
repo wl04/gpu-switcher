@@ -1,3 +1,26 @@
+gpu-switcher (0.3.1-1) unstable; urgency=low
+
+  * New: each GPU row says which displays are plugged into it.
+  * New: Apply warns before switching to a GPU with no display connected.
+  * New: the app asks udev which rule it is really applying.
+  * New: a rule udev never applied is no longer shown as a pending reboot.
+  * New: a Refresh button re-reads the GPUs, the rule and the running adapter.
+  * New: the window re-reads that state when it comes back into view.
+  * Fix: a helper that vanished mid-call is no longer called a rejected rule.
+  * Fix: the running adapter is read from a journal every user can read.
+  * Fix: udevadm too old to verify is not reported as a rule it rejected.
+  * Fix: a rule file that cannot be read has its own message.
+  * Fix: the helper answers in the language of the person who clicked.
+  * Packaging: postinst reloads and restarts the helper unit; postrm matches.
+  * Packaging: the man page takes its version and date from the changelog.
+  * Tooling: tests run under a coverage floor; CI checks the shell scripts.
+  * Tooling: a guard fails if a translated string never reached its catalog.
+  * Tooling: the app-helper D-Bus contract is pinned by a test.
+  * Tooling: a script verifies the sandbox of the privileged helper.
+  * Tooling: shipped languages come from po/, not from hardcoded lists.
+
+ -- wl04 <wl04@users.noreply.github.com>  Thu, 12 Nov 2026 07:19:55 +0100
+
 gpu-switcher (0.3.0-1) unstable; urgency=low
 
   * New: state row shows running vs configured GPU and what applies when.
