@@ -49,3 +49,14 @@ module = [
     "test_udev_rules",
 ]
 disallow_untyped_defs = true
+
+# Coverage floor for `make coverage` (and CI). Measured 75% today; the floor is
+# a ratchet — raise it when coverage goes up, never lower it to turn a red build
+# green. main.py is the GTK UI and counts against this number on purpose.
+[tool.coverage.run]
+source = ["src/gpu_switcher"]
+
+[tool.coverage.report]
+precision = 0
+fail_under = 74
+show_missing = true

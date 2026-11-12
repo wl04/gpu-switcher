@@ -20,6 +20,13 @@ lint:
 typecheck:
 	mypy
 
+# Run the suite under coverage and enforce the floor set in pyproject.toml. The
+# floor is a ratchet: raise it when coverage goes up, never lower it to turn a
+# red build green.
+coverage:
+	PYTHONPATH=src python3 -m coverage run -m unittest discover -s tests
+	python3 -m coverage report
+
 # Compile the gettext catalogs in the source tree (used by dev runs).
 locale:
 	mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
@@ -83,4 +90,4 @@ install:
 uninstall:
 	sudo apt remove gpu-switcher
 
-.PHONY: test lint typecheck locale man clean package install uninstall
+.PHONY: test lint typecheck coverage locale man clean package install uninstall

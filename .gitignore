@@ -8,3 +8,5 @@ debian/files
 debian/changelog.tmp
 __pycache__/
 debian/*.debhelper
+.coverage
+htmlcov/

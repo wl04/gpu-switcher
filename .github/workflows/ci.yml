@@ -24,8 +24,10 @@ jobs:
         run: sudo python3 -m pip install --break-system-packages -r requirements-dev.txt
       # GTK 4 widget construction (test_main) segfaults with no display on a
       # headless runner; run the suite under a virtual X11 display.
-      - name: Unit tests
-        run: xvfb-run -a make test
+      # One measured run: the suite doubles as the coverage gate, so the build
+      # cannot pass on tests nobody exercises.
+      - name: Unit tests under the coverage floor
+        run: xvfb-run -a make coverage
       - name: Lint and format
         run: make lint
       - name: Type check

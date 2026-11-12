@@ -3,3 +3,4 @@
 # version here; bump deliberately and re-run `make lint typecheck`.
 ruff==0.17.3
 mypy==2.4.1
+coverage==7.17.2

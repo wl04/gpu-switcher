@@ -22,12 +22,15 @@ Run before every commit:
 - `make typecheck` — mypy over `src/` and `tests/`; `disallow_untyped_defs`
   is enforced for the core modules and tests (the helper package and the GTK
   UI are typed for errors but not yet for untyped defs).
+- `make coverage` — the same tests under coverage, failing below the floor in
+  `pyproject.toml`. Treat the floor as a ratchet: raise it when coverage goes up,
+  never lower it to make a red build green.
 - `make locale` — compile the gettext catalogs into the source tree.
 - `make package` — build the `.deb`.
 
-CI (`.github/workflows/ci.yml`) runs test / lint / typecheck, both `.deb`
-builds with lintian, and `systemd-analyze verify` on the systemd unit. The GUI
-tests need a display; CI runs them under Xvfb.
+CI (`.github/workflows/ci.yml`) runs the tests under that coverage floor, lint,
+typecheck, both `.deb` builds with lintian, and `systemd-analyze verify` on the
+systemd unit. The GUI tests need a display; CI runs them under Xvfb.
 
 ## End-to-end verification
 
