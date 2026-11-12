@@ -2,12 +2,13 @@
 
 Mocks Gio.bus_get_sync and the connection. Pins the session manager logout
 call, the call dispatch (success vs. error handlers, remote-error prefix
-stripping), the timeout budget, and the localized failure message when the
-bus is unavailable.
+stripping), which failed calls leave the helper outcome unknown, the timeout
+budget, and the localized failure message when the bus is unavailable.
 """
 
 import os
 import unittest
+from typing import Any
 from unittest import mock
 
 import gi
@@ -152,7 +153,7 @@ class CallDispatch(unittest.TestCase):
 
         on_error.assert_not_called()
 
-    def test_call_async_strips_remote_error_prefix_from_message(self) -> None:
+    def test_call_async_strips_prefix_but_keeps_error_classifiable(self) -> None:
         on_error = mock.Mock()
         remote = Gio.DBusError.new_for_dbus_error(
             "com.github.wl04.gpu_switcher.Error.Busy",
@@ -161,6 +162,92 @@ class CallDispatch(unittest.TestCase):
 
         self._call(remote, mock.Mock(), on_error)
 
-        self.assertEqual(
-            on_error.call_args[0][0].message, "Another operation is in progress."
+        error, message = on_error.call_args[0]
+        self.assertEqual(message, "Another operation is in progress.")
+        self.assertTrue(Gio.DBusError.is_remote_error(error))
+
+
+class OutcomeUnknownAfterCall(unittest.TestCase):
+    """Which failed helper calls leave the outcome unknown.
+
+    A helper that was killed, restarted or lost mid-call may already have
+    committed the rule: the app must keep the unknown-outcome warning and
+    re-read the state instead of showing a plain failure. An explicit
+    rejection answered by the helper is the other case: nothing changed.
+    """
+
+    UNKNOWN_ERROR_NAMES = (
+        "org.freedesktop.DBus.Error.NoReply",
+        "org.freedesktop.DBus.Error.ServiceUnknown",
+        "org.freedesktop.DBus.Error.Disconnected",
+        "org.freedesktop.DBus.Error.NoServer",
+    )
+
+    def _set_primary(self, error: GLib.Error) -> tuple[Any, ...]:
+        conn = mock.Mock()
+        conn.call_finish.side_effect = error
+        results: list[tuple[Any, ...]] = []
+
+        with mock.patch.object(Gio, "bus_get_sync", return_value=conn):
+            bus.set_primary("0000:12:00.0", "en", lambda *args: results.append(args))
+            conn.call.call_args[0][9](conn, None)
+
+        self.assertEqual(len(results), 1)
+        return results[0]
+
+    def test_set_primary_reports_unknown_outcome_for_every_lost_helper_error(
+        self,
+    ) -> None:
+        for name in self.UNKNOWN_ERROR_NAMES:
+            with self.subTest(error=name):
+                _ok, _message, _refresh_ok, timed_out = self._set_primary(
+                    Gio.DBusError.new_for_dbus_error(name, "The helper went away.")
+                )
+
+                self.assertTrue(timed_out)
+
+    def test_set_primary_reports_unknown_outcome_with_helper_message(self) -> None:
+        _ok, message, _refresh_ok, timed_out = self._set_primary(
+            Gio.DBusError.new_for_dbus_error(
+                "org.freedesktop.DBus.Error.NoReply",
+                "The helper did not respond.",
+            )
         )
+
+        self.assertTrue(timed_out)
+        self.assertEqual(message, "The helper did not respond.")
+
+    def test_set_auto_reports_unknown_outcome_for_lost_helper_error(self) -> None:
+        conn = mock.Mock()
+        conn.call_finish.side_effect = Gio.DBusError.new_for_dbus_error(
+            "org.freedesktop.DBus.Error.ServiceUnknown", "The name was not provided."
+        )
+        results: list[tuple[Any, ...]] = []
+
+        with mock.patch.object(Gio, "bus_get_sync", return_value=conn):
+            bus.set_auto("en", lambda *args: results.append(args))
+            conn.call.call_args[0][9](conn, None)
+
+        self.assertTrue(results[0][3])
+
+    def test_set_primary_reports_known_outcome_for_helper_rejection(self) -> None:
+        # The helper answered: it refused the call, so nothing changed.
+        _ok, message, _refresh_ok, timed_out = self._set_primary(
+            Gio.DBusError.new_for_dbus_error(
+                "com.github.wl04.gpu_switcher.Error.Busy",
+                "Another operation is in progress.",
+            )
+        )
+
+        self.assertFalse(timed_out)
+        self.assertEqual(message, "Another operation is in progress.")
+
+    def test_set_primary_reports_known_outcome_for_failed_authorization(self) -> None:
+        _ok, _message, _refresh_ok, timed_out = self._set_primary(
+            Gio.DBusError.new_for_dbus_error(
+                "org.freedesktop.PolicyKit1.Error.Failed",
+                "The authorization check failed.",
+            )
+        )
+
+        self.assertFalse(timed_out)

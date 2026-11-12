@@ -73,10 +73,15 @@ def _call_async(
     """Issue one async D-Bus method call and dispatch to the handlers.
 
     on_success(reply) runs when the method returns, with the unpacked tuple
-    of out-args (possibly empty); on_error(GLib.Error) runs on a method-level
-    error; on_bus_error(GLib.Error) runs when the bus connection itself cannot
-    be acquired. The reply is delivered on the GLib main loop, so the UI never
-    blocks while the interactive polkit dialog is open.
+    of out-args (possibly empty); on_error(error, message) runs on a
+    method-level error; on_bus_error(GLib.Error) runs when the bus connection
+    itself cannot be acquired. The reply is delivered on the GLib main loop,
+    so the UI never blocks while the interactive polkit dialog is open.
+
+    `message` is the service's own text, with the bus prefix removed, and the
+    error is passed unchanged: its prefix is what makes a remote error
+    recognizable, so rewriting the message first would hide that the helper
+    never answered (see state.is_outcome_unknown).
     """
     try:
         connection = Gio.bus_get_sync(bus_type)
@@ -88,8 +93,7 @@ def _call_async(
         try:
             reply = c.call_finish(task)
         except GLib.Error as error:
-            error.message = _strip_remote_prefix(error.message)
-            on_error(error)
+            on_error(error, _strip_remote_prefix(error.message))
             return
         on_success(reply)
 
@@ -126,7 +130,9 @@ def set_primary(pci: str, locale: str, callback) -> None:
         "(bssb)",
         HELPER_TIMEOUT_MS,
         lambda r: callback(bool(r[0]), r[1], bool(r[3]), False),
-        lambda e: callback(False, e.message, False, state.is_outcome_unknown(e)),
+        lambda error, message: callback(
+            False, message, False, state.is_outcome_unknown(error)
+        ),
         lambda e: callback(False, helper_unreachable % e.message, False, False),
     )
 
@@ -149,7 +155,9 @@ def set_auto(locale: str, callback) -> None:
         "(bsb)",
         HELPER_TIMEOUT_MS,
         lambda r: callback(bool(r[0]), r[1], bool(r[2]), False),
-        lambda e: callback(False, e.message, False, state.is_outcome_unknown(e)),
+        lambda error, message: callback(
+            False, message, False, state.is_outcome_unknown(error)
+        ),
         lambda e: callback(False, helper_unreachable % e.message, False, False),
     )
 
@@ -171,7 +179,7 @@ def reboot(callback) -> None:
         "()",
         LOGIN1_TIMEOUT_MS,
         lambda r: callback(True, ""),
-        lambda e: callback(False, e.message),
+        lambda _error, message: callback(False, message),
         lambda e: callback(False, logind_unreachable % e.message),
     )
 
@@ -198,6 +206,6 @@ def logout(callback) -> None:
         "()",
         LOGIN1_TIMEOUT_MS,
         lambda r: callback(True, ""),
-        lambda e: callback(False, logout_failed % e.message),
+        lambda _error, message: callback(False, logout_failed % message),
         lambda e: callback(False, logout_failed % e.message),
     )
