@@ -5,22 +5,81 @@ gpu-switcher \- switch the primary display adapter (GNOME/Mutter)
 .B gpu-switcher
 .SH DESCRIPTION
 .B gpu-switcher
-is a small GTK 4 GUI application for dual-GPU machines. It selects which
-GPU the GNOME compositor (Mutter) uses as the
-.BR primary
+is a small GTK 4 GUI application for machines with more than one GPU. It picks
+which GPU the GNOME compositor (Mutter) uses as the
+.B primary
 display adapter by managing the udev rule
-.BR /etc/udev/rules.d/61-mutter-primary-gpu.rules
-under polkit authorization, and activates the change via reboot or logout.
+.B /etc/udev/rules.d/61-mutter-primary-gpu.rules
+and activates the change with a reboot or a logout.
 .PP
-Only GNOME/Wayland sessions are supported; in any other session the
-app shows a warning banner and makes no changes.
+Pick a GPU in the list and press
+.B Apply
+to write the rule for it, or press
+.B "Reset to auto"
+to remove the rule and let Mutter choose again. The action buttons work only in
+a supported GNOME/Wayland session; in any other session the app shows a warning
+banner and changes nothing.
+.PP
+Every operation is authorized by polkit (action
+.BR com.github.wl04.gpu_switcher.set-primary ,
+administrator authentication, not cached: a call that succeeded a moment ago is
+authorized again). The helper then writes the rule and udev is reloaded and
+re-triggered
+.RB ( udevadm " control \-\-reload-rules" ,
+.BR "udevadm trigger" ,
+.BR "udevadm info" ),
+so the primary tag appears on the card without waiting for a reboot. The
+display layout itself settles after the reboot or the logout the app offers.
 .SH FILES
 .TP
 .B /etc/udev/rules.d/61-mutter-primary-gpu.rules
-Managed udev rule. The app keeps
-.BI .bak.
-backups of the rule contents it replaces.
-.SH SEE ALSO
+The managed udev rule. Before a write replaces it, the contents it replaces are
+copied to
+.BI rule ".bak.\fIUTC-timestamp\fR.\fIrandom-suffix\fR"
+(for example
+.BR 61-mutter-primary-gpu.rules.bak.20260301T120000Z.a1b2c3 ,
+the five newest backups are kept).
+.B "apt remove"
+leaves the rule and its backups in place: they record the user's choice, not
+package data. To undo the change completely, delete the rule, run
+.BR "udevadm control \-\-reload-rules" ,
+then log out.
+.SH HELPER
+The rule is written by a root helper: the systemd unit
+.B gpu-switcher-helper.service
+with the D-Bus name
+.BR com.github.wl04.gpu_switcher.Helper .
+dbus-daemon starts it on demand and it exits once it has been idle. Its sandbox
+permits writes only to
+.BR /etc/udev/rules.d ,
+so the app itself never holds privileged access. The helper's log is read with
+.HP
+.B "journalctl \-u gpu-switcher-helper.service"
+.SH DIAGNOSTICS
+What udev actually applied to a card:
+.HP
+.B "udevadm info /sys/dev/dri/card1 | grep CURRENT_TAGS"
+.PP
+The tag
+.B mutter-device-preferred-primary
+on the chosen card is what Mutter reads. If it is missing, the rule is not on
+disk, udev was not reloaded, or
+.B "udevadm verify"
+rejected the rule.
+.SH "REPORTING BUGS"
+Report problems at
+.UR https://github.com/wl04/gpu-switcher
+.UE ,
+include the installed version
+.RB ( "dpkg-query \-W gpu-switcher" ) ,
+the GPU list
+.RB ( "lspci \-nn" )
+and the last lines of
+.BR "journalctl \-u gpu-switcher-helper.service" .
+.SH AUTHORS
+Written by wl04.
+.SH "SEE ALSO"
 .BR journalctl (1),
+.BR systemctl (1),
 .BR udevadm (8),
 .BR lspci (8)
