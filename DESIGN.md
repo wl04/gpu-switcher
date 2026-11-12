@@ -6,7 +6,9 @@ What the app does and why it is built this way. For usage see
 
 ## Scope
 
-**GNOME / Wayland (Mutter) only.** KDE Plasma and X11 are not supported.
+**GNOME / Wayland (Mutter) only.** KDE Plasma and X11 are not supported; see
+[What a Plasma or X11 port would take](#what-a-plasma-or-x11-port-would-take-not-supported-today)
+for what supporting them would involve and why the verification signal is the blocker.
 
 ## Technology
 
@@ -216,6 +218,54 @@ Interaction rules: privileged calls are async (the buttons are disabled while
 an operation or a re-detection runs; the UI never blocks, detection runs on a
 worker thread); Apply/Reset change the udev rule, and every destructive step
 has a confirmation dialog.
+
+## What a Plasma or X11 port would take (not supported today)
+
+Scope says GNOME/Mutter only. This records what the alternatives would need, so the
+limitation is a decision with a reason rather than an omission.
+
+**The lever is different on every compositor.** What the app really changes is which
+GPU the *compositor* treats as primary, and that is compositor-specific:
+
+- **Mutter (GNOME on Wayland)** — a udev tag, `mutter-device-preferred-primary`, read
+  when the session starts. Mutter also logs which card it picked, which is the
+  evidence the app reports.
+- **KWin (Plasma on Wayland)** — an environment variable, `KWIN_DRM_DEVICES`: a
+  colon-separated list of DRI device paths whose first entry becomes the primary
+  ([KWin !9003](https://invent.kde.org/plasma/kwin/-/merge_requests/9003)). There is
+  no udev rule to write, so the change goes into the session environment (a systemd
+  user environment entry or `~/.config/environment.d/`) - no root needed, but a
+  different privilege story and a different rollback story. Card numbering is not
+  stable across reboots or unbind/rebind, so paths must be resolved from PCI
+  (`/dev/dri/by-path/`) at write time instead of remembered.
+- **X11 (Xorg)** — an `OutputClass` section in `/etc/X11/xorg.conf.d/` matching the
+  driver with `Option "PrimaryGPU" "true"`. Root again, and that file is shared with
+  whatever else configures X. Per-process render offload (`DRI_PRIME=1`,
+  `xrandr --setprovideroffloadsink`, the vendor offload variables) answers a *different*
+  question: which GPU renders one application, not which one drives the screen.
+
+**Evidence is the hard part, not writing.** The state machine (active / pending
+login / pending reboot / ignored / unknown) rests on two observable facts on GNOME:
+the tag udev actually applied, and the compositor naming the card it chose. Neither
+is established for KWin or Xorg, and a port that cannot confirm its own result would
+sit in "unknown" after every Apply. The verification signal has to be found before
+the writing mechanism is built, not after.
+
+**What already carries over:** GPU enumeration and PCI naming, the per-card display
+outputs read from sysfs, the helper's rule discipline (atomic write, backups,
+retention, verification), the D-Bus and polkit shape, and the state machine and UI
+states.
+
+**The same reasoning is upstream.** KWin's !9003 describes a hybrid laptop where the
+desktop ended up composited on the iGPU although the only active output was an
+external monitor on the discrete card - cross-GPU compositing and a heavy
+performance penalty. That is why this app reports display-connected outputs per card
+instead of guessing from card order, and why Apply to a card with no connected
+display is warned about.
+
+**Explicit non-goals for such a port:** one udev rule claimed to work for all
+compositors; writing a user's session environment from the root helper (that is the
+user's own configuration, and it does not belong to a privileged process).
 
 ## File layout
 
