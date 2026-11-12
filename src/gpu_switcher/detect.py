@@ -179,32 +179,17 @@ def gnome_shell_pids_for_uid(
     return sorted(found)
 
 
-def _uid_of(proc_root: str, pid: int) -> int | None:
-    """The uid owning `pid`, from /proc/<pid>/status `Uid:`, or None when
-    unreadable (a process vanishing mid-scan, or another user's process we
-    cannot read)."""
-    status = read_text(f"{proc_root}/{pid}/status")
-    for line in status.splitlines():
-        if line.startswith("Uid:"):
-            parts = line.split()
-            if len(parts) >= 2:
-                try:
-                    return int(parts[1])
-                except ValueError:
-                    return None
-            return None
-    return None
-
-
 def _process_tree(
     proc_root: str = "/proc",
 ) -> dict[int, tuple[int, str, int | None]]:
     """{pid: (ppid, comm, uid)} for the process table under `proc_root`.
 
     /proc/<pid>/stat is `pid (comm) state ppid ...`; comm may contain
-    spaces and parentheses, so the line is split at the last ')'. The uid
-    comes from /proc/<pid>/status and is None when unreadable. Unreadable
-    entries are skipped (processes vanish mid-scan normally); non-UTF-8
+    spaces and parentheses, so the line is split at the last ')'. The owner uid
+    comes from the ownership of /proc/<pid> itself: one stat per process, rather
+    than opening the status file of every process in the table to read one line.
+    Unreadable entries are skipped (processes vanish mid-scan normally) and a
+    process that vanished before it could be stat-ed keeps uid None. Non-UTF-8
     comm bytes are replaced, not fatal (see read_text).
     """
     tree: dict[int, tuple[int, str, int | None]] = {}
@@ -225,7 +210,11 @@ def _process_tree(
         except (ValueError, IndexError):
             continue
         pid = int(entry)
-        tree[pid] = (ppid, comm, _uid_of(proc_root, pid))
+        try:
+            uid: int | None = os.stat(f"{proc_root}/{entry}").st_uid
+        except OSError:
+            uid = None  # vanished between the listing and the stat
+        tree[pid] = (ppid, comm, uid)
     return tree
 
 

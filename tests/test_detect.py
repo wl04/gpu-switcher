@@ -10,6 +10,7 @@ import os
 import subprocess
 import tempfile
 import time
+import types
 import unittest
 from typing import Any
 from unittest import mock
@@ -211,14 +212,79 @@ class ProcessTree(unittest.TestCase):
             os.makedirs(os.path.join(root, "200"))
             with open(os.path.join(root, "200", "stat"), "wb") as f:
                 f.write(b"200 (shell) S 100 0")
-            with open(os.path.join(root, "200", "status"), "wb") as f:
-                f.write(b"Uid:\t1000\t1000\n")
-            tree = detect._process_tree(root)
+            uids = {os.path.join(root, "100"): 0, os.path.join(root, "200"): 1000}
+            with mock.patch.object(
+                detect.os,
+                "stat",
+                side_effect=lambda p: types.SimpleNamespace(st_uid=uids[p]),
+            ):
+                tree = detect._process_tree(root)
         self.assertEqual(set(tree), {100, 200})
-        # No status file for pid 100's valid comm? It has comm replaced, uid None.
         self.assertEqual(tree[200], (100, "shell", 1000))
         self.assertNotEqual(tree[100][1], "shell")
-        self.assertIsNone(tree[100][2])
+
+
+class ProcessTreeUid(unittest.TestCase):
+    """Where the owner uid of a process comes from.
+
+    /proc/<pid> is owned by the uid that owns the process, so one stat per process
+    answers it. Reading /proc/<pid>/status as well opens a second file for every
+    process in the table - hundreds of reads for what one syscall answers.
+    """
+
+    def _proc(self, root: str, pid: int, comm: str, ppid: int) -> str:
+        path = os.path.join(root, str(pid))
+        os.makedirs(path)
+        with open(os.path.join(path, "stat"), "wb") as f:
+            f.write(f"{pid} ({comm}) S {ppid} 0".encode())
+        return path
+
+    def _stat_by_path(self, uids: dict[str, int]):
+        def fake_stat(path: str):
+            return types.SimpleNamespace(st_uid=uids[path])
+
+        return fake_stat
+
+    def test_process_tree_reads_the_uid_from_the_owner_of_the_process_directory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            self._proc(root, 100, "systemd", 0)
+            self._proc(root, 200, "gnome-shell", 100)
+            uids = {os.path.join(root, "100"): 0, os.path.join(root, "200"): 1000}
+            with mock.patch.object(
+                detect.os, "stat", side_effect=self._stat_by_path(uids)
+            ):
+                tree = detect._process_tree(root)
+        self.assertEqual(tree[100], (0, "systemd", 0))
+        self.assertEqual(tree[200], (100, "gnome-shell", 1000))
+
+    def test_process_tree_does_not_ask_the_status_file_for_the_uid(self) -> None:
+        # A status file that disagrees with the directory owner is ignored: the
+        # ownership is where the answer comes from now.
+        with tempfile.TemporaryDirectory() as root:
+            path = self._proc(root, 200, "gnome-shell", 100)
+            with open(os.path.join(path, "status"), "w", encoding="utf-8") as f:
+                f.write("Uid:\t999\t999\n")
+            uids = {os.path.join(root, "200"): 1000}
+            with mock.patch.object(
+                detect.os, "stat", side_effect=self._stat_by_path(uids)
+            ):
+                tree = detect._process_tree(root)
+        self.assertEqual(tree[200][2], 1000)
+
+    def test_process_tree_keeps_uid_none_when_a_process_vanishes_before_the_stat(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            self._proc(root, 200, "gnome-shell", 100)
+            with mock.patch.object(
+                detect.os,
+                "stat",
+                side_effect=FileNotFoundError("process is gone"),
+            ):
+                tree = detect._process_tree(root)
+        self.assertEqual(tree[200], (100, "gnome-shell", None))
 
 
 class ProcessStartTime(unittest.TestCase):
