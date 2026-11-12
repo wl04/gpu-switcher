@@ -10,6 +10,7 @@ Package: gpu-switcher
 Architecture: all
 Priority: optional
 Section: utils
+Homepage: https://github.com/wl04/gpu-switcher
 Depends: python3 (>= 3.12), python3-gi, gir1.2-gtk-4.0 (>= 4.10), libgtk-4-1 (>= 4.10), polkitd, dbus, udev, systemd, pciutils
 Description: GUI to switch the primary display adapter (GNOME/Mutter)
  Select which GPU GNOME (Mutter) uses as the primary display adapter.
