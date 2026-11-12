@@ -1,3 +1,16 @@
+gpu-switcher (0.4.0-1) unstable; urgency=low
+
+  * New: gpu-switcher list, status and version answer in a terminal.
+  * New: the terminal commands work over SSH: they need no display.
+  * New: gpu-switcher version prints the version of the installed package.
+  * New: a terminal names a card the way the window names it.
+  * New: exit codes a script can branch on: 0 answered, 2 bad usage.
+  * Tooling: the window itself is covered by tests on a virtual display.
+  * Tooling: what a row advertises and what Apply means are pure functions.
+  * Tooling: coverage floor is 78%; the terminal front-end is 98% covered.
+
+ -- wl04 <wl04@users.noreply.github.com>  Thu, 12 Nov 2026 23:39:39 +0100
+
 gpu-switcher (0.3.1-1) unstable; urgency=low
 
   * New: each GPU row says which displays are plugged into it.
