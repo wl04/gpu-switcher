@@ -194,6 +194,11 @@ One window (Adwaita, no custom CSS):
 - **Log out** — fast path via the GNOME session manager `Logout` on the
   session bus; enabled only after an Apply/Reset whose udev refresh
   succeeded (no polkit prompt of its own).
+- **Refresh** — re-read GPUs, the rule on disk and the running adapter; needs no
+  authorization. Returning to the window does the same automatically when the
+  snapshot is older than ~15 s and nothing is in flight (a confirmation dialog or
+  an action awaiting its reply) — re-detection rebuilds the content, so it never
+  happens under the user's hands.
 - Contextual status banners: applied / denied / conflict / unavailable
   configured GPU / unknown outcome after a timeout.
 - State row (`gpu_state.py`): an icon + text derived from the running

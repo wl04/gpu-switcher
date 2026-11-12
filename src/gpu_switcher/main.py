@@ -11,6 +11,7 @@ Detection runs on a worker thread so the main loop never blocks.
 from __future__ import annotations
 
 import threading
+import time
 
 import gi
 
@@ -38,6 +39,24 @@ from .state import (
 )
 
 APP_ID = "com.github.wl04.gpu-switcher"
+
+
+REDETECT_AFTER_S = 15.0
+
+
+def should_recheck(age_s: float | None, busy: bool) -> bool:
+    """Whether returning to the window should read GPUs, rules and journal again.
+
+    The window shows a snapshot, and the world moves while the user is away: a
+    monitor gets plugged in, another tool edits the rule, a switch lands. Reading
+    on every focus change would mean sysfs and journal traffic for every mouse
+    movement, so only a snapshot that has had time to go stale is re-read - and
+    never while the window is in the middle of something, because re-detection
+    rebuilds the content it is built on.
+    """
+    if busy:
+        return False
+    return age_s is None or age_s >= REDETECT_AFTER_S
 
 
 def _badge(text: str) -> Gtk.Label:
@@ -128,9 +147,13 @@ class GpuSwitcherApp(Gtk.Application):
         self.reset_btn: Gtk.Button = None
         self.reboot_btn: Gtk.Button = None
         self.logout_btn: Gtk.Button = None
+        self.refresh_btn: Gtk.Button = None
         self.gpu_state: GpuState = GpuState.UNKNOWN
         self.outcome: Outcome = Outcome.idle  # explicit state of the last operation
         self._detect_generation: int = 0  # discards stale detection results
+        self._detect_started_at: float | None = None  # when the snapshot was read
+        self._confirm_open: int = 0  # confirmations awaiting an answer
+        self._busy: bool = False  # an action or a detection is in flight
         self._pending_banner: tuple[str, BannerKind] | None = (
             None  # shown after a rebuild
         )
@@ -348,6 +371,14 @@ class GpuSwitcherApp(Gtk.Application):
         self.logout_btn.connect("clicked", self._on_logout)
         self.logout_btn.set_sensitive(logout_enabled(False, self.outcome))
         buttons.append(self.logout_btn)
+        # Reading the world again asks nothing of polkit, so it stays available
+        # even where the privileged actions are disabled.
+        self.refresh_btn = Gtk.Button(label=i18n._("Refresh"))
+        self.refresh_btn.set_tooltip_text(
+            i18n._("Re-read the GPUs, the rule on disk and the running adapter")
+        )
+        self.refresh_btn.connect("clicked", lambda _b: self._refresh())
+        buttons.append(self.refresh_btn)
         # Outside a GNOME Wayland session no privileged action works
         # (DESIGN.md: GNOME only); the warning banner explains why.
         actions = actions_enabled(self.detection.gnome_wayland)
@@ -413,11 +444,19 @@ class GpuSwitcherApp(Gtk.Application):
     def _set_busy(self, busy: bool) -> None:
         """Enable/disable the action buttons. Log out follows
         state.logout_enabled, so ending the busy state alone never enables it."""
+        self._busy = busy
         assert self.detection is not None  # actions are only reachable after detection
         actions = actions_enabled(self.detection.gnome_wayland)
         for button in (self.apply_btn, self.reset_btn, self.reboot_btn):
             button.set_sensitive(actions and not busy)
+        self.refresh_btn.set_sensitive(not busy)
         self.logout_btn.set_sensitive(actions and logout_enabled(busy, self.outcome))
+
+    def _in_flight(self) -> bool:
+        """Whether the window is in the middle of something the user is looking at:
+        a confirmation awaiting an answer, or an action or detection running.
+        """
+        return self._busy or self._confirm_open > 0
 
     def _confirm(self, text: str, confirm_label: str, on_result) -> None:
         """Modal confirmation via Gtk.AlertDialog (GTK >= 4.10).
@@ -434,7 +473,10 @@ class GpuSwitcherApp(Gtk.Application):
         dialog.set_cancel_button(0)
         dialog.set_default_button(1)
 
+        self._confirm_open += 1
+
         def on_choose(_d, task):
+            self._confirm_open -= 1
             try:
                 index = _d.choose_finish(task)
             except GLib.Error:
@@ -609,6 +651,7 @@ class GpuSwitcherApp(Gtk.Application):
         detection."""
         self._detect_generation += 1
         generation = self._detect_generation
+        self._detect_started_at = time.monotonic()
         if self.banner is not None:
             # The rebuild replaces the buttons; keep the old ones inert so a
             # click cannot act on stale state in the meantime.
@@ -669,11 +712,30 @@ class GpuSwitcherApp(Gtk.Application):
             return
         self.window = Gtk.ApplicationWindow(application=self)
         self.window.set_title("gpu-switcher")
+        self.window.connect("notify::is-active", self._on_window_active)
         # No fixed default size: the window sizes to its content and grows
         # only when the verification hint is expanded.
         self._build_loading()
         self.window.present()
         self._start_detection()
+
+    def _on_window_active(self, window, _pspec) -> None:
+        """Re-read the world when the user comes back to the window.
+
+        `notify::is-active` fires in both directions, so only the transition into
+        being the active window is acted on. The property is read by name: this is
+        a plain GObject property of Gtk.Window and PyGObject gives no accessor for
+        it in every version.
+        """
+        if not window.get_property("is-active"):
+            return
+        age = (
+            None
+            if self._detect_started_at is None
+            else time.monotonic() - self._detect_started_at
+        )
+        if should_recheck(age, self._in_flight()):
+            self._refresh()
 
 
 def run(argv: list[str]) -> int:

@@ -73,6 +73,12 @@ msgstr "Сбросить к авто"
 msgid "Reboot now"
 msgstr "Перезагрузить сейчас"
 
+msgid "Refresh"
+msgstr "Обновить"
+
+msgid "Re-read the GPUs, the rule on disk and the running adapter"
+msgstr "Заново прочитать GPU, правило на диске и работающий адаптер"
+
 msgid "Reboot"
 msgstr "Перезагрузить"
 

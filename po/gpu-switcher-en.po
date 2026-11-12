@@ -73,6 +73,12 @@ msgstr "Reset to auto"
 msgid "Reboot now"
 msgstr "Reboot now"
 
+msgid "Refresh"
+msgstr "Refresh"
+
+msgid "Re-read the GPUs, the rule on disk and the running adapter"
+msgstr "Re-read the GPUs, the rule on disk and the running adapter"
+
 msgid "Reboot"
 msgstr "Reboot"
 

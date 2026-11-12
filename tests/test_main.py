@@ -152,5 +152,29 @@ class ApplyWarning(unittest.TestCase):
         self.assertIsNone(main._apply_warning(_gpu()))
 
 
+class RecheckOnReturn(unittest.TestCase):
+    """Deciding whether returning to the window should read the world again.
+
+    Detection is a snapshot: a monitor gets plugged in, another tool changes the
+    rule, a helper call from elsewhere lands. Re-reading on every focus change
+    would mean sysfs traffic while the user merely moves the mouse, and re-reading
+    in the middle of an operation would rebuild the window under their hands.
+    """
+
+    def test_should_recheck_reads_again_after_a_stale_snapshot(self) -> None:
+        self.assertTrue(main.should_recheck(60.0, False))
+
+    def test_should_recheck_keeps_a_snapshot_that_is_still_fresh(self) -> None:
+        self.assertFalse(main.should_recheck(2.0, False))
+
+    def test_should_recheck_waits_while_an_operation_is_in_flight(self) -> None:
+        # Re-detection rebuilds the content: it must not happen while a
+        # confirmation is open or a helper call is waiting for its reply.
+        self.assertFalse(main.should_recheck(60.0, True))
+
+    def test_should_recheck_detects_when_nothing_has_been_read_yet(self) -> None:
+        self.assertTrue(main.should_recheck(None, False))
+
+
 if __name__ == "__main__":
     unittest.main()
