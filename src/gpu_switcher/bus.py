@@ -27,6 +27,16 @@ from . import i18n, state
 HELPER_NAME = "com.github.wl04.gpu_switcher.Helper"
 HELPER_PATH = "/com/github/wl04/gpu_switcher/Helper"
 HELPER_IFACE = "com.github.wl04.gpu_switcher.Helper"
+# The helper publishes its own interface (helper/service.py INTROSPECTION_XML);
+# these are the app's copy of it, named so a test can compare the two. Untyped
+# literals at each call site are how a renamed method or a reordered reply
+# argument turns into a D-Bus error instead of a compile-time one.
+HELPER_SET_PRIMARY = "SetPrimary"
+HELPER_SET_PRIMARY_IN = "(ss)"
+HELPER_SET_PRIMARY_OUT = "(bssb)"
+HELPER_SET_AUTO = "SetAuto"
+HELPER_SET_AUTO_IN = "(s)"
+HELPER_SET_AUTO_OUT = "(bsb)"
 
 LOGIN1_NAME = "org.freedesktop.login1"
 LOGIN1_PATH = "/org/freedesktop/login1"
@@ -165,9 +175,9 @@ def set_primary(pci: str, locale: str, callback) -> None:
         HELPER_NAME,
         HELPER_PATH,
         HELPER_IFACE,
-        "SetPrimary",
-        GLib.Variant("(ss)", (pci, locale)),
-        "(bssb)",
+        HELPER_SET_PRIMARY,
+        GLib.Variant(HELPER_SET_PRIMARY_IN, (pci, locale)),
+        HELPER_SET_PRIMARY_OUT,
         HELPER_TIMEOUT_MS,
         lambda r: callback(bool(r[0]), r[1], bool(r[3]), False),
         lambda error, message: _on_helper_error(callback, error, message),
@@ -188,9 +198,9 @@ def set_auto(locale: str, callback) -> None:
         HELPER_NAME,
         HELPER_PATH,
         HELPER_IFACE,
-        "SetAuto",
-        GLib.Variant("(s)", (locale,)),
-        "(bsb)",
+        HELPER_SET_AUTO,
+        GLib.Variant(HELPER_SET_AUTO_IN, (locale,)),
+        HELPER_SET_AUTO_OUT,
         HELPER_TIMEOUT_MS,
         lambda r: callback(bool(r[0]), r[1], bool(r[2]), False),
         lambda error, message: _on_helper_error(callback, error, message),
