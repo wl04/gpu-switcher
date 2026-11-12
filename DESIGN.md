@@ -203,7 +203,7 @@ gpu-switcher/
 │   └── locale/         # compiled .mo (built from po/)
 ├── debian/
 │   ├── control  gpu-switcher.manpages  source/format  rules
-│   ├── changelog  copyright  postrm
+│   ├── changelog  copyright  postinst  postrm  lintian-overrides
 │   └── gpu-switcher-helper.service    # systemd unit for the helper
 ├── man/gpu-switcher.1
 ├── po/                 # gpu-switcher-en.po  gpu-switcher-ru.po
@@ -251,7 +251,7 @@ gpu-switcher/
   (hyphens are not allowed in D-Bus names).
 - `tools/build-deb.sh` (plain `dpkg-deb`, no debhelper required) is the
   canonical build; `debian/` (control, rules, manpages, changelog, copyright,
-  postrm, `gpu-switcher-helper.service`; source format `3.0 (quilt)`) supports
+  postinst, postrm, `gpu-switcher-helper.service`; source format `3.0 (quilt)`) supports
   the `dpkg-buildpackage -us -uc` flow. Both paths call the same
   `make install` target (the single file list), which also compiles the
   catalogs with `msgfmt`, so their contents are identical by construction. The
@@ -259,6 +259,17 @@ gpu-switcher/
   source of truth).
 - Installed docs: `changelog.Debian.gz` (gzip-compressed per Debian policy),
   plain `copyright`, gzipped man page.
+- Maintainer scripts are written here rather than generated: `dh_installsystemd`
+  is disabled in `debian/rules` so both build paths ship the same `postinst` /
+  `postrm`. `postinst` reloads systemd (an upgraded unit file is not picked up
+  otherwise) and, on an upgrade only, `try-restart`s a helper that is still
+  running so the next call is answered by the new code instead of the code that
+  was just replaced. `postrm` reloads systemd again once the unit files are
+  gone. `systemctl` is called directly, not through `deb-systemd-invoke`: that
+  is a debhelper tool, which an installed system does not have to provide; the
+  `/run/systemd/system` guard in `debian/postinst` is the check it performs
+  internally, and the deviation is recorded in
+  `debian/gpu-switcher.lintian-overrides`.
 - `postrm` leaves the managed rule and its `.bak.*` backups in place on
   `apt remove` — they are the user's primary-GPU choice, not package data.
 - Quality gates: `lintian` clean on the built `.deb`, `dpkg-deb --info` /

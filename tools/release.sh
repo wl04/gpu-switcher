@@ -118,9 +118,10 @@ make package
 DEB="../${PKG}_${NEW_VERSION}_all.deb"
 [ -f "$DEB" ] || { echo "error: build did not produce $DEB" >&2; exit 1; }
 
-# Both build paths (dh via debian/rules, plain via tools/build-deb.sh) call
-# the same `make install` target, so their package contents are identical by
-# construction; no cross-check is needed.
+# Both build paths (dh via debian/rules, plain via tools/build-deb.sh) install
+# the same files through `make install` and the same maintainer scripts from
+# debian/, so their package contents are identical by construction; no
+# cross-check is needed.
 lintian "$DEB"
 SHA256="$(sha256sum "$DEB" | awk '{print $1}')"
 echo "built: $DEB"
@@ -145,12 +146,8 @@ fi
   echo "apt resolves any missing dependencies from the repository; offline, with"
   echo "all dependencies present, \`sudo dpkg -i\` also works."
   echo
-  echo "Upgrading from an older version: restart the still-running helper so the"
-  echo "new code takes over:"
-  echo
-  echo '```sh'
-  echo "sudo systemctl restart gpu-switcher-helper.service"
-  echo '```'
+  echo "The package reloads the systemd unit and restarts a helper that is still"
+  echo "running after an upgrade, so no manual restart is needed."
   echo
   echo "Requires: python3 (>= 3.12), python3-gi, gir1.2-gtk-4.0 (>= 4.10),"
   echo "libgtk-4-1 (>= 4.10), polkitd, dbus, udev, systemd, pciutils."

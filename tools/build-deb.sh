@@ -86,8 +86,13 @@ make install DESTDIR="$ROOT"
 gzip -9n -c debian/changelog > "$ROOT/usr/share/doc/gpu-switcher/changelog.Debian.gz"
 gzip -9n -c man/gpu-switcher.1 > "$ROOT/usr/share/man/man1/gpu-switcher.1.gz"
 chmod 0644 "$ROOT/usr/share/doc/gpu-switcher/"* "$ROOT/usr/share/man/man1/"*
-# The postrm maintainer script.
+# The maintainer scripts. Same files the dh path installs via dh_installdeb,
+# so both build paths ship identical lifecycle handling. The lintian override
+# file is packaging metadata the dh path installs the same way.
+install -D -m 0755 debian/postinst "$ROOT/DEBIAN/postinst"
 install -D -m 0755 debian/postrm "$ROOT/DEBIAN/postrm"
+install -D -m 0644 debian/gpu-switcher.lintian-overrides \
+  "$ROOT/usr/share/lintian/overrides/gpu-switcher"
 
 # control: the binary stanza of debian/control, with Version and Maintainer
 # injected (they live in the source stanza, where they belong).

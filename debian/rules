@@ -18,6 +18,14 @@ override_dh_auto_install:
 	# (It also compiles the gettext catalogs.)
 	$(MAKE) install DESTDIR=debian/gpu-switcher
 
+override_dh_installsystemd:
+	# Deliberately empty. The helper unit is D-Bus-activated and not enabled,
+	# and its lifecycle is written in debian/postinst and debian/postrm, so the
+	# same scripts ship from both build paths. The generated postinst would
+	# also start the unit right after installation, which an on-demand service
+	# does not need.
+
 # Debian docs (changelog, man page) are installed and compressed by
-# dh_installdocs/dh_installman/dh_compress; copyright and the postrm script
-# are handled by the install target / dh_installdeb.
+# dh_installdocs/dh_installman/dh_compress; copyright is installed by the
+# install target and the maintainer scripts (debian/postinst, debian/postrm)
+# by dh_installdeb.
