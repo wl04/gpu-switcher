@@ -101,6 +101,15 @@ Consequences:
 - Custom action `com.github.wl04.gpu_switcher.set-primary`, `auth_admin`,
   localized `message`; the policy file is installed to
   `/usr/share/polkit-1/actions/gpu-switcher.policy`.
+- `auth_admin` rather than `auth_admin_keep`, on purpose. The D-Bus config lets
+  any user of the session call the helper, so this check is the only thing
+  between a background process and `/etc/udev/rules.d`. `auth_admin_keep` would
+  let one authentication authorize every later call until logout; instead each
+  operation is authorized on its own, which is why Apply and Reset ask again
+  even a second after the previous one succeeded. The app keeps no prompt cache
+  of its own either: the action buttons are insensitive while an operation is
+  in flight, and a helper that is already working answers another call with
+  `com.github.wl04.gpu_switcher.Error.Busy`.
 - The privileged mechanism is a **D-Bus-activated system-bus helper**:
   the broker starts it on demand as the hardened systemd unit
   `gpu-switcher-helper.service` (root; `ProtectSystem=strict`, write access
