@@ -10,9 +10,13 @@
 # not do. Change the unit and this probe changes with it.
 #
 # Nothing is written to /etc/udev/rules.d: whether it is writable is asked with
-# access(2), so the probe never touches the directory the helper owns. The
-# probe's write attempt targets /var/tmp, which a correct sandbox already holds
-# read-only, so even a failing run leaves nothing behind.
+# access(2), so the probe never touches the directory the helper owns. The probe's
+# write attempt targets a path that ProtectSystem=strict covers, which a correct
+# sandbox holds read-only, so even a failing run leaves nothing behind.
+#
+# The target must not be /tmp or /var/tmp: PrivateTmp=yes replaces those with
+# private writable mounts that sit outside the ProtectSystem fence, so writing
+# there succeeds precisely when the sandbox is working.
 set -euo pipefail
 umask 022
 
@@ -27,8 +31,11 @@ PROBE_UNIT_PATH="/run/systemd/system/$PROBE_UNIT"
 PROBE_DIR="/run/gpu-switcher-sandbox"
 PROBE_SCRIPT="$PROBE_DIR/probe.py"
 WRITE_DIR="/etc/udev/rules.d"
-# Outside the fence, harmless if the fence is broken (removed by the probe).
-PROBE_TARGET="/var/tmp/gpu-switcher-sandbox-probe.write"
+# Outside the fence (ProtectSystem=strict mounts /etc read-only; only the
+# ReadWritePaths entry above stays writable), harmless if the fence is broken:
+# a four-byte file that the probe removes in the same breath. Choosing /etc and
+# not, say, /usr/share also catches a ReadWritePaths= that grew to all of /etc.
+PROBE_TARGET="/etc/gpu-switcher-sandbox-probe.write"
 
 [ -r "$UNIT_SRC" ] || {
   echo "error: cannot read the unit file: $UNIT_SRC" >&2
@@ -50,6 +57,17 @@ for directive in ProtectSystem= ReadWritePaths=; do
     exit 2
   }
 done
+
+# A target shadowed by PrivateTmp would report an open fence while the fence holds.
+case "$PROBE_TARGET" in
+  /tmp/*|/var/tmp/*)
+    if grep -q '^PrivateTmp=yes' "$UNIT_SRC"; then
+      echo "error: $PROBE_TARGET is shadowed by PrivateTmp=yes: a private writable" >&2
+      echo "       mount, outside the ProtectSystem fence — it proves nothing" >&2
+      exit 2
+    fi
+    ;;
+esac
 
 cleanup() {
   systemctl stop "$PROBE_UNIT" >/dev/null 2>&1 || true
