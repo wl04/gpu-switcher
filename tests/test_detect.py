@@ -9,6 +9,7 @@ stubbed; the real commands are covered by the manual end-to-end check.
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from typing import Any
 from unittest import mock
@@ -330,31 +331,139 @@ class RunningPrimary(unittest.TestCase):
         self.assertIn("_PID=200", argv)
         self.assertNotIn("_PID=600", argv)
 
-    def test_running_primary_passes_grep_and_cat_to_journalctl(self) -> None:
-        # The filter (grep) and plain output (cat) are pushed to journalctl
-        # instead of the -q silence flag: the parser runs on bare message
-        # lines.
-        tree = {1: (0, "systemd", 0), 200: (1, "gnome-shell", 1000)}
+    def test_running_primary_reads_the_user_journal_before_the_system_journal(
+        self,
+    ) -> None:
+        # The system journal is restricted to adm/systemd-journal members on
+        # many distros; the user journal is this user's own. Ask the readable
+        # one first, and do not ask the other once it answered.
         result = subprocess.CompletedProcess(
             args=[],
             returncode=0,
-            stdout="GPU /dev/dri/card2 selected primary given udev rule\n",
+            stdout="GPU /dev/dri/card2 selected primary\n",
             stderr="",
         )
         with (
             self._stub(return_value=result) as run,
-            mock.patch.object(detect, "_process_tree", return_value=tree),
+            mock.patch.object(detect, "_process_tree", return_value=self._TREE),
             mock.patch("os.getuid", return_value=1000),
         ):
             card, error = detect.running_primary()
-        self.assertEqual(card, "card2")
-        self.assertIsNone(error)
+        self.assertEqual((card, error), ("card2", None))
+        self.assertEqual(run.call_count, 1)
         argv = run.call_args[0][0]
+        self.assertIn("--user", argv)
+        self.assertIn("_PID=200", argv)
+
+    def test_running_primary_falls_back_to_the_system_journal_without_a_user_journal(
+        self,
+    ) -> None:
+        # journalctl --user fails where no user journal exists, and a session
+        # logged to the system journal is then the only source left.
+        denied = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="No user journals are available"
+        )
+        found = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="GPU /dev/dri/card1 selected as primary\n",
+            stderr="",
+        )
+        with (
+            self._stub(side_effect=[denied, found]) as run,
+            mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+            mock.patch("os.getuid", return_value=1000),
+        ):
+            card, error = detect.running_primary()
+        self.assertEqual((card, error), ("card1", None))
+        argvs = [call[0][0] for call in run.call_args_list]
+        self.assertIn("--user", argvs[0])
+        self.assertNotIn("--user", argvs[1])
+
+    def test_running_primary_falls_back_when_the_user_journal_has_no_selection_line(
+        self,
+    ) -> None:
+        # A readable user journal that says nothing is not an answer: this
+        # distro may keep the session's messages in the system journal.
+        quiet = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="noise\n", stderr=""
+        )
+        found = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="GPU /dev/dri/card1 selected as primary\n",
+            stderr="",
+        )
+        with (
+            self._stub(side_effect=[quiet, found]),
+            mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+            mock.patch("os.getuid", return_value=1000),
+        ):
+            card, error = detect.running_primary()
+        self.assertEqual((card, error), ("card1", None))
+
+    def test_running_primary_bounds_the_query_to_this_shell_start(self) -> None:
+        start = 1_700_000_000  # a fixed epoch: the bound is asserted, not recomputed
+        quiet = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="noise\n", stderr=""
+        )
+        with (
+            self._stub(return_value=quiet) as run,
+            mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+            mock.patch("os.getuid", return_value=1000),
+            mock.patch.object(detect, "process_start_time", return_value=float(start)),
+        ):
+            detect.running_primary()
+        argv = run.call_args_list[0][0][0]
+        self.assertIn("--since", argv)
+        since = argv[argv.index("--since") + 1]
+        self.assertRegex(since, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+        # Round-tripped: the same wall clock, whatever timezone runs the tests.
+        self.assertAlmostEqual(
+            time.mktime(time.strptime(since, "%Y-%m-%d %H:%M:%S")), float(start)
+        )
+
+    def test_running_primary_stays_unknown_when_a_journal_is_simply_empty(
+        self,
+    ) -> None:
+        # One journal refused, the other answered with nothing: the running
+        # primary is unknown, not broken.
+        denied = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr=""
+        )
+        quiet = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="noise\n", stderr=""
+        )
+        with (
+            self._stub(side_effect=[denied, quiet]),
+            mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+            mock.patch("os.getuid", return_value=1000),
+        ):
+            card, error = detect.running_primary()
+        self.assertEqual((card, error), (None, None))
+
+    def test_running_primary_matches_selection_lines_without_journalctl_grep(
+        self,
+    ) -> None:
+        # journalctl --grep needs a PCRE2-capable build; where the distro build
+        # lacks it the call fails and the running primary used to stay unknown.
+        result = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="noise\nGPU /dev/dri/card2 selected primary given udev rule\n",
+            stderr="",
+        )
+        with (
+            self._stub(return_value=result) as run,
+            mock.patch.object(detect, "_process_tree", return_value=self._TREE),
+            mock.patch("os.getuid", return_value=1000),
+        ):
+            card, error = detect.running_primary()
+        self.assertEqual((card, error), ("card2", None))
+        argv = run.call_args[0][0]
+        self.assertNotIn("--grep", argv)
         self.assertIn("-o", argv)
         self.assertIn("cat", argv)
-        self.assertIn("--grep", argv)
-        self.assertIn(detect.PRIMARY_GREP, argv)
-        self.assertNotIn("-q", argv)
 
     def test_running_primary_returns_no_error_when_journal_has_no_selection_line(
         self,

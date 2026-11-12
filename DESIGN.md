@@ -148,14 +148,18 @@ available.
    controller) with a bound driver.
 2. **Name**: `lspci -Dmmnn`; fallback: `PCI v<vendor> d<device>` (no
    hard-coded GPU table).
-3. **Running primary**: latest `journalctl -b -q _PID=<pid>
-   /usr/bin/gnome-shell` line matching `GPU /dev/dri/cardN selected (as
-   )?primary` — mutter logs `GPU /dev/dri/cardN selected primary given udev
-   rule` in rule mode and `Boot VGA GPU /dev/dri/cardN selected as primary`
-   in auto mode. The pid is scoped to the single gnome-shell pid owned by
-   our uid (read from `/proc/<pid>/status`), with no logind round trip;
-   other users'/sessions' shells never count. Zero or multiple in-scope
-   pids leave the running primary unknown.
+3. **Running primary**: latest line matching `GPU /dev/dri/cardN selected (as
+   )?primary`, read from this user's own journal (`journalctl --user`) and only
+   then from the system journal: a normal user can always read their own journal,
+   while the system one is restricted to `adm` / `systemd-journal` members on many
+   distros. mutter logs `GPU /dev/dri/cardN selected primary given udev rule` in
+   rule mode and `Boot VGA GPU /dev/dri/cardN selected as primary` in auto mode.
+   The pid is scoped to the single gnome-shell pid owned by our uid (read from
+   `/proc/<pid>/status`), with no logind round trip; other users'/sessions' shells
+   never count, and the query is bounded to that shell's start time so an earlier
+   session's choice never answers for this one. Selection lines are matched by the
+   app rather than by `journalctl --grep`, which needs a PCRE2-capable build.
+   Zero or multiple in-scope pids leave the running primary unknown.
 4. **Configured preference**: the managed rule's `KERNELS` value, plus the
    conflict scan (the root helper repeats it authoritatively).
 5. **Session guard**: if the session is not GNOME/Wayland

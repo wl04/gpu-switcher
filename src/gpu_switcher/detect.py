@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 
 from gpu_switcher.core.udev import (
     MANAGED_RULE,
@@ -28,6 +29,9 @@ from gpu_switcher.core.udev import (
 )
 
 JOURNAL_UNIT = "/usr/bin/gnome-shell"
+# One journal query is bounded: journalctl reading a whole boot would otherwise
+# hold the whole detection step (see DESIGN "Detection (unprivileged, app side)").
+JOURNAL_TIMEOUT_S = 15
 
 
 class RuleState(enum.Enum):
@@ -135,9 +139,6 @@ def fallback_name(vendor: str, device: str) -> str:
 #   rule mode:  GPU /dev/dri/cardN selected primary given udev rule
 #   auto mode:  Boot VGA GPU /dev/dri/cardN selected as primary
 PRIMARY_LINE_RE = re.compile(r"GPU /dev/dri/(card[0-9]+) selected (?:as )?primary")
-# journalctl --grep filter for the selection lines (matches both the rule-mode
-# "selected primary" and auto-mode "selected as primary" forms).
-PRIMARY_GREP = "selected (as )?primary"
 
 
 def primary_card_from_line(line: str) -> str | None:
@@ -220,43 +221,102 @@ def _process_tree(
     return tree
 
 
+def _journal_argv(pid: int, since: str | None, user_journal: bool) -> list[str]:
+    """Ask one journal for this shell's messages.
+
+    The executable match guards against a recycled pid, `-q` drops journalctl's
+    own headers and `-o cat` leaves bare message lines for
+    primary_card_from_line. Selection lines are matched here rather than with
+    `--grep`, which needs a PCRE2-capable journalctl build and fails outright
+    where the distro built it without one.
+    """
+    argv = ["journalctl"]
+    if user_journal:
+        argv.append("--user")
+    argv += ["-b", "-q", f"_PID={pid}", JOURNAL_UNIT, "-o", "cat"]
+    if since is not None:
+        # Bounded to this shell: a previous session's choice must not answer
+        # for the current one.
+        argv += ["--since", since]
+    return argv
+
+
+def _journal_since(epoch: float | None) -> str | None:
+    """journalctl `--since` value for a start instant, or None when unknown.
+
+    Local wall clock, which is how journalctl reads the value back.
+    """
+    if epoch is None:
+        return None
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(epoch))
+
+
+def _read_journal(argv: list[str], journal: str) -> tuple[list[str], str | None]:
+    """Message lines from one query, plus what went wrong for `journal`.
+
+    A journal that answers with nothing returns an empty list and no error; only
+    a failed read reports an error. An empty journal therefore never masks a
+    broken one, and the caller never guesses which of the two happened.
+    """
+    try:
+        out = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            check=False,
+            timeout=JOURNAL_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        return [], f"{journal} journalctl could not be run ({error})"
+    if out.returncode != 0:
+        return [], f"{journal} journalctl exited with code {out.returncode}"
+    return out.stdout.splitlines(), None
+
+
 def running_primary() -> tuple[str | None, str | None]:
     """Card picked by gnome-shell in our session (e.g. 'card2'), and the
-    error text when the journal could not be read (None on success).
+    error text when no journal could be read (None on success).
 
     The journal is scoped to the single gnome-shell pid owned by our uid;
-    other users'/sessions' shells never count. With zero or multiple
-    in-scope pids the attribution is ambiguous and (None, None) is
-    returned — the existing "unknown" note covers it in the UI.
+    other users'/sessions' shells never count. With zero or multiple in-scope
+    pids the attribution is ambiguous and (None, None) is returned - the
+    existing "unknown" note covers it in the UI.
+
+    Two journals are asked, in this order:
+
+    1. `journalctl --user` - this user's own journal, readable without group
+       membership. Where the system journal is restricted to adm or
+       systemd-journal members it is the only one this app can read at all.
+    2. `journalctl` - the system journal, for a session whose messages landed
+       there instead, and for a distro without a user journal.
+
+    Each query is bounded by the start time of the shell, so a previous
+    session's selection never answers for the current one. A journal that cannot
+    be read is only reported when neither journal answered: `journalctl --user`
+    legitimately fails where no user journal exists, and warning about that on
+    every start would train people to ignore the banner.
     """
     tree = _process_tree()
     pids = gnome_shell_pids_for_uid(tree, os.getuid())
     if len(pids) != 1:
         return None, None
     pid = pids[0]
-    try:
-        out = subprocess.run(
-            [
-                "journalctl",
-                "-b",
-                f"_PID={pid}",
-                JOURNAL_UNIT,
-                "-o",
-                "cat",
-                "--grep",
-                PRIMARY_GREP,
-            ],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            check=False,
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        return None, f"journalctl could not be run ({error})"
-    if out.returncode != 0:
-        return None, f"journalctl exited with code {out.returncode}"
-    return last_primary_card(out.stdout.splitlines()), None
+    since = _journal_since(process_start_time(pid))
+    errors: list[str] = []
+    answered = False
+    for user_journal, journal in ((True, "user"), (False, "system")):
+        lines, error = _read_journal(_journal_argv(pid, since, user_journal), journal)
+        if error is not None:
+            errors.append(error)
+            continue
+        answered = True
+        card = last_primary_card(lines)
+        if card is not None:
+            return card, None
+    if answered:
+        return None, None
+    return None, "; ".join(errors)
 
 
 def process_start_time(
