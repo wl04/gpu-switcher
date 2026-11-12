@@ -120,9 +120,13 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
     the existing rule and keep the newest BACKUP_KEEP, rename into place,
     fsync the directory, refresh udev. on_done(ok, message, backup_path,
     refresh_ok).
+
+    Only a rejection stops the transaction. When udevadm cannot verify at all
+    (missing, or without the `verify` verb) the rule is still written and the
+    message says it was written without verification.
     """
 
-    def move_into_place(tmp_path, backup):
+    def move_into_place(tmp_path, backup, verified):
         try:
             os.rename(tmp_path, MANAGED_RULE)
         except OSError:
@@ -143,10 +147,16 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
 
         def on_refresh(state):
             refresh_ok = state == hud.RefreshState.VERIFIED
+            # A udevadm that cannot run `verify` still wrote the rule: say so
+            # instead of letting "Udev rules reloaded." imply it was checked.
+            if verified:
+                leading = tr("Rule written for %s.") % pci
+            else:
+                leading = tr("Rule written for %s without udevadm verification.") % pci
             message = refresh_message(
                 tr,
                 state,
-                leading=tr("Rule written for %s.") % pci,
+                leading=leading,
                 verified_sentence=tr("Udev rules reloaded."),
             )
             on_done(True, message, backup, refresh_ok)
@@ -179,7 +189,7 @@ def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
             retain_backups()
         else:
             backup = ""
-        move_into_place(tmp_path, backup)
+        move_into_place(tmp_path, backup, state == hud.RefreshState.VERIFIED)
 
     tmp_path = ""
     try:

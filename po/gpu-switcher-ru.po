@@ -173,6 +173,8 @@ msgstr "Правило уже задано для %s."
 
 msgid "Rule written for %s."
 msgstr "Правило записано для %s."
+msgid "Rule written for %s without udevadm verification."
+msgstr "Правило записано для %s без проверки udevadm."
 
 msgid "No managed rule (auto selection already in effect)."
 msgstr "Управляемого правила нет (автовыбор уже действует)."

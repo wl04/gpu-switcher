@@ -173,6 +173,8 @@ msgstr "The rule is already set for %s."
 
 msgid "Rule written for %s."
 msgstr "Rule written for %s."
+msgid "Rule written for %s without udevadm verification."
+msgstr "Rule written for %s without udevadm verification."
 
 msgid "No managed rule (auto selection already in effect)."
 msgstr "No managed rule (auto selection already in effect)."
