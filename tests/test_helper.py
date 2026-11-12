@@ -1115,6 +1115,10 @@ class RefreshUdev(unittest.TestCase):
         results[_info_argv("card1")] = {"rc": 1}
         self.assertEqual(self._run(results, "card1"), hud.RefreshState.FAILED)
 
+    def test_refresh_udev_without_card_skips_tag_check(self) -> None:
+        self.assertEqual(self._run(_ok_results(None), None), hud.RefreshState.VERIFIED)
+        self.assertEqual(len(self.started), 2)
+
     def test_refresh_udev_returns_unsupported_when_udevadm_missing(self) -> None:
         with (
             _fake_udev({}, self.started),
@@ -1125,9 +1129,84 @@ class RefreshUdev(unittest.TestCase):
             self.assertEqual(out, [hud.RefreshState.UNSUPPORTED])
         self.assertEqual(self.started, [])
 
-    def test_refresh_udev_without_card_skips_tag_check(self) -> None:
-        self.assertEqual(self._run(_ok_results(None), None), hud.RefreshState.VERIFIED)
-        self.assertEqual(len(self.started), 2)
+
+class UdevStepWrappers(unittest.TestCase):
+    """The single udevadm steps the refresh chain runs. Each one maps its exit
+    code to the bool its caller acts on; a step that cannot start never counts
+    as success."""
+
+    _SPAWN_ERROR = GLib.Error.new_literal(
+        _IO_QUARK, 'Failed to execute child process "udevadm"', 0
+    )
+
+    def _result(self, argv: tuple[Any, ...], spec: dict[str, Any], start: Any) -> Any:
+        """Run one step wrapper against a fake udevadm and return what the
+        step handed to its callback."""
+        out: list[Any] = []
+        with _fake_udev({tuple(argv): spec}, []):
+            start(out.append)
+        self.assertEqual(len(out), 1, "the step did not answer")
+        return out[0]
+
+    def _spawn_failure_result(self, argv: tuple[Any, ...], start: Any) -> Any:
+        out: list[Any] = []
+        with mock.patch.object(Gio.Subprocess, "new", side_effect=self._SPAWN_ERROR):
+            start(out.append)
+        self.assertEqual(len(out), 1, "the step did not answer")
+        return out[0]
+
+    def _check_card_tag(self, on_done: Any) -> None:
+        hud.card_has_tag_async("card1", on_done)
+
+    def test_reload_and_trigger_steps_succeed_when_udevadm_exits_zero(
+        self,
+    ) -> None:
+        for argv, start in (
+            (RELOAD_ARGV, hud.reload_rules_async),
+            (TRIGGER_ARGV, hud.trigger_drm_async),
+        ):
+            with self.subTest(step=argv[1]):
+                self.assertTrue(self._result(argv, {"rc": 0}, start))
+
+    def test_reload_and_trigger_steps_fail_when_udevadm_exits_nonzero(self) -> None:
+        for argv, start in (
+            (RELOAD_ARGV, hud.reload_rules_async),
+            (TRIGGER_ARGV, hud.trigger_drm_async),
+        ):
+            with self.subTest(step=argv[1]):
+                self.assertFalse(self._result(argv, {"rc": 1}, start))
+
+    def test_reload_and_trigger_steps_fail_when_udevadm_cannot_start(self) -> None:
+        for argv, start in (
+            (RELOAD_ARGV, hud.reload_rules_async),
+            (TRIGGER_ARGV, hud.trigger_drm_async),
+        ):
+            with self.subTest(step=argv[1]):
+                self.assertFalse(self._spawn_failure_result(argv, start))
+
+    def test_card_has_tag_is_true_when_current_tags_carry_the_mutter_tag(self) -> None:
+        result = self._result(
+            _info_argv("card1"), {"rc": 0, "out": TAGGED_INFO}, self._check_card_tag
+        )
+        self.assertTrue(result)
+
+    def test_card_has_tag_is_false_when_current_tags_lack_the_mutter_tag(self) -> None:
+        result = self._result(
+            _info_argv("card1"),
+            {"rc": 0, "out": "CURRENT_TAGS=:seat:uaccess:\n"},
+            self._check_card_tag,
+        )
+        self.assertFalse(result)
+
+    def test_card_has_tag_is_false_when_the_info_query_fails(self) -> None:
+        self.assertFalse(
+            self._result(_info_argv("card1"), {"rc": 1}, self._check_card_tag)
+        )
+
+    def test_card_has_tag_is_false_when_udevadm_cannot_start(self) -> None:
+        self.assertFalse(
+            self._spawn_failure_result(_info_argv("card1"), self._check_card_tag)
+        )
 
 
 class ParseUdevCurrentTags(unittest.TestCase):
