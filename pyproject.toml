@@ -38,6 +38,7 @@ module = [
     "gpu_switcher.state",
     "gpu_switcher.detect",
     "test_bus",
+    "test_connectors",
     "test_detect",
     "test_helper",
     "test_helper_resilience",

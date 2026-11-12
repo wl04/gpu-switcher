@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import time
 
+from gpu_switcher.core.connectors import DisplayState, display_state
 from gpu_switcher.core.udev import (
     MANAGED_RULE,
     is_display_gpu,
@@ -60,6 +61,8 @@ class Gpu:
     name: str  # human-readable name (lspci or fallback)
     in_use: bool  # running primary of this boot (journal)
     preferred: bool  # configured preferred (managed rule on disk)
+    # What sysfs says about monitors plugged into this card's outputs.
+    display_state: DisplayState = DisplayState.UNKNOWN
 
 
 @dataclasses.dataclass
@@ -474,6 +477,7 @@ def detect() -> Detection:
                 name=names.get(pci) or fallback_name(vendor, device),
                 in_use=False,
                 preferred=False,
+                display_state=display_state(entry),
             )
         )
     running_card, running_card_error = running_primary()

@@ -22,6 +22,7 @@ os.environ.pop("LANGUAGE", None)
 
 from gpu_switcher import detect
 from gpu_switcher.core import udev as udev_rules
+from gpu_switcher.core.connectors import DisplayState
 
 
 class PrimaryCardFromLine(unittest.TestCase):
@@ -601,6 +602,71 @@ class DetectClassFilter(unittest.TestCase):
         # the shared is_display_gpu contract excludes it.
         result = self._run_detect("0x030000", driver_link=False)
         self.assertEqual(result.gpus, [])
+
+
+class DetectReportsDisplays(unittest.TestCase):
+    """detect() carries what sysfs reports about each card's outputs, so the UI can
+    warn before switching to a card that has no screen on it.
+    """
+
+    _PCI = "0000:12:00.0"
+
+    def _run_detect(self, statuses: dict[str, str]) -> detect.Detection:
+        entries = ["card1"] + [f"card1-{name}" for name in statuses]
+
+        def fake_read(path: str) -> str:
+            if path.endswith("/class"):
+                return "0x030000"
+            if path.endswith("/status"):
+                # .../card1-HDMI-A-1/status -> the connector name.
+                entry = path.split("/")[-2]
+                return statuses.get(entry.removeprefix("card1-"), "") + "\n"
+            return ""
+
+        with (
+            mock.patch(
+                "os.listdir",
+                side_effect=lambda d: list(entries) if d == "/sys/class/drm" else [],
+            ),
+            mock.patch("os.path.realpath", return_value=self._PCI),
+            mock.patch("os.path.isdir", return_value=True),
+            mock.patch("os.path.islink", return_value=True),
+            mock.patch("os.path.exists", return_value=True),
+            mock.patch("gpu_switcher.core.udev.read_text", side_effect=fake_read),
+            mock.patch("gpu_switcher.core.connectors.read_text", side_effect=fake_read),
+            mock.patch("gpu_switcher.detect.read_text", side_effect=fake_read),
+            mock.patch("gpu_switcher.detect.lspci_names", return_value={}),
+            mock.patch(
+                "gpu_switcher.detect.running_primary", return_value=(None, None)
+            ),
+            mock.patch(
+                "gpu_switcher.detect.managed_rule_status",
+                return_value=(detect.RuleState.ABSENT, None),
+            ),
+            mock.patch(
+                "gpu_switcher.detect.scan_rules", return_value=udev_rules.RuleScan()
+            ),
+            mock.patch("gpu_switcher.detect.gnome_wayland_session", return_value=True),
+        ):
+            return detect.detect()
+
+    def test_detect_reports_the_card_with_a_connected_output_as_connected(self) -> None:
+        result = self._run_detect({"HDMI-A-1": "connected", "DP-1": "disconnected"})
+        self.assertEqual(
+            [g.display_state for g in result.gpus], [DisplayState.CONNECTED]
+        )
+
+    def test_detect_reports_the_card_with_only_free_outputs_as_having_no_display(
+        self,
+    ) -> None:
+        result = self._run_detect({"DP-1": "disconnected", "DP-2": "disconnected"})
+        self.assertEqual([g.display_state for g in result.gpus], [DisplayState.NONE])
+
+    def test_detect_reports_unknown_display_state_when_the_kernel_lists_no_outputs(
+        self,
+    ) -> None:
+        result = self._run_detect({})
+        self.assertEqual([g.display_state for g in result.gpus], [DisplayState.UNKNOWN])
 
 
 class ConfiguredTagApplied(unittest.TestCase):
