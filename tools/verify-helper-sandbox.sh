@@ -16,7 +16,12 @@
 set -euo pipefail
 umask 022
 
-UNIT_SRC="${1:-debian/gpu-switcher-helper.service}"
+# Paths resolve from the repository, not from the caller's working directory:
+# `sudo tools/...` from elsewhere should check the unit this project ships,
+# not fail on a relative path. Same resolution as tools/build-deb.sh and
+# tools/release.sh use at their start.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+UNIT_SRC="${1:-$REPO_ROOT/debian/gpu-switcher-helper.service}"
 PROBE_UNIT="gpu-switcher-sandbox-probe.service"
 PROBE_UNIT_PATH="/run/systemd/system/$PROBE_UNIT"
 PROBE_DIR="/run/gpu-switcher-sandbox"
