@@ -1162,6 +1162,7 @@ class SetPrimaryTransactionBase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.rules_dir = self._tmp.name
         self.rule = os.path.join(self.rules_dir, "61-mutter-primary-gpu.rules")
+        self.started: list[list[str]] = []
         service._operation_in_progress = False
 
     def tearDown(self) -> None:
@@ -1175,8 +1176,9 @@ class SetPrimaryTransactionBase(unittest.TestCase):
         verify_verb: bool = True,
     ) -> Any:
         inv = invocation or _invocation()
+        self.started.clear()
         patches = [
-            _fake_udev(results, []),
+            _fake_udev(results, self.started),
             _verify_capability(verify_verb),
             mock.patch.object(rule_store, "MANAGED_RULE", self.rule),
             mock.patch.object(
@@ -1249,6 +1251,20 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
             "Udev rules reloaded.",
         )
         self.assertTrue(os.path.exists(self.rule))
+
+    def test_set_primary_runs_the_udevadm_steps_the_timeout_budget_counts(
+        self,
+    ) -> None:
+        # core.udev sizes the client's D-Bus timeout from this step count: a
+        # step added without the budget would make the app give up on a helper
+        # that is still working.
+        self._run_set_primary(
+            {(hud.UDEVADM, "verify", "*"): {"rc": 0}, **_ok_results("card1")}
+        )
+
+        verbs = [argv[1] for argv in self.started if argv[0] == hud.UDEVADM]
+        self.assertEqual(verbs, ["verify", "control", "trigger", "info"])
+        self.assertEqual(len(verbs), udev_rules.SET_PRIMARY_STEP_COUNT)
 
     def test_set_primary_does_not_rename_when_backup_fails(self) -> None:
         results = {

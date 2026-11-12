@@ -290,13 +290,20 @@ def card_has_tag_async(card, on_done, cancellable=None):
     )
 
 
-def refresh_udev_async(card, on_done, cancellable=None):
+def refresh_udev_async(
+    card: str | None,
+    on_done: Callable[[RefreshState], None],
+    cancellable: Gio.Cancellable | None = None,
+) -> None:
     """Reload the udev rules, re-trigger the DRM devices (settled) and, for
     SetPrimary, check that `card` carries the mutter tag.
 
     SetAuto passes card=None: other rules may legitimately set the tag.
     on_done(RefreshState): VERIFIED only when every step succeeded;
     UNSUPPORTED when udevadm is unavailable; FAILED when a step failed.
+
+    This is the chain core.udev budgets with SET_PRIMARY_STEP_COUNT; the
+    `verify` step of a rule write runs before it, in rule_store.
     """
     if not check_udevadm():
         print(
@@ -306,40 +313,33 @@ def refresh_udev_async(card, on_done, cancellable=None):
         on_done(RefreshState.UNSUPPORTED)
         return
 
-    def after_reload(ok):
-        if not ok:
-            on_done(RefreshState.FAILED)
-            return
+    # One entry per udevadm step, in the order they run. A list of steps keeps
+    # the chain readable where each step used to nest a callback in the one
+    # before it.
+    steps: list[tuple[str, Callable[[Callable[[bool], None]], None]]] = [
+        ("reload-rules", lambda on_ok: reload_rules_async(on_ok, cancellable)),
+        ("DRM trigger", lambda on_ok: trigger_drm_async(on_ok, cancellable)),
+    ]
+    if card is not None:
+        steps.append(
+            ("tag check", lambda on_ok: card_has_tag_async(card, on_ok, cancellable))
+        )
 
-        def after_trigger(ok):
+    def run_step(index: int) -> None:
+        if index == len(steps):
+            names = ", ".join(name for name, _ in steps)
+            print(f"udev refresh: {names} succeeded", file=sys.stderr)
+            on_done(RefreshState.VERIFIED)
+            return
+        name, start = steps[index]
+
+        def on_ok(ok: bool) -> None:
             if not ok:
+                print(f"udev refresh: {name} failed", file=sys.stderr)
                 on_done(RefreshState.FAILED)
                 return
-            if card is None:
-                print(
-                    "udev refresh: reload-rules and DRM trigger succeeded",
-                    file=sys.stderr,
-                )
-                on_done(RefreshState.VERIFIED)
-                return
+            run_step(index + 1)
 
-            def after_tag(has):
-                if not has:
-                    print(
-                        f"udev refresh: tag not present (or unverifiable) "
-                        f"on {card} after refresh",
-                        file=sys.stderr,
-                    )
-                    on_done(RefreshState.FAILED)
-                    return
-                print(
-                    "udev refresh: reload-rules, DRM trigger and tag check succeeded",
-                    file=sys.stderr,
-                )
-                on_done(RefreshState.VERIFIED)
+        start(on_ok)
 
-            card_has_tag_async(card, after_tag, cancellable)
-
-        trigger_drm_async(after_trigger, cancellable)
-
-    reload_rules_async(after_reload, cancellable)
+    run_step(0)

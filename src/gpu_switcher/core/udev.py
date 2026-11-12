@@ -33,8 +33,9 @@ MANAGED_RULE = "/etc/udev/rules.d/61-mutter-primary-gpu.rules"
 POLKIT_TIMEOUT_MS = 170_000
 # Upper bound for one udevadm step (verify / reload-rules / trigger / tag check).
 UDEVADM_STEP_TIMEOUT_S = 30
-# udevadm steps on the SetPrimary path (verify, reload-rules, trigger, tag
-# check); keep in step with the code.
+# udevadm steps on the SetPrimary path: verify the new rule, then the refresh
+# chain (reload-rules, DRM trigger, tag check). tests/test_helper.py compares
+# this count with the commands the helper really runs.
 SET_PRIMARY_STEP_COUNT = 4
 
 # The client's budget must exceed the helper's worst case plus slack.
