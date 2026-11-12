@@ -41,6 +41,15 @@ msgstr "Основной GPU сейчас: неизвестно (проверь�
 msgid "Running primary: could not read the session journal (%s)."
 msgstr "Основной GPU сейчас: не удалось прочитать журнал сеанса (%s)."
 
+msgid "Running primary: %s"
+msgstr "Основной GPU сейчас: %s"
+
+msgid "udev applies the preferred-GPU tag on %s."
+msgstr "udev применяет метку предпочтительного GPU на %s."
+
+msgid "udev does not apply the preferred-GPU tag on %s."
+msgstr "udev не применяет метку предпочтительного GPU на %s."
+
 msgid "Running on %s (automatic selection)."
 msgstr "Работает на %s (автоматический выбор)."
 
@@ -159,6 +168,9 @@ msgstr "Управляемое правило присутствует."
 
 msgid "No managed rule (auto selection)."
 msgstr "Управляемого правила нет (автовыбор)."
+
+msgid "Managed rule sets PCI %s"
+msgstr "Управляемое правило задаёт PCI %s"
 
 msgid "Authentication is required to change the primary display adapter."
 msgstr "Для смены основного дисплейного адаптера требуется авторизация."

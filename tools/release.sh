@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Release gpu-switcher: prepend the debian/changelog entry (the version's
-# source of truth), sync pyproject.toml, run the checks, build + lintian the
-# .deb, commit, push, and create the GitHub release (tag v<version>, .deb as
-# the asset).
+# source of truth), sync pyproject.toml and gpu_switcher.__version__, run the
+# checks, build + lintian the .deb, commit, push, and create the GitHub release
+# (tag v<version>, .deb as the asset).
 #
 # Usage: tools/release.sh <new-version> <changelog-bullets-file> [--dry-run]
 #
@@ -14,8 +14,8 @@
 #         * Second bullet.
 #   --dry-run
 #       Do everything except git commit/push and the gh release step;
-#       debian/changelog and pyproject.toml are restored afterwards (the built
-#       .deb is kept in the parent directory).
+#       debian/changelog, pyproject.toml and gpu_switcher/__init__.py are
+#       restored afterwards (the built .deb is kept in the parent directory).
 #
 # Environment:
 #   URGENCY   changelog urgency (default: low)
@@ -86,7 +86,8 @@ if [ "$DRY" -eq 1 ]; then
   BACKUP="$(mktemp -d)"
   cp "$CHANGELOG" "$BACKUP/changelog"
   cp pyproject.toml "$BACKUP/pyproject.toml"
-  trap 'cp "$BACKUP/changelog" "$CHANGELOG"; cp "$BACKUP/pyproject.toml" pyproject.toml; rm -rf "$BACKUP"' EXIT
+  cp src/gpu_switcher/__init__.py "$BACKUP/__init__.py"
+  trap 'cp "$BACKUP/changelog" "$CHANGELOG"; cp "$BACKUP/pyproject.toml" pyproject.toml; cp "$BACKUP/__init__.py" src/gpu_switcher/__init__.py; rm -rf "$BACKUP"' EXIT
 fi
 DATE="$(LC_ALL=C date '+%a, %d %b %Y %H:%M:%S %z')"
 {
@@ -100,10 +101,13 @@ DATE="$(LC_ALL=C date '+%a, %d %b %Y %H:%M:%S %z')"
 } > "$CHANGELOG.new"
 mv "$CHANGELOG.new" "$CHANGELOG"
 
-# Keep pyproject.toml in sync with the changelog (the single source of
-# truth). pip metadata carries the upstream version (no Debian -N revision).
+# Keep pyproject.toml and gpu_switcher.__version__ in sync with the changelog
+# (the single source of truth). Both carry the upstream version, without the
+# Debian -N revision: pip metadata and `gpu-switcher version` report the app
+# version, not the packaging revision.
 UPSTREAM="${NEW_VERSION%-*}"
 sed -i "s/^version = \".*\"/version = \"$UPSTREAM\"/" pyproject.toml
+sed -i "s/^__version__ = \".*\"/__version__ = \"$UPSTREAM\"/" src/gpu_switcher/__init__.py
 
 # --- checks, build, verify ----------------------------------------------------
 # The same gates CI runs, so a release is never cut on a state CI would reject.

@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Entry point installed as /usr/bin/gpu-switcher."""
+"""Entry point installed as /usr/bin/gpu-switcher.
+
+With a command the answer is printed in the terminal (see gpu_switcher.cli); with
+none, the window opens. The front-end imports GTK only for the window, so
+`gpu-switcher list` works over ssh.
+"""
 import sys
 
-import gpu_switcher.main as main
+from gpu_switcher import cli
 
-sys.exit(main.run(sys.argv))
+sys.exit(cli.run(sys.argv))

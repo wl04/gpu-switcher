@@ -41,6 +41,15 @@ msgstr "Running primary: unknown (verify in the journal after restart)."
 msgid "Running primary: could not read the session journal (%s)."
 msgstr "Running primary: could not read the session journal (%s)."
 
+msgid "Running primary: %s"
+msgstr "Running primary: %s"
+
+msgid "udev applies the preferred-GPU tag on %s."
+msgstr "udev applies the preferred-GPU tag on %s."
+
+msgid "udev does not apply the preferred-GPU tag on %s."
+msgstr "udev does not apply the preferred-GPU tag on %s."
+
 msgid "Running on %s (automatic selection)."
 msgstr "Running on %s (automatic selection)."
 
@@ -159,6 +168,9 @@ msgstr "Managed rule present."
 
 msgid "No managed rule (auto selection)."
 msgstr "No managed rule (auto selection)."
+
+msgid "Managed rule sets PCI %s"
+msgstr "Managed rule sets PCI %s"
 
 msgid "Authentication is required to change the primary display adapter."
 msgstr "Authentication is required to change the primary display adapter."
