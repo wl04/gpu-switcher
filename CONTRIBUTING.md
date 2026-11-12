@@ -95,6 +95,31 @@ Run with `--dry-run` first; the working tree must be clean.
 - Code and identifiers are in English; user-facing strings go through gettext
   (`po/`).
 
+## Adding a language
+
+The languages the project ships are the `po/gpu-switcher-<lang>.po` files. The Makefile
+targets, both `.deb` build paths and the catalog tests all derive the language set from
+that directory, so a new translation is one file and a compile - not an edit of four
+lists that each keep their own copy of the set:
+
+1. Add `po/gpu-switcher-<lang>.po`: copy `po/gpu-switcher-en.po`, keep the header entry
+   (the empty `msgid ""`), and fill every `msgstr`.
+2. Run `make locale`. The compiled catalog lands in `data/locale/<lang>/LC_MESSAGES/`,
+   and `make package` / `tools/build-deb.sh` install it.
+3. Run `make test`. The catalog guards then cover the new language on their own: every
+   msgid needs a non-empty, non-fuzzy translation; every string the code asks for must
+   be present in every catalog; and the committed `.mo` must answer exactly what its
+   `.po` declares (that last one is why the `.po` and the regenerated `.mo` are
+   committed together).
+
+Nothing under `src/` lists languages: gettext resolves the catalog from
+`LANGUAGE`/`LC_ALL` and falls back to English, so an untranslated string stays English
+instead of breaking the UI. A language with a `.po` but no compiled catalog fails the
+suite rather than shipping silently.
+
+`tools/screenshot.sh <lang>` renders the window in that language, which is how
+`docs/screenshot-ru.png` is produced.
+
 ## Updating the screenshot
 
 `docs/screenshot.png` is English regardless of your system language:
