@@ -106,14 +106,19 @@ UPSTREAM="${NEW_VERSION%-*}"
 sed -i "s/^version = \".*\"/version = \"$UPSTREAM\"/" pyproject.toml
 
 # --- checks, build, verify ----------------------------------------------------
+# The same gates CI runs, so a release is never cut on a state CI would reject.
 make test
 make lint
+make lint-shell
 make typecheck
-# Catalog consistency gate (reference compiler), one invocation per
-# catalog. -o /dev/null: GNU msgfmt -c still writes the default
+make coverage
+# Catalog consistency gate (reference compiler), one invocation per catalog in
+# po/ - the same source of the language set as the Makefile and the tests.
+# -o /dev/null: GNU msgfmt -c still writes the default
 # messages.mo to the CWD without an explicit output file.
-msgfmt -c -o /dev/null po/gpu-switcher-en.po
-msgfmt -c -o /dev/null po/gpu-switcher-ru.po
+for catalog in po/gpu-switcher-*.po; do
+  msgfmt -c -o /dev/null "$catalog"
+done
 make package
 DEB="../${PKG}_${NEW_VERSION}_all.deb"
 [ -f "$DEB" ] || { echo "error: build did not produce $DEB" >&2; exit 1; }
