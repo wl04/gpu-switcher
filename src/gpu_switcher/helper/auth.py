@@ -8,6 +8,7 @@ dialog cannot linger.
 
 import sys
 import uuid
+from collections.abc import Callable
 from enum import Enum
 
 import gi
@@ -34,8 +35,18 @@ POLKIT_IFACE = "org.freedesktop.PolicyKit1.Authority"
 POLKIT_PATH = "/org/freedesktop/PolicyKit1/Authority"
 POLKIT_INTERACTIVE = 1  # CheckAuthorizationFlags: AllowUserInteraction
 
+# on_done(status, detail): detail describes a check that failed and is empty
+# otherwise.
+type AuthDone = Callable[[AuthStatus, str], None]
 
-def authorize(connection, sender, locale, on_done, cancellable=None):
+
+def authorize(
+    connection: Gio.DBusConnection,
+    sender: str,
+    locale: str,
+    on_done: AuthDone,
+    cancellable: Gio.Cancellable | None = None,
+) -> None:
     """Ask polkit whether the caller may perform the action (interactive).
 
     The subject is the caller's unique bus name, which stays fixed for the
@@ -116,7 +127,9 @@ def authorize(connection, sender, locale, on_done, cancellable=None):
     )
 
 
-def cancel_check_authorization(connection, cancellation_id):
+def cancel_check_authorization(
+    connection: Gio.DBusConnection, cancellation_id: str
+) -> None:
     """Best-effort asynchronous CancelCheckAuthorization after a timeout.
 
     The result is logged and ignored: the check may already be finished

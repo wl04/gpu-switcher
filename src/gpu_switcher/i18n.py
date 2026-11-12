@@ -14,6 +14,11 @@ from collections.abc import Callable
 
 APP_NAME = "gpu-switcher"
 
+# One locale's translation function: text in, text out. The app uses the one for
+# its own environment; the helper builds one per call from the locale the caller
+# supplies and passes it to the reply composition.
+type Translator = Callable[[str], str]
+
 # The catalog directory an installed system ships. A source checkout has none,
 # so localedirs() also consults the tree next to this module — the helper uses
 # the same lookup.
@@ -56,7 +61,7 @@ def _requested_language() -> str:
     return "en"
 
 
-def _make_gettext() -> Callable[[str], str]:
+def _make_gettext() -> Translator:
     # languages=None: gettext resolves the language from the environment.
     # Try each directory in turn, then fall back to identity (English).
     for localedir in localedirs():

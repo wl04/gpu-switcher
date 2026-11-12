@@ -143,7 +143,8 @@ available.
 
 1. **Enumerate**: `/sys/class/drm/card*` → `device` symlink → PCI address;
    keep only display-controller classes (`0x030000` VGA, `0x030200` 3D
-   controller) with a bound driver.
+   controller) with a bound driver. `core/connectors.py` reads the connector
+   status the same directory tree publishes.
 2. **Name**: `lspci -Dmmnn`; fallback: `PCI v<vendor> d<device>` (no
    hard-coded GPU table).
 3. **Running primary**: latest line matching `GPU /dev/dri/cardN selected (as
@@ -319,6 +320,9 @@ gpu-switcher/
 │       │                              #   selection, which warning a snapshot
 │       │                              #   deserves first
 │       ├── state.py                   # operation outcome, banner/button rules
+│       ├── gpu_state.py               # pure derived state: what runs now versus
+│       │                              #   what is configured, and the row that
+│       │                              #   result gets
 │       ├── bus.py                     # D-Bus clients: helper, login1, session
 │       │                              #   manager
 │       ├── i18n.py                    # gettext setup; the helper shares its
@@ -326,7 +330,9 @@ gpu-switcher/
 │       ├── core/                      # shared by app and helper (stdlib only,
 │       │   │                          #   no gi import)
 │       │   ├── udev.py                # rule constants, timeouts, rule scan
-│       │   └── gpu.py                 # PCI validation, GPU resolution, rule text
+│       │   ├── gpu.py                 # PCI validation, GPU resolution, rule text
+│       │   └── connectors.py          # sysfs connector states: what is plugged
+│       │                              #   into a card
 │       └── helper/                    # root D-Bus service
 │           ├── __main__.py            # entry: python3 -m gpu_switcher.helper
 │           ├── service.py             # D-Bus object, dispatch, lock, idle timer
@@ -338,6 +344,11 @@ gpu-switcher/
 │                                      #   test_<module>.py per area
 ├── tools/
 │   ├── build-deb.sh                   # .deb builder (plain dpkg-deb)
+│   ├── render-man.sh                  # man header (@VERSION@ / @DATE@) from
+│   │                                  #   debian/changelog
+│   ├── screenshot.sh                  # render the window to PNG in a language
+│   ├── screenshot.py                  # the GTK render that script drives
+│   ├── verify-helper-sandbox.sh       # probe the unit's sandbox on a real system
 │   └── release.sh                     # release: bump version, changelog,
 │                                      #   checks, build, lintian, commit,
 │                                      #   GitHub release

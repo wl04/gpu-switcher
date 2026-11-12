@@ -10,6 +10,7 @@ interface contract between this app and the helper.
 import os
 import unittest
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from typing import Any
 from unittest import mock
 
@@ -147,7 +148,10 @@ if __name__ == "__main__":
 
 class CallDispatch(unittest.TestCase):
     def _call(
-        self, finish_result: object, on_success: object, on_error: object
+        self,
+        finish_result: object,
+        on_success: Callable[[GLib.Variant], None],
+        on_error: Callable[[GLib.Error, str], None],
     ) -> None:
         conn = mock.Mock()
         conn.call_finish.side_effect = (

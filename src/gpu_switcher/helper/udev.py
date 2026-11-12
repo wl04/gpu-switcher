@@ -7,7 +7,7 @@ core.udev) and cancellable, and its output goes to the journal.
 import os
 import sys
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from enum import Enum
 
 import gi
@@ -29,6 +29,16 @@ class RefreshState(Enum):
     VERIFIED = "verified"  # every step succeeded; tags confirmed
     UNSUPPORTED = "unsupported"  # udevadm cannot verify: missing or too old
     FAILED = "failed"  # a step errored, timed out, or was rejected
+
+
+# Callback shapes of the steps below: StepDone(rc, stdout, stderr), RefreshDone
+# for a verify run, OkDone for a single step or a tag query.
+type StepDone = Callable[[int, str, str], None]
+type RefreshDone = Callable[[RefreshState], None]
+type OkDone = Callable[[bool], None]
+# The cancellation token a step forwards to Gio.Subprocess; None means the step
+# cannot be cancelled mid-run.
+type Cancellable = Gio.Cancellable
 
 
 # Absolute path, so a changed PATH cannot substitute another udevadm.
@@ -77,7 +87,11 @@ def _decode(stream) -> str:
     return raw.decode("utf-8", "replace")
 
 
-def run_udev_async(argv, on_done, cancellable=None):
+def run_udev_async(
+    argv: Sequence[str],
+    on_done: StepDone,
+    cancellable: Cancellable | None = None,
+) -> None:
     """Run one udevadm step asynchronously under the per-step timeout.
 
     on_done(rc, stdout, stderr) runs when the step finishes. rc is the exit
@@ -144,7 +158,11 @@ def run_udev_async(argv, on_done, cancellable=None):
     proc.communicate_async(None, step_cancellable, on_communicate, None)
 
 
-def verify_rule_async(path, on_done, cancellable=None):
+def verify_rule_async(
+    path: str,
+    on_done: RefreshDone,
+    cancellable: Cancellable | None = None,
+) -> None:
     """Run `udevadm verify` on path; on_done(RefreshState).
 
     VERIFIED: accepted. UNSUPPORTED: udevadm is missing or predates the
@@ -208,7 +226,7 @@ def _probe_verify_verb(path, on_done, cancellable=None) -> None:
     run_udev_async([UDEVADM, "verify", "--help"], on_probe, cancellable)
 
 
-def reload_rules_async(on_done, cancellable=None):
+def reload_rules_async(on_done: OkDone, cancellable: Cancellable | None = None) -> None:
     """udevadm control --reload-rules; on_done(ok)."""
 
     def on_run(rc, _out, _err):
@@ -222,7 +240,7 @@ def reload_rules_async(on_done, cancellable=None):
     run_udev_async([UDEVADM, "control", "--reload-rules"], on_run, cancellable)
 
 
-def trigger_drm_async(on_done, cancellable=None):
+def trigger_drm_async(on_done: OkDone, cancellable: Cancellable | None = None) -> None:
     """Re-emit the DRM uevents so udev recomputes every card's tags under the
     current rules. --settle waits for the events to be processed, so the tags
     can be queried right after. Scoped to the drm subsystem so nothing else is
@@ -259,7 +277,11 @@ def parse_udev_current_tags(output: str) -> list[str]:
     return tags
 
 
-def card_has_tag_async(card, on_done, cancellable=None):
+def card_has_tag_async(
+    card: str,
+    on_done: OkDone,
+    cancellable: Cancellable | None = None,
+) -> None:
     """Whether the card's current udev tags carry the mutter tag.
 
     Reads CURRENT_TAGS (see parse_udev_current_tags) of /sys/class/drm/<card>.
@@ -292,8 +314,8 @@ def card_has_tag_async(card, on_done, cancellable=None):
 
 def refresh_udev_async(
     card: str | None,
-    on_done: Callable[[RefreshState], None],
-    cancellable: Gio.Cancellable | None = None,
+    on_done: RefreshDone,
+    cancellable: Cancellable | None = None,
 ) -> None:
     """Reload the udev rules, re-trigger the DRM devices (settled) and, for
     SetPrimary, check that `card` carries the mutter tag.

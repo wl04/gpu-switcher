@@ -92,6 +92,11 @@ def _gpu_row(radio, name: str, sub: str, badges: list) -> Gtk.Box:
 
 
 class GpuSwitcherApp(Gtk.Application):
+    """The window: builds its widgets from a detect.Detection snapshot and
+    dispatches the actions. What a row advertises, what Apply means for a
+    selection and which warning a snapshot deserves are decided in decisions.py,
+    gpu_state.py, selection.py and state.py."""
+
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID)
         # Widgets are typed as their GTK classes (PyGObject has no stubs, so
@@ -603,8 +608,8 @@ class GpuSwitcherApp(Gtk.Application):
         threading.Thread(target=worker, daemon=True).start()
 
     def do_activate(self) -> None:
-        # A second start of the app must not build a second window:
-        # present the existing one (single-instance via GApplication).
+        """Build the window on the first activation. A second activation presents
+        the existing window: GApplication keeps the app single-instance."""
         if self.window is not None:
             self.window.present()
             return

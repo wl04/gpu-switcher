@@ -14,6 +14,8 @@ locale of its own.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import gi
 
 gi.require_version("Gio", "2.0")
@@ -23,6 +25,11 @@ from gi.repository import Gio, GLib
 from gpu_switcher.core.udev import HELPER_TIMEOUT_MS
 
 from . import i18n, state
+
+# Callback shapes: HelperDone(ok, message, refresh_ok, outcome_unknown) for the
+# helper's commands, PowerDone(ok, message) for reboot and logout.
+type HelperDone = Callable[[bool, str, bool, bool], None]
+type PowerDone = Callable[[bool, str], None]
 
 HELPER_NAME = "com.github.wl04.gpu_switcher.Helper"
 HELPER_PATH = "/com/github/wl04/gpu_switcher/Helper"
@@ -78,9 +85,9 @@ def _call_async(
     params: GLib.Variant,
     reply_signature: str,
     timeout_ms: int,
-    on_success,
-    on_error,
-    on_bus_error,
+    on_success: Callable[[GLib.Variant], None],
+    on_error: Callable[[GLib.Error, str], None],
+    on_bus_error: Callable[[GLib.Error], None],
 ) -> None:
     """Issue one async D-Bus method call and dispatch to the handlers.
 
@@ -101,7 +108,7 @@ def _call_async(
         on_bus_error(error)
         return
 
-    def on_call(c, task):
+    def on_call(c: Gio.DBusConnection, task: Gio.AsyncResult) -> None:
         try:
             reply = c.call_finish(task)
         except GLib.Error as error:
@@ -142,7 +149,7 @@ def _helper_failure_text(error: GLib.Error, message: str) -> str:
     return message
 
 
-def _on_helper_error(callback, error: GLib.Error, message: str) -> None:
+def _on_helper_error(callback: HelperDone, error: GLib.Error, message: str) -> None:
     """Dispatch a failed SetPrimary/SetAuto call to the app callback.
 
     A helper no service owns never received the call, so nothing changed.
@@ -157,7 +164,7 @@ def _on_helper_error(callback, error: GLib.Error, message: str) -> None:
     )
 
 
-def set_primary(pci: str, locale: str, callback) -> None:
+def set_primary(pci: str, locale: str, callback: HelperDone) -> None:
     """Ask the helper to write the managed rule for this PCI address.
 
     The helper also refreshes udev under the same authorization, so no second
@@ -182,7 +189,7 @@ def set_primary(pci: str, locale: str, callback) -> None:
     )
 
 
-def set_auto(locale: str, callback) -> None:
+def set_auto(locale: str, callback: HelperDone) -> None:
     """Ask the helper to remove the managed rule (auto selection).
 
     The helper also refreshes udev under the same authorization.
@@ -205,7 +212,7 @@ def set_auto(locale: str, callback) -> None:
     )
 
 
-def reboot(callback) -> None:
+def reboot(callback: PowerDone) -> None:
     """login1 Manager.Reboot(interactive=False): logind's own polkit action
     applies; no extra prompt is requested.
 
@@ -227,7 +234,7 @@ def reboot(callback) -> None:
     )
 
 
-def logout(callback) -> None:
+def logout(callback: PowerDone) -> None:
     """GNOME session manager Logout for our own session (the fast path).
 
     Calls org.gnome.SessionManager.Logout(mode) on the session bus, so the

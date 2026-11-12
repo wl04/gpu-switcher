@@ -34,8 +34,11 @@ Run before every commit:
   which run as root and under `/bin/sh`. `shellcheck` comes from the pinned
   `shellcheck-py` wheel, so the gate is versioned like the Python tools.
 - `make typecheck` — mypy over `src/` and `tests/`; `disallow_untyped_defs` is
-  enforced for the core modules and tests (the helper package and the GTK UI are
-  checked for type errors only).
+  enforced for the pure modules (`core/*`, `cli`, `decisions`, `selection`,
+  `state`, `gpu_state`, `i18n`, `detect`) and the test modules listed in
+  `pyproject.toml`. The helper package and the GTK UI are checked for type errors
+  only: PyGObject ships no stubs, so a Gio/Gtk annotation there documents the
+  contract rather than constrains it.
 - `make coverage` — the same tests under coverage, failing below the floor in
   `pyproject.toml`. Treat the floor as a ratchet: raise it when coverage goes up,
   never lower it to make a red build green.
@@ -119,6 +122,11 @@ those three files back, so an aborted release leaves no half-version in the tree
 
 - Keep commits small and focused; behaviour changes come with a test that
   fails first.
+- Callback contracts crossing the app/helper boundary are named aliases:
+  `Translator` (i18n), `HelperDone` and `PowerDone` (bus), `StepDone`,
+  `RefreshDone`, `OkDone` and `Cancellable` (helper/udev), `AuthDone`
+  (helper/auth), `RuleWriteDone` (helper/rule_store). A new reply field or step
+  extends the alias instead of restating a `Callable[...]` at each call site.
 - Code and identifiers are in English; user-facing strings go through gettext
   (`po/`).
 

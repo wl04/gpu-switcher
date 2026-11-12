@@ -13,13 +13,19 @@ import shutil
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 
+from gpu_switcher import i18n
 from gpu_switcher.core.udev import MANAGED_RULE
 from gpu_switcher.helper import udev as hud
 from gpu_switcher.helper.errors import HelperFailure
 
 # Keep only the newest backups of the managed rule.
 BACKUP_KEEP = 5
+
+# on_done(ok, message, backup_path, refresh_ok): the fields a SetPrimary reply
+# carries, as far as this transaction reached.
+type RuleWriteDone = Callable[[bool, str, str, bool], None]
 
 
 def _discard(path: str) -> None:
@@ -70,7 +76,7 @@ def retain_backups(keep: int = BACKUP_KEEP) -> None:
         _discard(os.path.join(directory, stale))
 
 
-def fsync_dir(path) -> None:
+def fsync_dir(path: str) -> None:
     """fsync a directory (makes a rename in it durable); best effort."""
     try:
         fd = os.open(path, os.O_RDONLY)
@@ -89,7 +95,13 @@ def unlink_managed_rule() -> None:
     fsync_dir(os.path.dirname(MANAGED_RULE))
 
 
-def refresh_message(tr, state, *, leading, verified_sentence):
+def refresh_message(
+    tr: i18n.Translator,
+    state: hud.RefreshState,
+    *,
+    leading: str,
+    verified_sentence: str,
+) -> str:
     """Full localized reply after a udev refresh.
 
     Joins, with single spaces, the caller's leading sentence and the
@@ -113,7 +125,14 @@ def refresh_message(tr, state, *, leading, verified_sentence):
     return prefix + " " + verified_sentence
 
 
-def write_rule_atomically(pci, content, card, tr, on_done, cancellable=None):
+def write_rule_atomically(
+    pci: str,
+    content: str,
+    card: str,
+    tr: i18n.Translator,
+    on_done: RuleWriteDone,
+    cancellable: hud.Cancellable | None = None,
+) -> None:
     """Write the managed rule transactionally, then refresh udev.
 
     Steps: temp file in the same directory (fsynced), udevadm verify, back up

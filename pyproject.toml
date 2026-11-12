@@ -30,7 +30,9 @@ ignore_missing_imports = true
 explicit_package_bases = true
 
 # disallow_untyped_defs is enforced for the pure modules and the tests; the
-# helper package and the GTK UI (main.py) are checked for type errors only.
+# helper package and the GTK UI (main.py) are checked for type errors only:
+# PyGObject ships no stubs, so a Gio/Gtk annotation there documents the contract
+# instead of constraining it.
 [[tool.mypy.overrides]]
 module = [
     "gpu_switcher.core.*",
@@ -38,12 +40,15 @@ module = [
     "gpu_switcher.decisions",
     "gpu_switcher.selection",
     "gpu_switcher.state",
+    "gpu_switcher.gpu_state",
+    "gpu_switcher.i18n",
     "gpu_switcher.detect",
     "test_bus",
     "test_cli",
     "test_connectors",
     "test_decisions",
     "test_detect",
+    "test_gpu_state",
     "test_helper",
     "test_helper_resilience",
     "test_i18n",

@@ -96,7 +96,7 @@ SUPPORTED_LOCALES = _shipped_locales(LOCALE_DIRS)
 _MAX_LOCALE_LEN = 32
 
 
-def normalize_locale(locale):
+def normalize_locale(locale: str) -> str:
     """Map a caller-supplied locale to a supported catalog language.
 
     Returns the language part ('ru_RU.UTF-8' -> 'ru') when supported, else
@@ -114,7 +114,7 @@ def normalize_locale(locale):
     return language if language in SUPPORTED_LOCALES else "en"
 
 
-def translator(locale):
+def translator(locale: str) -> i18n.Translator:
     """gettext for this helper invocation (locale supplied by the caller).
 
     The locale goes through normalize_locale first, and catalogs are read from
@@ -210,7 +210,7 @@ def _guarded(invocation, fn, fail_expected):
     return wrapper
 
 
-def authorization_message(tr, status, detail):
+def authorization_message(tr: i18n.Translator, status: AuthStatus, detail: str) -> str:
     """Localized reply for a call that was not authorized."""
     if status is AuthStatus.DENIED:
         return tr("Authorization was denied. Nothing changed.")
@@ -264,7 +264,12 @@ def _set_primary_plan(pci, tr):
     return card, vendor, device
 
 
-def handle_set_primary(connection, sender, params, invocation) -> None:
+def handle_set_primary(
+    connection: Gio.DBusConnection,
+    sender: str,
+    params: GLib.Variant,
+    invocation: Gio.DBusMethodInvocation,
+) -> None:
     """SetPrimary(pci, locale). Expected failures raise HelperFailure and are
     answered with this method's failure tuple; unexpected exceptions become
     the internal error. The async chain replies through finish()."""
@@ -380,7 +385,12 @@ def _set_auto_apply(tr):
     return backup, leading, verified_sentence
 
 
-def handle_set_auto(connection, sender, params, invocation) -> None:
+def handle_set_auto(
+    connection: Gio.DBusConnection,
+    sender: str,
+    params: GLib.Variant,
+    invocation: Gio.DBusMethodInvocation,
+) -> None:
     """SetAuto(locale). Authorization and file failures reply with the
     failure tuple; otherwise the async udev refresh replies through
     finish()."""
@@ -438,8 +448,21 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
 
 
 def handle_method_call(
-    connection, sender, object_path, interface_name, method_name, params, invocation
+    connection: Gio.DBusConnection,
+    sender: str,
+    object_path: str,
+    interface_name: str,
+    method_name: str,
+    params: GLib.Variant,
+    invocation: Gio.DBusMethodInvocation,
 ) -> None:
+    """Dispatch a declared method call and answer every failure.
+
+    GDBus only dispatches methods the introspection node declares, so
+    method_name is SetPrimary or SetAuto. An expected HelperFailure replies with
+    that method's failure tuple; anything else becomes the internal D-Bus error
+    with the detail logged. Both paths leave the idle timer armed.
+    """
     print(f"method call: {method_name} from {sender}", file=sys.stderr)
     try:
         if method_name == "SetPrimary":
@@ -499,15 +522,19 @@ def _reset_idle_timer():
 _LOOP = None
 
 
-def on_bus_acquired(connection, name) -> None:
+def on_bus_acquired(connection: Gio.DBusConnection, name: str) -> None:
+    """The bus connection is up; the object is registered before this happens."""
     print(f"connected to system bus (name: {name})", file=sys.stderr)
 
 
-def on_name_acquired(connection, name) -> None:
+def on_name_acquired(connection: Gio.DBusConnection, name: str) -> None:
+    """The helper owns its bus name and can answer calls from here on."""
     print(f"name acquired: {name}; ready to serve calls", file=sys.stderr)
 
 
-def on_name_lost(connection, name) -> None:
+def on_name_lost(connection: Gio.DBusConnection | None, name: str) -> None:
+    """The name was lost or the connection closed: stop, so the next call
+    re-activates the helper."""
     where = (
         "on the owning connection" if connection is not None else "connection closed"
     )
@@ -517,6 +544,8 @@ def on_name_lost(connection, name) -> None:
 
 
 def main() -> None:
+    """Serve the helper: register the D-Bus object, own the name, and run the
+    main loop until the idle timer ends it."""
     global _LOOP
     print(f"helper starting (uid={os.getuid()}, argv={sys.argv})", file=sys.stderr)
     hud.check_udevadm()

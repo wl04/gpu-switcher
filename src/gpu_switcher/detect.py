@@ -53,6 +53,8 @@ class RuleState(enum.Enum):
 
 @dataclasses.dataclass
 class Gpu:
+    """One display GPU in this run's snapshot: its identity and what it does now."""
+
     card: str  # "card2"
     node: str  # "/dev/dri/card2"
     pci: str  # "0000:12:00.0"
@@ -68,6 +70,9 @@ class Gpu:
 
 @dataclasses.dataclass
 class Detection:
+    """A snapshot the UI is built from: every GPU, what the session chose this
+    boot, and what the managed rule configures."""
+
     gpus: list[Gpu]
     running_card: str | None  # card picked by gnome-shell this boot
     running_card_error: str | None  # set when the journal could not be read
@@ -138,7 +143,7 @@ def lspci_names() -> dict[str, str]:
 
 
 def fallback_name(vendor: str, device: str) -> str:
-    # Without lspci only the PCI vendor/device ids are known.
+    """Name for a card when lspci gave nothing: the PCI vendor and device ids."""
     return f"PCI v0x{vendor} d0x{device}"
 
 
