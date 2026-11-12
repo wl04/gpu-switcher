@@ -62,6 +62,15 @@ which is the point: a sandbox change that breaks the helper has to fail here
 rather than on someone's machine. The probe never writes to the rule directory —
 it asks with `access(2)`.
 
+The write test targets a file in `/etc`, not in `/tmp` or `/var/tmp`:
+`PrivateTmp=yes` replaces those with private *writable* mounts that sit outside
+the `ProtectSystem` fence, so writing there succeeds exactly when the sandbox is
+healthy. `/etc` is what `ProtectSystem=strict` is supposed to close while
+`ReadWritePaths` keeps one directory open, which is the pair being verified. The
+probe also reloads systemd before starting its unit and reads only this
+activation's status and journal lines, so a run whose unit never started reports
+"nothing was measured" instead of quoting an earlier run's numbers.
+
 The udev refresh is a separate risk that neither `systemd-analyze verify` nor the
 sandbox probe can see. On a multi-GPU machine with the package installed, apply a
 switch and inspect
