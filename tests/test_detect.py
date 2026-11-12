@@ -653,7 +653,8 @@ class DetectReportsDisplays(unittest.TestCase):
     def test_detect_reports_the_card_with_a_connected_output_as_connected(self) -> None:
         result = self._run_detect({"HDMI-A-1": "connected", "DP-1": "disconnected"})
         self.assertEqual(
-            [g.display_state for g in result.gpus], [DisplayState.CONNECTED]
+            [(g.display_state, g.connected_displays) for g in result.gpus],
+            [(DisplayState.CONNECTED, ["HDMI-A-1"])],
         )
 
     def test_detect_reports_the_card_with_only_free_outputs_as_having_no_display(

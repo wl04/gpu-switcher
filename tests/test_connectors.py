@@ -10,9 +10,11 @@ import unittest
 
 from gpu_switcher.core.connectors import (
     Connector,
+    Displays,
     DisplayState,
     connectors,
     display_state,
+    displays,
 )
 
 
@@ -93,6 +95,25 @@ class DisplayStateOfCard(unittest.TestCase):
         _connector_dir(self.drm, "card1-DP-1", "disconnected")
         _connector_dir(self.drm, "card1-HDMI-A-1", "connected")
         self.assertIs(display_state("card1", drm_dir=self.drm), DisplayState.CONNECTED)
+
+    def test_displays_names_the_outputs_that_report_a_monitor(self) -> None:
+        # The names are what a user plugs a cable into, so a warning can point at
+        # outputs rather than at a card number.
+        _connector_dir(self.drm, "card1-DP-1", "disconnected")
+        _connector_dir(self.drm, "card1-HDMI-A-1", "connected")
+        _connector_dir(self.drm, "card1-DP-2", "connected")
+        found = displays("card1", drm_dir=self.drm)
+        self.assertEqual(
+            (found.state, found.connected_names),
+            (DisplayState.CONNECTED, ["DP-2", "HDMI-A-1"]),
+        )
+
+    def test_displays_names_nothing_when_no_output_is_connected(self) -> None:
+        _connector_dir(self.drm, "card1-DP-1", "disconnected")
+        self.assertEqual(
+            displays("card1", drm_dir=self.drm),
+            Displays(state=DisplayState.NONE, connected_names=[]),
+        )
 
     def test_display_state_none_when_every_output_reports_disconnected(self) -> None:
         _connector_dir(self.drm, "card1-DP-1", "disconnected")

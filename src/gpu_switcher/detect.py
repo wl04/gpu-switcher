@@ -19,7 +19,7 @@ import shutil
 import subprocess
 import time
 
-from gpu_switcher.core.connectors import DisplayState, display_state
+from gpu_switcher.core.connectors import DisplayState, displays
 from gpu_switcher.core.udev import (
     MANAGED_RULE,
     is_display_gpu,
@@ -63,6 +63,7 @@ class Gpu:
     preferred: bool  # configured preferred (managed rule on disk)
     # What sysfs says about monitors plugged into this card's outputs.
     display_state: DisplayState = DisplayState.UNKNOWN
+    connected_displays: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -467,6 +468,7 @@ def detect() -> Detection:
         pdir = f"/sys/bus/pci/devices/{pci}"
         vendor = read_text(f"{pdir}/vendor").removeprefix("0x").lower()
         device = read_text(f"{pdir}/device").removeprefix("0x").lower()
+        card_displays = displays(entry)
         gpus.append(
             Gpu(
                 card=entry,
@@ -477,7 +479,8 @@ def detect() -> Detection:
                 name=names.get(pci) or fallback_name(vendor, device),
                 in_use=False,
                 preferred=False,
-                display_state=display_state(entry),
+                display_state=card_displays.state,
+                connected_displays=card_displays.connected_names,
             )
         )
     running_card, running_card_error = running_primary()

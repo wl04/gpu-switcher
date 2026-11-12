@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from .udev import CARD_NAME_RE, read_text
@@ -50,6 +50,15 @@ class Connector:
     status: str  # what the kernel reports: "connected", "disconnected", ...
 
 
+@dataclass(frozen=True)
+class Displays:
+    """What sysfs says about a card's outputs: the verdict, and the names of the
+    outputs connected now (the evidence behind a CONNECTED verdict)."""
+
+    state: DisplayState
+    connected_names: list[str] = field(default_factory=list)
+
+
 def connectors(card: str, *, drm_dir: str = SYSFS_DRM_DIR) -> list[Connector]:
     """The display outputs sysfs reports for `card`, sorted by connector name.
 
@@ -76,7 +85,7 @@ def connectors(card: str, *, drm_dir: str = SYSFS_DRM_DIR) -> list[Connector]:
     return found
 
 
-def display_state(card: str, *, drm_dir: str = SYSFS_DRM_DIR) -> DisplayState:
+def displays(card: str, *, drm_dir: str = SYSFS_DRM_DIR) -> Displays:
     """Whether a monitor is connected to `card`, as far as sysfs can say.
 
     UNKNOWN rather than NONE when nothing was seen or a status was unreadable or
@@ -84,20 +93,17 @@ def display_state(card: str, *, drm_dir: str = SYSFS_DRM_DIR) -> DisplayState:
     come from the kernel failing to answer.
     """
     found = connectors(card, drm_dir=drm_dir)
-    if not found:
-        return DisplayState.UNKNOWN
-    statuses = {connector.status for connector in found}
-    if CONNECTED_STATUS in statuses:
-        return DisplayState.CONNECTED
-    if statuses <= {DISCONNECTED_STATUS}:
-        return DisplayState.NONE
-    return DisplayState.UNKNOWN
+    connected = [c.name for c in found if c.status == CONNECTED_STATUS]
+    statuses = {c.status for c in found}
+    if connected:
+        state = DisplayState.CONNECTED
+    elif statuses <= {DISCONNECTED_STATUS} and statuses:
+        state = DisplayState.NONE
+    else:
+        state = DisplayState.UNKNOWN
+    return Displays(state=state, connected_names=connected)
 
 
-def connected_connector_names(card: str, *, drm_dir: str = SYSFS_DRM_DIR) -> list[str]:
-    """Names of the outputs on `card` that report a monitor, sorted."""
-    return [
-        connector.name
-        for connector in connectors(card, drm_dir=drm_dir)
-        if connector.status == CONNECTED_STATUS
-    ]
+def display_state(card: str, *, drm_dir: str = SYSFS_DRM_DIR) -> DisplayState:
+    """The verdict of `displays`, for a caller that does not need the names."""
+    return displays(card, drm_dir=drm_dir).state
