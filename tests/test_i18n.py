@@ -3,7 +3,8 @@
 Covers locale variable precedence (LANGUAGE > LC_ALL > LC_MESSAGES > LANG >
 en), the catalog search order (installed before source tree), catalog
 completeness (every msgid translated in every shipped locale), `msgfmt -c`
-consistency, and that CPython's gettext can read a msgfmt-built catalog.
+consistency, that the tracked .mo files still match their .po sources, and that
+CPython's gettext can read a msgfmt-built catalog.
 """
 
 import ast
@@ -90,12 +91,31 @@ def _po(name: str) -> str:
     return os.path.join(os.path.dirname(i18n.__file__), "..", "..", "po", name)
 
 
+def _mo(language: str) -> str:
+    return os.path.join(
+        os.path.dirname(i18n.__file__),
+        "..",
+        "..",
+        "data",
+        "locale",
+        language,
+        "LC_MESSAGES",
+        "gpu-switcher.mo",
+    )
+
+
 def _unquote(value: str) -> str:
     """Strip the surrounding quotes of a .po string fragment."""
     value = value.strip()
     if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
         return value[1:-1].replace('\\"', '"')
     return value
+
+
+def _po_text(value: str) -> str:
+    """Decode the escape sequences this parser leaves in a .po string, so the
+    value can be compared with what gettext actually stores."""
+    return value.replace("\\n", "\n").replace("\\t", "\t")
 
 
 def _po_entries(path: str) -> list[tuple[str, str, bool]]:
@@ -198,6 +218,53 @@ class MsgfmtBuild(unittest.TestCase):
                     self.assertEqual(value, "In use now")
 
 
+class CommittedCatalogs(unittest.TestCase):
+    """The compiled catalogs under data/locale/ are tracked so the app runs from a
+    checkout or an installed package with no build step at all. That is only true
+    while they match their .po sources: translate a string, forget `make locale`,
+    and the app keeps answering with the old wording forever.
+
+    The comparison is semantic - what the committed catalog answers for each
+    msgid the .po declares - rather than a byte-for-byte diff against a fresh
+    msgfmt build, because msgfmt output bytes vary with the gettext version while
+    these answers do not.
+    """
+
+    _LANGUAGES = ("en", "ru")
+
+    def test_committed_catalog_answers_every_source_string_with_its_translation(
+        self,
+    ) -> None:
+        for language in self._LANGUAGES:
+            with self.subTest(language=language):
+                entries = _po_entries(_po(f"gpu-switcher-{language}.po"))
+                with open(_mo(language), "rb") as handle:
+                    catalog = gettext.GNUTranslations(handle)
+                for msgid, msgstr, _fuzzy in entries:
+                    if not msgid:  # the metadata header entry
+                        continue
+                    self.assertEqual(
+                        catalog.gettext(_po_text(msgid)),
+                        _po_text(msgstr),
+                        f"data/locale/{language} is stale for {msgid!r}: run make locale",
+                    )
+
+    def test_catalogs_exist_for_exactly_the_languages_the_sources_cover(self) -> None:
+        # A language added to po/ without running make locale has no catalog to
+        # load; a leftover data/locale entry outlives a dropped translation.
+        source_dir = os.path.join(os.path.dirname(i18n.__file__), "..", "..", "po")
+        sources = {
+            name.removeprefix("gpu-switcher-").removesuffix(".po")
+            for name in os.listdir(source_dir)
+            if name.startswith("gpu-switcher-") and name.endswith(".po")
+        }
+        shipped = {
+            language for language in self._LANGUAGES if os.path.isfile(_mo(language))
+        }
+        self.assertEqual(sources, {"en", "ru"})
+        self.assertEqual(shipped, sources)
+
+
 class CatalogCompleteness(unittest.TestCase):
     """Language-agnostic completeness guard: every msgid in every shipped
     catalog must carry a non-empty, non-fuzzy translation, so gettext
@@ -246,7 +313,7 @@ class CatalogCoversSource(unittest.TestCase):
         self.assertIn("In use now", used)  # the scan itself works
         for name in ("gpu-switcher-en.po", "gpu-switcher-ru.po"):
             known = {
-                msgid.replace("\\n", "\n")  # the parser keeps .po escapes
+                _po_text(msgid)  # the parser keeps .po escapes
                 for msgid, _msgstr, _fuzzy in _po_entries(_po(name))
             }
             missing = sorted(used - known)
