@@ -3,11 +3,13 @@
 Mocks Gio.bus_get_sync and the connection. Pins the session manager logout
 call, the call dispatch (success vs. error handlers, remote-error prefix
 stripping), which failed calls leave the helper outcome unknown, the timeout
-budget, and the localized failure message when the bus is unavailable.
+budget, the localized failure message when the bus is unavailable, and the
+interface contract between this app and the helper.
 """
 
 import os
 import unittest
+import xml.etree.ElementTree as ET
 from typing import Any
 from unittest import mock
 
@@ -25,6 +27,7 @@ os.environ.pop("LANGUAGE", None)
 
 import gpu_switcher.core.udev as udev_rules
 from gpu_switcher import bus
+from gpu_switcher.helper import service
 
 
 def _failed_helper_call(start: Any, error: GLib.Error) -> tuple[Any, ...]:
@@ -341,3 +344,80 @@ class HelperFailureText(unittest.TestCase):
         )
 
         self.assertEqual(message, "Another operation is in progress.")
+
+
+class HelperInterfaceContract(unittest.TestCase):
+    """The helper publishes its interface from INTROSPECTION_XML; this app
+    carries its own copy of those names and signatures. Both sides of that seam
+    are pinned here because a mismatch is not a crash to fix — it is a D-Bus
+    error in front of a user who was promised a GPU switch.
+    """
+
+    # What the app calls, as it calls it. Adding a helper method means adding it
+    # here on purpose, which is the point of comparing whole dicts.
+    _CALLED = {
+        bus.HELPER_SET_PRIMARY: (bus.HELPER_SET_PRIMARY_IN, bus.HELPER_SET_PRIMARY_OUT),
+        bus.HELPER_SET_AUTO: (bus.HELPER_SET_AUTO_IN, bus.HELPER_SET_AUTO_OUT),
+    }
+
+    @staticmethod
+    def _attribute(element: ET.Element, name: str) -> str:
+        """A required XML attribute, or a failure that says which one is gone."""
+        value = element.get(name)
+        if value is None:
+            raise AssertionError(f"<{element.tag}> has no {name!r} attribute")
+        return value
+
+    def _published(self) -> dict[str, tuple[str, str]]:
+        """method name -> (in signature, out signature) from the helper's XML.
+
+        Each signature is wrapped in parentheses, the way a D-Bus signature is
+        written, so it compares directly with what the app hands to GLib.Variant.
+        """
+        root = ET.fromstring(service.INTROSPECTION_XML)
+        published: dict[str, tuple[str, str]] = {}
+        for method in root.iter("method"):
+            args = method.findall("arg")
+            in_types = "".join(
+                self._attribute(arg, "type")
+                for arg in args
+                if self._attribute(arg, "direction") == "in"
+            )
+            out_types = "".join(
+                self._attribute(arg, "type")
+                for arg in args
+                if self._attribute(arg, "direction") == "out"
+            )
+            published[self._attribute(method, "name")] = (
+                f"({in_types})",
+                f"({out_types})",
+            )
+        return published
+
+    def test_helper_interface_matches_the_names_and_signatures_the_app_calls(
+        self,
+    ) -> None:
+        self.assertEqual(self._published(), self._CALLED)
+
+    def test_helper_bus_name_object_path_and_interface_match_the_app(self) -> None:
+        # Renaming on one side only is enough to make the helper unreachable,
+        # and the failure looks like a missing package.
+        root = ET.fromstring(service.INTROSPECTION_XML)
+        self.assertEqual(self._attribute(root, "name"), bus.HELPER_PATH)
+        interface = root.find("interface")
+        if interface is None:
+            raise AssertionError("introspection XML has no <interface> element")
+        self.assertEqual(self._attribute(interface, "name"), bus.HELPER_IFACE)
+        self.assertEqual(service.SERVICE_NAME, bus.HELPER_NAME)
+
+    def test_helper_introspection_xml_is_accepted_by_gio(self) -> None:
+        # ElementTree tolerates what Gio refuses: a mistyped attribute or an
+        # argument without a type parses fine here and leaves the helper unable
+        # to register its object on the bus.
+        node = Gio.DBusNodeInfo.new_for_xml(service.INTROSPECTION_XML)
+        self.assertIsNotNone(node)
+        self.assertEqual(len(node.interfaces), 1)
+        self.assertEqual(
+            sorted(method.name for method in node.interfaces[0].methods),
+            sorted(self._CALLED),
+        )
