@@ -26,7 +26,11 @@ jobs:
       # headless runner; run the suite under a virtual X11 display.
       # One measured run: the suite doubles as the coverage gate, so the build
       # cannot pass on tests nobody exercises.
+      # The flag is what lets the window tests run here: they are skipped in a
+      # developer's shell, where the only display is their live session.
       - name: Unit tests under the coverage floor
+        env:
+          GPU_SWITCHER_GUI_TESTS: 1
         run: xvfb-run -a make coverage
       - name: Lint and format
         run: make lint

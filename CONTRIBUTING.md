@@ -35,7 +35,13 @@ Run before every commit:
 
 CI (`.github/workflows/ci.yml`) runs the tests under that coverage floor, lint,
 typecheck, both `.deb` builds with lintian, and `systemd-analyze verify` on the
-systemd unit. The GUI tests need a display; CI runs them under Xvfb.
+systemd unit.
+
+The window tests are gated by `GPU_SWITCHER_GUI_TESTS=1` and skipped without it.
+They assemble the real window, so they need a display - and in a normal shell the
+only display available is the developer's live session, which is not where a test
+belongs. CI runs them on a virtual one: `xvfb-run -a` with the flag set. Locally:
+`GPU_SWITCHER_GUI_TESTS=1 xvfb-run -a make test` (needs `xvfb` installed).
 
 ## End-to-end verification
 

@@ -53,9 +53,12 @@ module = [
 ]
 disallow_untyped_defs = true
 
-# Coverage floor for `make coverage` (and CI). Measured 77% in a plain shell; the
-# floor is a ratchet — raise it when coverage goes up, never lower it to turn a red
-# build green. main.py is the GTK UI and counts against this number on purpose.
+# Coverage floor for `make coverage` (and CI). Measured 77% in a plain shell, 90%
+# with the window tests enabled (GPU_SWITCHER_GUI_TESTS=1 on a virtual display, as
+# CI runs them): the floor tracks the lower number because that is what any
+# contributor can run. The floor is a ratchet — raise it when coverage goes up,
+# never lower it to turn a red build green. main.py is the GTK UI and counts
+# against this number on purpose.
 [tool.coverage.run]
 source = ["src/gpu_switcher"]
 
