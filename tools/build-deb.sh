@@ -23,8 +23,6 @@ mkdir -p \
   "$ROOT/usr/share/applications" \
   "$ROOT/usr/share/icons/hicolor/scalable/apps" \
   "$ROOT/usr/share/icons/hicolor/symbolic/apps" \
-  "$ROOT/usr/share/gpu-switcher/locale/en/LC_MESSAGES" \
-  "$ROOT/usr/share/gpu-switcher/locale/ru/LC_MESSAGES" \
   "$ROOT/usr/share/polkit-1/actions" \
   "$ROOT/usr/share/dbus-1/system-services" \
   "$ROOT/usr/share/dbus-1/system.d" \

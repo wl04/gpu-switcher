@@ -7,6 +7,11 @@ SHELL := /bin/bash
 # tools/render-man.sh.
 CHANGELOG := debian/changelog
 
+# The languages the project ships are the .po files sitting in po/: adding a
+# translation means adding a file, not editing this build (or the packaging
+# scripts, or the tests - they all derive the set from po/).
+LANGUAGES := $(notdir $(patsubst po/gpu-switcher-%.po,%,$(wildcard po/gpu-switcher-*.po)))
+
 # Run the unit tests (stdlib unittest; tests live in tests/).
 test:
 	PYTHONPATH=src python3 -m unittest discover -s tests -v
@@ -36,9 +41,11 @@ coverage:
 
 # Compile the gettext catalogs in the source tree (used by dev runs).
 locale:
-	mkdir -p data/locale/en/LC_MESSAGES data/locale/ru/LC_MESSAGES
-	msgfmt -o data/locale/en/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-en.po
-	msgfmt -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-ru.po
+	@test -n "$(LANGUAGES)" || { echo "error: no po/gpu-switcher-<lang>.po found" >&2; exit 1; }
+	for lang in $(LANGUAGES); do \
+	  mkdir -p data/locale/$$lang/LC_MESSAGES; \
+	  msgfmt -o data/locale/$$lang/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-$$lang.po; \
+	done
 
 # Render the man page header (@VERSION@ / @DATE@ in man/gpu-switcher.1) into
 # build/. Both packaging paths install that file: debian/gpu-switcher.manpages
@@ -62,8 +69,12 @@ package:
 # it, so they stay in sync.
 install:
 	@test -n "$(DESTDIR)" || { echo "error: install requires DESTDIR=…"; exit 1; }
-	msgfmt -o data/locale/en/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-en.po
-	msgfmt -o data/locale/ru/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-ru.po
+	@test -n "$(LANGUAGES)" || { echo "error: no po/gpu-switcher-<lang>.po found" >&2; exit 1; }
+	for lang in $(LANGUAGES); do \
+	  msgfmt -o data/locale/$$lang/LC_MESSAGES/gpu-switcher.mo po/gpu-switcher-$$lang.po; \
+	  install -D -m 0644 data/locale/$$lang/LC_MESSAGES/gpu-switcher.mo \
+	    $(DESTDIR)/usr/share/gpu-switcher/locale/$$lang/LC_MESSAGES/gpu-switcher.mo; \
+	done
 	install -D -m 0755 src/wrapper/gpu-switcher $(DESTDIR)/usr/bin/gpu-switcher
 	# The whole package (core/ and helper/ subpackages) goes to the standard
 	# dist-packages location; /usr/bin/python3 finds it without a sys.path hack.

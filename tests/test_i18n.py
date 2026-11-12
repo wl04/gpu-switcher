@@ -218,6 +218,22 @@ class MsgfmtBuild(unittest.TestCase):
                     self.assertEqual(value, "In use now")
 
 
+def _po_languages() -> tuple[str, ...]:
+    """The languages the project ships: the .po files in po/, nothing else.
+
+    Tests must not keep their own copy of that list, or a new translation would
+    pass while its catalog is never checked.
+    """
+    source_dir = os.path.join(os.path.dirname(i18n.__file__), "..", "..", "po")
+    return tuple(
+        sorted(
+            name.removeprefix("gpu-switcher-").removesuffix(".po")
+            for name in os.listdir(source_dir)
+            if name.startswith("gpu-switcher-") and name.endswith(".po")
+        )
+    )
+
+
 class CommittedCatalogs(unittest.TestCase):
     """The compiled catalogs under data/locale/ are tracked so the app runs from a
     checkout or an installed package with no build step at all. That is only true
@@ -230,7 +246,7 @@ class CommittedCatalogs(unittest.TestCase):
     these answers do not.
     """
 
-    _LANGUAGES = ("en", "ru")
+    _LANGUAGES = _po_languages()
 
     def test_committed_catalog_answers_every_source_string_with_its_translation(
         self,
@@ -252,16 +268,11 @@ class CommittedCatalogs(unittest.TestCase):
     def test_catalogs_exist_for_exactly_the_languages_the_sources_cover(self) -> None:
         # A language added to po/ without running make locale has no catalog to
         # load; a leftover data/locale entry outlives a dropped translation.
-        source_dir = os.path.join(os.path.dirname(i18n.__file__), "..", "..", "po")
-        sources = {
-            name.removeprefix("gpu-switcher-").removesuffix(".po")
-            for name in os.listdir(source_dir)
-            if name.startswith("gpu-switcher-") and name.endswith(".po")
-        }
+        sources = set(self._LANGUAGES)
+        self.assertTrue(sources, "po/ holds no translations")
         shipped = {
             language for language in self._LANGUAGES if os.path.isfile(_mo(language))
         }
-        self.assertEqual(sources, {"en", "ru"})
         self.assertEqual(shipped, sources)
 
 
