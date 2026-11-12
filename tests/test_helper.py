@@ -680,14 +680,41 @@ class GuardedCallback(unittest.TestCase):
     def test_guarded_callback_runs_the_callback_unchanged(self) -> None:
         seen: list[str] = []
 
-        service._guarded(_invocation(), lambda: seen.append("ran"))()
+        service._guarded(_invocation(), lambda: seen.append("ran"), mock.Mock())()
 
         self.assertEqual(seen, ["ran"])
+
+    def test_guarded_callback_answers_expected_failure_with_the_failure_reply(
+        self,
+    ) -> None:
+        # service.py documents HelperFailure as an expected failure answered
+        # with the method's failure tuple; an internal error would hide which
+        # rule the user has to fix.
+        invocation = _invocation()
+        service._claim_operation(invocation)
+        replied: list[Any] = []
+
+        def fail_expected(message: str) -> None:
+            service._release_operation()
+            replied.append((False, message, False))
+
+        def refusing() -> None:
+            raise HelperFailure("The managed rule is a symlink; refusing to remove it.")
+
+        service._guarded(invocation, refusing, fail_expected)()
+
+        self.assertEqual(
+            replied,
+            [(False, "The managed rule is a symlink; refusing to remove it.", False)],
+        )
+        invocation.return_dbus_error.assert_not_called()
+        self.assertFalse(service._operation_in_progress)
 
     def test_guarded_callback_answers_call_when_callback_raises(self) -> None:
         invocation = _invocation()
         service._claim_operation(invocation)
         log = io.StringIO()
+        fail_expected = mock.Mock()
 
         def explode() -> None:
             raise RuntimeError("callback exploded")
@@ -697,11 +724,12 @@ class GuardedCallback(unittest.TestCase):
             mock.patch.object(GLib, "timeout_add", return_value=1),
             mock.patch.object(GLib, "source_remove"),
         ):
-            service._guarded(invocation, explode)()
+            service._guarded(invocation, explode, fail_expected)()
 
         invocation.return_dbus_error.assert_called_once_with(
             udev_rules.DBUS_ERROR_INTERNAL, "Internal error; see the journal."
         )
+        fail_expected.assert_not_called()
         self.assertIn("callback exploded", log.getvalue())
         self.assertFalse(service._operation_in_progress)
 

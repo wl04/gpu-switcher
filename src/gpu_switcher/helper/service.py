@@ -177,13 +177,21 @@ def _abort_active_operation(detail):
 hud.callback_error_handler = _abort_active_operation
 
 
-def _guarded(invocation, fn):
-    """Wrap an asynchronous callback so an unexpected exception releases the
-    lock and answers the call instead of wedging the helper."""
+def _guarded(invocation, fn, fail_expected):
+    """Wrap an asynchronous callback so a failure answers the call and frees
+    the lock instead of wedging the helper.
+
+    `fail_expected(message)` replies an expected failure (HelperFailure) with
+    this method's own failure tuple, which is what the client and the
+    localized text expect; only an unexpected exception is the internal error.
+    """
 
     def wrapper(*args):
         try:
             fn(*args)
+        except HelperFailure as failure:
+            print(f"failure: {failure.args[0]}", file=sys.stderr)
+            fail_expected(failure.args[0])
         except Exception:
             _fail_operation(
                 invocation,
@@ -238,9 +246,9 @@ def _set_primary_plan(pci, tr):
 
 
 def handle_set_primary(connection, sender, params, invocation) -> None:
-    """SetPrimary(pci, locale). Expected failures raise HelperFailure (caught
-    by handle_method_call); otherwise the async chain replies through
-    finish()."""
+    """SetPrimary(pci, locale). Expected failures raise HelperFailure and are
+    answered with this method's failure tuple; unexpected exceptions become
+    the internal error. The async chain replies through finish()."""
     pci, locale = params
     tr = translator(locale)
     print(f"SetPrimary: pci={pci!r} locale={locale!r} sender={sender}", file=sys.stderr)
@@ -260,6 +268,9 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
         invocation.return_value(
             GLib.Variant("(bssb)", (ok, message, backup, refresh_ok))
         )
+
+    def fail_expected(message):
+        finish(False, message, "", False)
 
     def on_auth(status, detail):
         if status is not AuthStatus.AUTHORIZED:
@@ -309,7 +320,11 @@ def handle_set_primary(connection, sender, params, invocation) -> None:
 
     sender_bus = invocation.get_message().get_sender()
     auth.authorize(
-        connection, sender_bus, locale, _guarded(invocation, on_auth), cancellable
+        connection,
+        sender_bus,
+        locale,
+        _guarded(invocation, on_auth, fail_expected),
+        cancellable,
     )
 
 
@@ -368,6 +383,9 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
         _reset_idle_timer()
         invocation.return_value(GLib.Variant("(bsb)", (ok, message, refresh_ok)))
 
+    def fail_expected(message):
+        finish(False, message, False)
+
     def on_auth(status, detail):
         if status is not AuthStatus.AUTHORIZED:
             print(f"SetAuto: authorization {status}; nothing changed", file=sys.stderr)
@@ -393,7 +411,11 @@ def handle_set_auto(connection, sender, params, invocation) -> None:
 
     sender_bus = invocation.get_message().get_sender()
     auth.authorize(
-        connection, sender_bus, locale, _guarded(invocation, on_auth), cancellable
+        connection,
+        sender_bus,
+        locale,
+        _guarded(invocation, on_auth, fail_expected),
+        cancellable,
     )
 
 
