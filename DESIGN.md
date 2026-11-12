@@ -290,10 +290,15 @@ gpu-switcher/
 ├── src/
 │   ├── wrapper/gpu-switcher           # installed as /usr/bin/gpu-switcher
 │   └── gpu_switcher/
-│       ├── main.py                    # GTK4 UI
+│       ├── main.py                    # GTK4 UI: builds widgets, decides
+│       │                              #   nothing (see decisions.py)
 │       ├── detect.py                  # GPU enumeration, names, running/configured
 │       │                              #   primary, conflicts, session guard
 │       ├── selection.py               # pure radio-selection logic
+│       ├── decisions.py               # pure presentation decisions: what a GPU
+│       │                              #   row advertises, what Apply means for a
+│       │                              #   selection, which warning a snapshot
+│       │                              #   deserves first
 │       ├── state.py                   # operation outcome, banner/button rules
 │       ├── bus.py                     # D-Bus clients: helper, login1, session
 │       │                              #   manager

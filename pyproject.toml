@@ -34,11 +34,13 @@ explicit_package_bases = true
 [[tool.mypy.overrides]]
 module = [
     "gpu_switcher.core.*",
+    "gpu_switcher.decisions",
     "gpu_switcher.selection",
     "gpu_switcher.state",
     "gpu_switcher.detect",
     "test_bus",
     "test_connectors",
+    "test_decisions",
     "test_detect",
     "test_helper",
     "test_helper_resilience",
@@ -51,13 +53,13 @@ module = [
 ]
 disallow_untyped_defs = true
 
-# Coverage floor for `make coverage` (and CI). Measured 75% today; the floor is
-# a ratchet — raise it when coverage goes up, never lower it to turn a red build
-# green. main.py is the GTK UI and counts against this number on purpose.
+# Coverage floor for `make coverage` (and CI). Measured 77% in a plain shell; the
+# floor is a ratchet — raise it when coverage goes up, never lower it to turn a red
+# build green. main.py is the GTK UI and counts against this number on purpose.
 [tool.coverage.run]
 source = ["src/gpu_switcher"]
 
 [tool.coverage.report]
 precision = 0
-fail_under = 74
+fail_under = 76
 show_missing = true

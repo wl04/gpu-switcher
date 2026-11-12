@@ -6,6 +6,10 @@ sends Apply / Reset to the helper (polkit-gated) with a status banner. Reboot
 goes through login1, Log out through the GNOME session manager. The outcome
 of the last Apply/Reset (state.Outcome) decides whether Log out is enabled.
 Detection runs on a worker thread so the main loop never blocks.
+
+What the window shows and what an action means are decided in decisions.py: this
+module turns those answers into widgets and nothing else, which is what lets a
+command-line front-end use the same decisions.
 """
 
 from __future__ import annotations
@@ -19,13 +23,11 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import GLib, Gtk
 
-from . import bus, detect, i18n
-from .core.connectors import DisplayState
-from .gpu_state import GpuState, derive_state, describe, presentation
+from . import bus, decisions, detect, i18n
+from .gpu_state import GpuState, derive_state
 from .selection import (
     SELECTION_AUTO,
     SELECTION_UNAVAILABLE,
-    apply_target,
     configured_unavailable_pci,
     mirror_configured_state,
 )
@@ -63,44 +65,6 @@ def _badge(text: str) -> Gtk.Label:
     label = Gtk.Label(label=text)
     label.add_css_class("dim-label")
     return label
-
-
-def _gpu_badges(gpu: detect.Gpu) -> list[str]:
-    """What a GPU row advertises about this card.
-
-    The display marks come last: which adapter GNOME runs on and which one is
-    configured to run on it is what the rest of the window is about, while whether
-    a cable is plugged into the card is a property of the card itself.
-    """
-    badges: list[str] = []
-    if gpu.in_use:
-        badges.append(i18n._("In use now"))
-    if gpu.preferred:
-        badges.append(i18n._("Preferred (configured)"))
-    if gpu.display_state is DisplayState.NONE:
-        badges.append(i18n._("No display connected"))
-    elif gpu.connected_displays:
-        badges.append(i18n._("Display: %s") % ", ".join(gpu.connected_displays))
-    return badges
-
-
-def _apply_warning(gpu: detect.Gpu) -> str | None:
-    """A risk the confirmation has to name, or None when the target is ordinary.
-
-    Switching the primary adapter to a card whose outputs are all free leaves the
-    session without a screen until a cable is moved onto one of them. Apply cannot
-    fix that, so the user has to be able to expect it.
-    """
-    if gpu.display_state is not DisplayState.NONE:
-        return None
-    return (
-        i18n._(
-            "Warning: no display is currently connected to %s. Switching to it may "
-            "leave the session without a screen until a monitor is plugged into one of "
-            "its outputs."
-        )
-        % gpu.name
-    )
 
 
 def _gpu_row(radio, name: str, sub: str, badges: list) -> Gtk.Box:
@@ -219,7 +183,7 @@ class GpuSwitcherApp(Gtk.Application):
         self.radios_by_gpu = {}
         first_radio = None
         for gpu in result.gpus:
-            badges = _gpu_badges(gpu)
+            badges = decisions.gpu_badges(gpu)
             radio = Gtk.CheckButton(label="")
             radio.add_css_class("radio")
             if first_radio is not None:
@@ -277,19 +241,12 @@ class GpuSwitcherApp(Gtk.Application):
             self.radios_by_gpu[card].set_active(True)
 
     def _build_state_status(self, result, state: GpuState) -> Gtk.Box | None:
-        """Icon + text row for the derived GPU state, or None when there is
-        nothing to say (not GNOME Wayland, or a rule problem that the
-        startup banner already explains)."""
-        text = describe(state, result)
-        rule_problem = (
-            self.unavailable_pci is not None
-            or result.conflicts
-            or result.rule_state
-            in (detect.RuleState.UNRECOGNIZED, detect.RuleState.UNREADABLE)
-        )
-        if not text or (state is GpuState.UNKNOWN and rule_problem):
+        """Icon + text row for the derived GPU state, or None when
+        decisions.state_status has nothing to add."""
+        status = decisions.state_status(state, result)
+        if status is None:
             return None
-        kind, icon_name = presentation(state)
+        text, kind, icon_name = status
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         if kind is BannerKind.INFO:
             row.add_css_class("dim-label")
@@ -320,38 +277,9 @@ class GpuSwitcherApp(Gtk.Application):
         self.banner_box.append(self.banner_label)
         self.banner.set_child(self.banner_box)
         self.banner.set_reveal_child(False)
-        if self.unavailable_pci is not None:
-            self._banner_show(
-                i18n._(
-                    "The configured GPU (PCI %s) is not currently "
-                    "detected. The rule remains on disk; it takes "
-                    "effect when the GPU is available again. Use "
-                    "'Reset to auto' to remove it."
-                )
-                % self.unavailable_pci,
-                BannerKind.WARNING,
-            )
-        elif result.rule_state in (
-            detect.RuleState.UNRECOGNIZED,
-            detect.RuleState.UNREADABLE,
-        ):
-            self._banner_show(
-                i18n._(
-                    "The managed udev rule could not be interpreted, so the "
-                    "configured GPU is unknown (this is not automatic "
-                    "selection). Use 'Reset to auto' or Apply to rewrite it."
-                ),
-                BannerKind.WARNING,
-            )
-        elif result.conflicts:
-            self._banner_show(
-                i18n._(
-                    "Another udev rule sets the preferred GPU: %s. "
-                    "Resolve it manually first."
-                )
-                % result.conflicts[0],
-                BannerKind.WARNING,
-            )
+        banner = decisions.startup_banner(result)
+        if banner is not None:
+            self._banner_show(*banner)
 
     def _build_buttons(self) -> Gtk.Box:
         assert self.detection is not None  # the window is built only after detection
@@ -487,50 +415,20 @@ class GpuSwitcherApp(Gtk.Application):
 
     def _on_apply(self, _button) -> None:
         assert self.detection is not None  # Apply is only enabled after detection
-        target, error = apply_target(self.detection, self.selected_card)
-        if error is not None:
-            # Nothing to apply: the selected GPU is not currently
-            # detected. Do not silently fall back to auto - tell the
-            # user the rule stays on disk and offer the explicit reset.
-            if error == SELECTION_UNAVAILABLE:
-                self._banner_show(
-                    i18n._(
-                        "The configured GPU (PCI %s) is not currently "
-                        "detected, so there is nothing to apply. The rule "
-                        "stays on disk; use 'Reset to auto' to remove it."
-                    )
-                    % self.unavailable_pci,
-                    BannerKind.WARNING,
-                )
-            else:
-                # The card vanished since the row was built: re-check the
-                # world instead of applying a stale selection.
-                self._banner_show(
-                    i18n._("The selected GPU is no longer detected; re-checking…"),
-                    BannerKind.WARNING,
-                )
-                self._refresh()
-            return
-        if target == SELECTION_AUTO:
-            text = i18n._(
-                "Apply removes the managed udev rule, returning to automatic "
-                "GPU selection.\n\n"
-                "If a rule is present, a backup is saved. The change takes "
-                "effect after a reboot, or after logging out and back in."
+        decision = decisions.apply_decision(self.detection, self.selected_card)
+        if decision.kind is decisions.ApplyKind.CONFIRM:
+            self._confirm(
+                decision.confirm_text or "",
+                i18n._("Apply"),
+                lambda ok: self._do_apply(ok, decision.target),
             )
-        else:
-            gpu = next(g for g in self.detection.gpus if g.pci == target)
-            text = i18n._(
-                "Apply sets %s (PCI %s) as the primary display adapter.\n\n"
-                "The managed udev rule is written; if a rule is present, a "
-                "backup is saved. The change takes effect after a reboot, or "
-                "after logging out and back in."
-            ) % (gpu.name, gpu.pci)
-            warning = _apply_warning(gpu)
-            if warning is not None:
-                text += "\n\n" + warning
-
-        self._confirm(text, i18n._("Apply"), lambda ok: self._do_apply(ok, target))
+            return
+        assert decision.banner is not None  # a refusal always says why
+        self._banner_show(*decision.banner)
+        if decision.kind is decisions.ApplyKind.RECHECK:
+            # The card vanished since the row was built: re-check the world
+            # instead of applying a stale selection.
+            self._refresh()
 
     def _revert_selection(self) -> None:
         """Show the configured GPU again after a cancelled or failed action
