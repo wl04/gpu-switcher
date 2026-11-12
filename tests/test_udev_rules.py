@@ -1,29 +1,27 @@
 """Unit tests for the udev rule scan in core/udev.py.
 
-The app skips unreadable rules (the helper's check is authoritative) while the
-helper must treat them as conflicts, so both modes are tested, along with
-udev's load order (an earlier directory shadows a later one).
+The scan reports two findings that are not the same thing: *.rules that really
+assign the preferred-GPU tag, and rules it could not read. udev's load order is
+tested too (an earlier directory shadows a later one).
 """
 
 import os
 import tempfile
 import unittest
-from typing import cast
 from unittest import mock
 
 from gpu_switcher.core.udev import (
     MUTTER_ENV,
     MUTTER_TAG,
-    OnUnreadable,
     read_text,
-    rule_conflicts,
+    scan_rules,
 )
 
 TAG_LINE = f'SUBSYSTEM=="drm", TAG+="{MUTTER_TAG}"\n'
 ENV_LINE = f'ENV{{{MUTTER_ENV}}}="1"\n'
 
 
-class RuleConflicts(unittest.TestCase):
+class ScanRules(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -42,49 +40,37 @@ class RuleConflicts(unittest.TestCase):
         # running as root, so the "unreadable" path is exercised reliably.
         os.symlink(os.path.join(self.root, "missing-target"), path)
 
-    def test_rule_conflicts_finds_rule_setting_mutter_tag(self) -> None:
+    def test_scan_rules_finds_rule_setting_mutter_tag(self) -> None:
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, TAG_LINE)
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
-        )
+        self.assertEqual(scan_rules((self.dir_a,)).conflicts, [path])
 
-    def test_rule_conflicts_finds_rule_setting_legacy_env_variable(self) -> None:
+    def test_scan_rules_finds_rule_setting_legacy_env_variable(self) -> None:
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, ENV_LINE)
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
-        )
+        self.assertEqual(scan_rules((self.dir_a,)).conflicts, [path])
 
-    def test_rule_conflicts_finds_assignment_after_match_on_same_line(self) -> None:
+    def test_scan_rules_finds_assignment_after_match_on_same_line(self) -> None:
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, f'SUBSYSTEM=="drm", TAG=="seat", TAG+="{MUTTER_TAG}"\n')
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
-        )
+        self.assertEqual(scan_rules((self.dir_a,)).conflicts, [path])
 
-    def test_rule_conflicts_finds_env_assignment_after_env_match(self) -> None:
+    def test_scan_rules_finds_env_assignment_after_env_match(self) -> None:
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, f'ENV{{A}}=="1", ENV{{{MUTTER_ENV}}}="1"\n')
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
-        )
+        self.assertEqual(scan_rules((self.dir_a,)).conflicts, [path])
 
-    def test_rule_conflicts_finds_assignment_on_continued_line(self) -> None:
+    def test_scan_rules_finds_assignment_on_continued_line(self) -> None:
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, f'SUBSYSTEM=="drm", \\\nTAG+="{MUTTER_TAG}"\n')
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
-        )
+        self.assertEqual(scan_rules((self.dir_a,)).conflicts, [path])
 
-    def test_rule_conflicts_ignores_tag_name_in_negated_match(self) -> None:
+    def test_scan_rules_ignores_tag_name_in_negated_match(self) -> None:
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, f'TAG!="{MUTTER_TAG}", TAG+="x"\n')
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), []
-        )
+        self.assertEqual(scan_rules((self.dir_a,)).conflicts, [])
 
-    def test_rule_conflicts_ignores_unassign_and_match_lines(self) -> None:
+    def test_scan_rules_ignores_unassign_and_match_lines(self) -> None:
         # TAG-= (unset) and TAG== (match expression) are not assignments
         # of the preferred GPU and must not block the switch.
         path = os.path.join(self.dir_a, "10-other.rules")
@@ -94,40 +80,32 @@ class RuleConflicts(unittest.TestCase):
             f'SUBSYSTEM=="drm", TAG=="{MUTTER_TAG}"\n'
             f'SUBSYSTEM=="drm", ENV{{{MUTTER_ENV}}}!=""\n',
         )
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), []
-        )
+        self.assertEqual(scan_rules((self.dir_a,)).conflicts, [])
 
-    def test_rule_conflicts_finds_plain_assignment_lines(self) -> None:
+    def test_scan_rules_finds_plain_assignment_lines(self) -> None:
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(
             path,
             f'SUBSYSTEM=="drm", TAG="{MUTTER_TAG}"\nENV{{{MUTTER_ENV}}}="1"\n',
         )
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), [path]
-        )
+        self.assertEqual(scan_rules((self.dir_a,)).conflicts, [path])
 
-    def test_rule_conflicts_ignores_comment_lines(self) -> None:
+    def test_scan_rules_ignores_comment_lines(self) -> None:
         path = os.path.join(self.dir_a, "10-other.rules")
         self._write_rule(path, f"# {MUTTER_TAG}\n# {ENV_LINE}")
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), []
-        )
+        self.assertEqual(scan_rules((self.dir_a,)).conflicts, [])
 
-    def test_rule_conflicts_skips_managed_rule_file(self) -> None:
+    def test_scan_rules_skips_managed_rule_file(self) -> None:
         managed = os.path.join(self.dir_a, "61-mutter-primary-gpu.rules")
         self._write_rule(managed, TAG_LINE)
         clean = os.path.join(self.dir_a, "10-clean.rules")
         self._write_rule(clean, 'SUBSYSTEM=="drm"\n')
         self.assertEqual(
-            rule_conflicts(
-                (self.dir_a,), managed_rule=managed, on_unreadable=OnUnreadable.SKIP
-            ),
+            scan_rules((self.dir_a,), managed_rule=managed).conflicts,
             [],
         )
 
-    def test_rule_conflicts_earlier_directory_shadows_later_same_basename(self) -> None:
+    def test_scan_rules_earlier_directory_shadows_later_same_basename(self) -> None:
         earlier = os.path.join(self.dir_a, "50-same.rules")
         later = os.path.join(self.dir_b, "50-same.rules")
         cases = [
@@ -139,27 +117,47 @@ class RuleConflicts(unittest.TestCase):
                 self._write_rule(earlier, earlier_text)
                 self._write_rule(later, later_text)
                 self.assertEqual(
-                    rule_conflicts(
-                        (self.dir_a, self.dir_b), on_unreadable=OnUnreadable.SKIP
-                    ),
+                    scan_rules((self.dir_a, self.dir_b)).conflicts,
                     expected,
                 )
 
-    def test_rule_conflicts_skips_unreadable_file_in_app_mode(self) -> None:
+    def test_scan_rules_records_unreadable_file_as_unreadable_not_conflict(
+        self,
+    ) -> None:
+        # A rule nobody can read is not known to set the tag. Saying so is what
+        # lets the helper name the file instead of accusing it.
         path = os.path.join(self.dir_a, "10-broken.rules")
         self._make_unreadable(path)
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP), []
-        )
+        scan = scan_rules((self.dir_a,))
+        self.assertEqual(scan.conflicts, [])
+        self.assertEqual(scan.unreadable, [path])
 
-    def test_rule_conflicts_flags_unreadable_file_in_helper_mode(self) -> None:
-        path = os.path.join(self.dir_a, "10-broken.rules")
-        self._make_unreadable(path)
-        self.assertEqual(
-            rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.FLAG), [path]
-        )
+    def test_scan_rules_records_unlistable_directory_as_unreadable(self) -> None:
+        with mock.patch("os.listdir", side_effect=PermissionError("denied")):
+            scan = scan_rules((self.dir_a,))
+        self.assertEqual(scan.conflicts, [])
+        self.assertEqual(scan.unreadable, [self.dir_a])
 
-    def test_rule_conflicts_matches_each_assignment_with_its_own_key(self) -> None:
+    def test_scan_rules_reports_conflicts_and_unreadable_files_together(self) -> None:
+        conflict = os.path.join(self.dir_a, "10-tagged.rules")
+        self._write_rule(conflict, TAG_LINE)
+        broken = os.path.join(self.dir_a, "20-broken.rules")
+        self._make_unreadable(broken)
+        scan = scan_rules((self.dir_a,))
+        self.assertEqual(scan.conflicts, [conflict])
+        self.assertEqual(scan.unreadable, [broken])
+
+    def test_scan_rules_ignores_missing_directory(self) -> None:
+        scan = scan_rules((os.path.join(self.root, "missing"),))
+        self.assertEqual(scan.conflicts, [])
+        self.assertEqual(scan.unreadable, [])
+
+    def test_scan_rules_ignores_non_rules_files(self) -> None:
+        other = os.path.join(self.dir_a, "10-notes.txt")
+        self._write_rule(other, TAG_LINE)
+        self.assertEqual(scan_rules((self.dir_a,)).conflicts, [])
+
+    def test_scan_rules_matches_each_assignment_with_its_own_key(self) -> None:
         cases = [
             ('TAG=="seat", TAG+="%s"' % MUTTER_TAG, True),
             ('ENV{OTHER}=="x", ENV{%s}="1"' % MUTTER_ENV, True),
@@ -170,26 +168,8 @@ class RuleConflicts(unittest.TestCase):
             with self.subTest(line=line):
                 with open(os.path.join(self.dir_a, "10-x.rules"), "w") as f:
                     f.write(line + "\n")
-                found = rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.SKIP)
+                found = scan_rules((self.dir_a,)).conflicts
                 self.assertEqual(bool(found), expected)
-
-    def test_rule_conflicts_flags_unlistable_directory_in_helper_mode(self) -> None:
-        with mock.patch("os.listdir", side_effect=PermissionError("denied")):
-            self.assertEqual(
-                rule_conflicts((self.dir_a,), on_unreadable=OnUnreadable.FLAG),
-                [self.dir_a],
-            )
-
-    def test_rule_conflicts_ignores_missing_directory_in_helper_mode(self) -> None:
-        missing = os.path.join(self.root, "missing")
-        self.assertEqual(
-            rule_conflicts((missing,), on_unreadable=OnUnreadable.FLAG), []
-        )
-
-    def test_rule_conflicts_raises_on_unknown_on_unreadable(self) -> None:
-        # An unknown mode must not silently behave like "skip".
-        with self.assertRaises(ValueError):
-            rule_conflicts((self.dir_a,), on_unreadable=cast(OnUnreadable, "bogus"))
 
 
 class ReadText(unittest.TestCase):

@@ -159,6 +159,9 @@ msgstr "Could not check authorization (%s). Nothing changed."
 msgid "Another udev rule sets the preferred GPU: %s. Resolve it manually first."
 msgstr "Another udev rule sets the preferred GPU: %s. Resolve it manually first."
 
+msgid "Could not read the udev rule %s. It might set the preferred GPU; make it readable or remove it."
+msgstr "Could not read the udev rule %s. It might set the preferred GPU; make it readable or remove it."
+
 msgid "Target PCI %s is not a valid display controller."
 msgstr "Target PCI %s is not a valid display controller."
 

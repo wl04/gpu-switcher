@@ -20,6 +20,7 @@ os.environ["LC_ALL"] = "en"
 os.environ.pop("LANGUAGE", None)
 
 from gpu_switcher import detect
+from gpu_switcher.core import udev as udev_rules
 
 
 class PrimaryCardFromLine(unittest.TestCase):
@@ -467,7 +468,9 @@ class DetectClassFilter(unittest.TestCase):
                 "gpu_switcher.detect.managed_rule_status",
                 return_value=(detect.RuleState.ABSENT, None),
             ),
-            mock.patch("gpu_switcher.detect.rule_conflicts", return_value=[]),
+            mock.patch(
+                "gpu_switcher.detect.scan_rules", return_value=udev_rules.RuleScan()
+            ),
             mock.patch("gpu_switcher.detect.gnome_wayland_session", return_value=True),
         ):
             return detect.detect()

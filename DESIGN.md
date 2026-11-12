@@ -134,7 +134,10 @@ line (`KERNELS=="<PCI>"`, vendor/device, the
 `mutter-device-preferred-primary` tag), the same backup scheme
 (`.bak.<UTC-timestamp>.<random-suffix>`), and the same conflict detection (any
 *other* rule that assigns the tag blocks the switch; the scan inspects every
-assignment on a line and joins `\` continuations). The script and the app
+assignment on a line and joins `\` continuations). A rule the scan cannot read is
+a separate finding, never a conflict: the app ignores it (the helper repeats the
+scan as root, where it can read them) and the helper refuses the switch while
+naming the file it could not read. The script and the app
 therefore coexist without fighting over state; `udevadm verify` runs when
 available.
 
@@ -225,7 +228,7 @@ gpu-switcher/
 │       │                              #   catalog directories
 │       ├── core/                      # shared by app and helper (stdlib only,
 │       │   │                          #   no gi import)
-│       │   ├── udev.py                # rule constants, timeouts, conflict scan
+│       │   ├── udev.py                # rule constants, timeouts, rule scan
 │       │   └── gpu.py                 # PCI validation, GPU resolution, rule text
 │       └── helper/                    # root D-Bus service
 │           ├── __main__.py            # entry: python3 -m gpu_switcher.helper

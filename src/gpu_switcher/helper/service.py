@@ -39,8 +39,7 @@ from gpu_switcher.core.gpu import resolve_gpu, rule_text
 from gpu_switcher.core.udev import (
     DBUS_ERROR_BUSY,
     DBUS_ERROR_INTERNAL,
-    OnUnreadable,
-    rule_conflicts,
+    scan_rules,
 )
 from gpu_switcher.helper import auth, rule_store
 from gpu_switcher.helper import udev as hud
@@ -226,17 +225,28 @@ def authorization_message(tr, status, detail):
 def _set_primary_plan(pci, tr):
     """Pre-authorization checks for SetPrimary; raises HelperFailure.
 
-    Root cannot skip unreadable rules: they may set the tag. Returns
-    (card, vendor, device) when the target is valid.
+    A rule root cannot read is refused but not accused: without reading it there
+    is no way to tell whether it sets the tag. Returns (card, vendor, device)
+    when the target is valid.
     """
-    conflicts = rule_conflicts(on_unreadable=OnUnreadable.FLAG)
-    if conflicts:
-        print(f"SetPrimary: conflicts found: {conflicts}", file=sys.stderr)
+    scan = scan_rules()
+    if scan.conflicts:
+        print(f"SetPrimary: conflicts found: {scan.conflicts}", file=sys.stderr)
         raise HelperFailure(
             tr(
                 "Another udev rule sets the preferred GPU: %s. Resolve it manually first."
             )
-            % conflicts[0]
+            % scan.conflicts[0]
+        )
+    if scan.unreadable:
+        # Calling this a conflict would send the user to resolve a file that may
+        # never have set the tag; the honest answer is which one could not be read.
+        print(f"SetPrimary: unreadable rules: {scan.unreadable}", file=sys.stderr)
+        raise HelperFailure(
+            tr(
+                "Could not read the udev rule %s. It might set the preferred GPU; make it readable or remove it."
+            )
+            % scan.unreadable[0]
         )
     resolved = resolve_gpu(pci)
     if resolved is None:

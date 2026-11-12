@@ -89,9 +89,7 @@ class LockRelease(unittest.TestCase):
     def test_set_primary_releases_lock_when_planning_raises_unexpectedly(self) -> None:
         invocation = _invocation()
 
-        with mock.patch.object(
-            service, "rule_conflicts", side_effect=RuntimeError("boom")
-        ):
+        with mock.patch.object(service, "scan_rules", side_effect=RuntimeError("boom")):
             self._call_set_primary(invocation, ("0000:12:00.0", "en"))
 
         self.assertFalse(service._operation_in_progress)
@@ -107,7 +105,9 @@ class LockRelease(unittest.TestCase):
 
         with (
             mock.patch.object(auth, "authorize", _authorize_immediately),
-            mock.patch.object(service, "rule_conflicts", return_value=[]),
+            mock.patch.object(
+                service, "scan_rules", return_value=udev_rules.RuleScan()
+            ),
             mock.patch.object(
                 service, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
             ),
@@ -136,7 +136,9 @@ class LockRelease(unittest.TestCase):
 
         with (
             mock.patch.object(auth, "authorize", authorize_after_gpu_removed),
-            mock.patch.object(service, "rule_conflicts", return_value=[]),
+            mock.patch.object(
+                service, "scan_rules", return_value=udev_rules.RuleScan()
+            ),
             mock.patch.object(
                 service, "resolve_gpu", side_effect=lambda _pci: gpu["value"]
             ),
@@ -157,7 +159,9 @@ class LockRelease(unittest.TestCase):
 
         with (
             mock.patch.object(auth, "authorize", _authorize_immediately),
-            mock.patch.object(service, "rule_conflicts", return_value=[]),
+            mock.patch.object(
+                service, "scan_rules", return_value=udev_rules.RuleScan()
+            ),
             mock.patch.object(
                 service, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
             ),
@@ -180,7 +184,9 @@ class LockRelease(unittest.TestCase):
     ) -> None:
         with (
             mock.patch.object(auth, "authorize", _never_authorize),
-            mock.patch.object(service, "rule_conflicts", return_value=[]),
+            mock.patch.object(
+                service, "scan_rules", return_value=udev_rules.RuleScan()
+            ),
             mock.patch.object(
                 service, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
             ),

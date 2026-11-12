@@ -20,11 +20,10 @@ import subprocess
 
 from gpu_switcher.core.udev import (
     MANAGED_RULE,
-    OnUnreadable,
     is_display_gpu,
     join_continuations,
     read_text,
-    rule_conflicts,
+    scan_rules,
     sets_preferred_gpu,
 )
 
@@ -403,7 +402,10 @@ def detect() -> Detection:
         running_card=running_card,
         running_card_error=running_card_error,
         preferred_pci=preferred,
-        conflicts=rule_conflicts(on_unreadable=OnUnreadable.SKIP),
+        # A rule this app cannot read is not reported as a conflict here: it
+        # cannot be judged without root, and the helper refuses to write until it
+        # has read every rule it is about to contradict.
+        conflicts=scan_rules().conflicts,
         gnome_wayland=gnome_wayland_session(),
         rule_state=rule_state,
         rule_mtime=rule_mtime(),

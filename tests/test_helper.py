@@ -425,7 +425,9 @@ class SetPrimaryAuthorization(unittest.TestCase):
             invocation = _invocation()
             with (
                 mock.patch.object(auth, "authorize", _fake_authorize(status, detail)),
-                mock.patch.object(service, "rule_conflicts", return_value=[]),
+                mock.patch.object(
+                    service, "scan_rules", return_value=udev_rules.RuleScan()
+                ),
                 mock.patch.object(
                     service, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
                 ),
@@ -459,7 +461,11 @@ class SetPrimaryAuthorization(unittest.TestCase):
                 auth, "authorize", _fake_authorize(AuthStatus.AUTHORIZED, "")
             ),
             mock.patch.object(
-                service, "rule_conflicts", return_value=["/etc/udev/rules.d/10-x.rules"]
+                service,
+                "scan_rules",
+                return_value=udev_rules.RuleScan(
+                    conflicts=["/etc/udev/rules.d/10-x.rules"]
+                ),
             ),
         ):
             service.handle_method_call(
@@ -482,13 +488,84 @@ class SetPrimaryAuthorization(unittest.TestCase):
             ),
         )
 
+    def test_set_primary_names_unreadable_rule_without_calling_it_a_conflict(
+        self,
+    ) -> None:
+        # A rule nobody can read may or may not set the tag. Accusing it sends
+        # the user to resolve a file that has nothing to do with the switch.
+        invocation = _invocation()
+        with (
+            mock.patch.object(
+                auth, "authorize", _fake_authorize(AuthStatus.AUTHORIZED, "")
+            ),
+            mock.patch.object(
+                service,
+                "scan_rules",
+                return_value=udev_rules.RuleScan(
+                    unreadable=["/run/udev/rules.d/90-netplan.rules"]
+                ),
+            ),
+        ):
+            service.handle_method_call(
+                mock.Mock(),
+                "sender",
+                service.OBJECT_PATH,
+                service.INTERFACE,
+                "SetPrimary",
+                ("0000:12:00.0", "en"),
+                invocation,
+            )
+        self.assertEqual(
+            invocation.return_value.call_args[0][0].unpack(),
+            (
+                False,
+                "Could not read the udev rule /run/udev/rules.d/90-netplan.rules. "
+                "It might set the preferred GPU; make it readable or remove it.",
+                "",
+                False,
+            ),
+        )
+
+    def test_set_primary_reports_a_conflict_before_an_unreadable_rule(self) -> None:
+        # One finding is definite and the other is not: the definite one is what
+        # the user has to fix first.
+        invocation = _invocation()
+        with (
+            mock.patch.object(
+                auth, "authorize", _fake_authorize(AuthStatus.AUTHORIZED, "")
+            ),
+            mock.patch.object(
+                service,
+                "scan_rules",
+                return_value=udev_rules.RuleScan(
+                    conflicts=["/etc/udev/rules.d/10-x.rules"],
+                    unreadable=["/run/udev/rules.d/90-netplan.rules"],
+                ),
+            ),
+        ):
+            service.handle_method_call(
+                mock.Mock(),
+                "sender",
+                service.OBJECT_PATH,
+                service.INTERFACE,
+                "SetPrimary",
+                ("0000:12:00.0", "en"),
+                invocation,
+            )
+        self.assertIn(
+            "Another udev rule sets the preferred GPU",
+            invocation.return_value.call_args[0][0].unpack()[1],
+        )
+
     def test_set_primary_reports_invalid_pci(self) -> None:
         invocation = _invocation()
         with (
             mock.patch.object(
                 auth, "authorize", _fake_authorize(AuthStatus.AUTHORIZED, "")
             ),
-            mock.patch.object(service, "rule_conflicts", return_value=[]),
+            mock.patch.object(
+                service, "scan_rules", return_value=udev_rules.RuleScan()
+            ),
             mock.patch.object(service, "resolve_gpu", return_value=None),
         ):
             service.handle_method_call(
@@ -533,7 +610,9 @@ class OperationInProgress(unittest.TestCase):
 
         with (
             mock.patch.object(auth, "authorize", never_authorize),
-            mock.patch.object(service, "rule_conflicts", return_value=[]),
+            mock.patch.object(
+                service, "scan_rules", return_value=udev_rules.RuleScan()
+            ),
             mock.patch.object(
                 service, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
             ),
@@ -1307,7 +1386,9 @@ class SetPrimaryTransactionBase(unittest.TestCase):
             mock.patch.object(
                 auth, "authorize", _fake_authorize(AuthStatus.AUTHORIZED, "")
             ),
-            mock.patch.object(service, "rule_conflicts", return_value=[]),
+            mock.patch.object(
+                service, "scan_rules", return_value=udev_rules.RuleScan()
+            ),
             mock.patch.object(
                 service, "resolve_gpu", return_value=("card1", "0x1002", "0x7550")
             ),

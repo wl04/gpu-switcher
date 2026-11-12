@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import re
-from enum import Enum
+from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
 # D-Bus error names: first-class, stable contract shared by the helper
@@ -65,11 +65,18 @@ RULE_DIRS = (
 )
 
 
-class OnUnreadable(Enum):
-    """How rule_conflicts treats a .rules file it cannot read."""
+@dataclass(frozen=True)
+class RuleScan:
+    """What one scan of the udev rule directories found.
 
-    SKIP = "skip"  # ignore (app side: the root helper is authoritative)
-    FLAG = "flag"  # report as a conflict (helper side: must block)
+    conflicts: other *.rules that assign the preferred-GPU tag.
+    unreadable: *.rules files — or whole rule directories — whose contents could
+        not be read. They may set the tag and no scan can tell; only the helper
+        decides what they mean, because the app is not the one writing the rule.
+    """
+
+    conflicts: list[str] = field(default_factory=list)
+    unreadable: list[str] = field(default_factory=list)
 
 
 def is_display_gpu(pci: str) -> str | None:
@@ -158,30 +165,25 @@ def sets_preferred_gpu(line: str) -> bool:
     return _ENV_ASSIGN_RE.search(line) is not None
 
 
-def rule_conflicts(
+def scan_rules(
     rule_dirs: tuple[str, ...] = RULE_DIRS,
     managed_rule: str = MANAGED_RULE,
-    *,
-    on_unreadable: OnUnreadable,
-) -> list[str]:
-    """Paths of the other udev rules that set the preferred-GPU tag.
+) -> RuleScan:
+    """Scan `*.rules` in `rule_dirs` for rules that set the preferred-GPU tag.
 
-    Scans `*.rules` in `rule_dirs` in order, skipping comment lines. A file
-    conflicts when a line assigns the mutter tag or the ENV variable (see
-    sets_preferred_gpu). The managed rule itself never conflicts, and a base
-    name in an earlier directory shadows the same name in a later one.
+    Directories are scanned in udev's own order and comment lines are skipped.
+    A file conflicts when a line assigns the mutter tag or the legacy ENV
+    variable (see sets_preferred_gpu). The managed rule itself never conflicts,
+    and a base name in an earlier directory shadows the same name in a later one.
 
-    `on_unreadable`: SKIP ignores unreadable files (the app side; the helper
-    check is authoritative); FLAG reports them as conflicts (the helper side:
-    a rule root cannot read may still set the tag). Any other value raises
-    ValueError.
+    A directory that does not exist is not a finding. A directory that cannot be
+    listed, and a `*.rules` file that cannot be read, are reported in
+    `RuleScan.unreadable`: they might set the tag, and reporting them as
+    conflicts would accuse a file the scan never read.
     """
-    if not isinstance(on_unreadable, OnUnreadable):
-        # ValueError (not TypeError): an unknown mode is an invalid argument
-        # value, and silently behaving like SKIP would mask the bug.
-        raise ValueError(f"unknown on_unreadable mode: {on_unreadable!r}")
-    conflicts = []
-    seen = set()
+    conflicts: list[str] = []
+    unreadable: list[str] = []
+    seen: set[str] = set()
     for d in rule_dirs:
         try:
             entries = sorted(os.listdir(d))
@@ -189,8 +191,7 @@ def rule_conflicts(
             continue
         except OSError:
             # A directory root cannot list may still hold a conflicting rule.
-            if on_unreadable is OnUnreadable.FLAG:
-                conflicts.append(d)
+            unreadable.append(d)
             continue
         for entry in entries:
             if not entry.endswith(".rules") or entry in seen:
@@ -203,8 +204,7 @@ def rule_conflicts(
                 with open(path, encoding="utf-8", errors="replace") as f:
                     text = f.read()
             except OSError:
-                if on_unreadable is OnUnreadable.FLAG:
-                    conflicts.append(path)
+                unreadable.append(path)
                 continue
             if any(
                 sets_preferred_gpu(line)
@@ -212,4 +212,4 @@ def rule_conflicts(
                 if not line.strip().startswith("#")
             ):
                 conflicts.append(path)
-    return conflicts
+    return RuleScan(conflicts=conflicts, unreadable=unreadable)
