@@ -223,9 +223,8 @@ class TagEvidence(unittest.TestCase):
     def test_derive_state_pending_reboot_when_an_older_rule_is_not_applied_by_udev(
         self,
     ) -> None:
-        # The rule has been on disk since before this session and udev does not
-        # carry its tag at all: the rule never reached udev, which is not
-        # GNOME overriding an applied rule.
+        # A rule that predates this session and carries no tag never reached
+        # udev - a different fault from GNOME overriding a rule udev applied.
         detection = _detection(running_card="card1", tag_applied=False)
         self.assertIs(derive_state(detection, Outcome.idle), GpuState.PENDING_REBOOT)
 
@@ -236,7 +235,8 @@ class TagEvidence(unittest.TestCase):
         self.assertIs(derive_state(detection, Outcome.idle), GpuState.IGNORED)
 
     def test_derive_state_ignored_when_tag_evidence_is_unavailable(self) -> None:
-        # Without the evidence the older reading stands: no blame on udev.
+        # No tag evidence to blame udev for: the rule is on disk and GNOME
+        # picked another card.
         detection = _detection(running_card="card1", tag_applied=None)
         self.assertIs(derive_state(detection, Outcome.idle), GpuState.IGNORED)
 

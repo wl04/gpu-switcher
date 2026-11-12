@@ -353,8 +353,8 @@ class HelperInterfaceContract(unittest.TestCase):
     error in front of a user who was promised a GPU switch.
     """
 
-    # What the app calls, as it calls it. Adding a helper method means adding it
-    # here on purpose, which is the point of comparing whole dicts.
+    # What the app calls, as it calls it. Whole dicts: adding a helper method
+    # means adding it here.
     _CALLED = {
         bus.HELPER_SET_PRIMARY: (bus.HELPER_SET_PRIMARY_IN, bus.HELPER_SET_PRIMARY_OUT),
         bus.HELPER_SET_AUTO: (bus.HELPER_SET_AUTO_IN, bus.HELPER_SET_AUTO_OUT),

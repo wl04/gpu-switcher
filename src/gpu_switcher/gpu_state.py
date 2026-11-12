@@ -72,10 +72,10 @@ def _changed_since_session_start(detection: detect.Detection, outcome: Outcome) 
 
 
 def _pending(outcome: Outcome, tag_applied: bool | None) -> GpuState:
-    # The refresh result is not persisted: with none known, advise a reboot.
-    # udev is used to make the news worse, never better. A tag the device does not
-    # carry cannot be waiting only for a logout; a tag it does carry could be left
-    # over from an earlier reload, so it does not upgrade a failed refresh.
+    # The refresh result is not persisted, so with no evidence a reboot is the
+    # safe advice. Tag evidence only makes the answer more cautious, never
+    # less: a card without the tag never got the rule, while a card carrying it
+    # may hold a tag left by a reload that failed.
     if outcome is Outcome.success_refreshed and tag_applied is not False:
         return GpuState.PENDING_LOGIN
     return GpuState.PENDING_REBOOT
@@ -106,9 +106,8 @@ def derive_state(detection: detect.Detection, outcome: Outcome) -> GpuState:
     if running is None:
         return GpuState.UNKNOWN
     if detection.tag_applied is False:
-        # The rule has been on disk since before this session and udev does not
-        # carry its tag at all: it never reached udev, which is a different fault
-        # from GNOME overriding a rule udev did apply.
+        # A rule that predates this session and carries no tag never reached
+        # udev - a different fault from GNOME overriding a rule udev applied.
         return GpuState.PENDING_REBOOT
     return GpuState.IGNORED
 

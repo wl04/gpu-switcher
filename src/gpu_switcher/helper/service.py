@@ -89,9 +89,8 @@ def _shipped_locales(localedirs: Sequence[str]) -> tuple[str, ...]:
     return tuple(("en", *sorted(languages - {"en"})))
 
 
-# The installed tree, plus this checkout's data/locale when that is all there
-# is: running the helper from sources answered English while the dialog answered
-# Russian, because only the UI knew that fallback.
+# Installed catalog directories, plus this checkout's: a helper run from sources
+# answers in the caller's language the way the polkit dialog does.
 LOCALE_DIRS = i18n.localedirs()
 SUPPORTED_LOCALES = _shipped_locales(LOCALE_DIRS)
 _MAX_LOCALE_LEN = 32
@@ -374,9 +373,8 @@ def _set_auto_apply(tr):
         verified_sentence = tr("Udev rules reloaded.")
     else:
         print("SetAuto: no managed rule; already auto", file=sys.stderr)
-        # An earlier removal may have left stale tags (its refresh failed), so
-        # refresh even when the rule is already absent, as SetPrimary does
-        # for an unchanged rule.
+        # The refresh can still be pending from a removal whose own refresh
+        # failed, so the refresh runs even when the rule is already absent.
         leading = tr("No managed rule (auto selection already in effect).")
         verified_sentence = tr("Udev rules reloaded.")
     return backup, leading, verified_sentence

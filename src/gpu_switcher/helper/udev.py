@@ -35,10 +35,10 @@ class RefreshState(Enum):
 UDEVADM = "/usr/bin/udevadm"
 # Checked once per process by check_udevadm().
 _udevadm_available = None
-# Whether this udevadm understands the `verify` verb (it exists since systemd
-# 253); None until the first probe. An older udevadm exits 1 on an unknown
-# verb, exactly like it does on a rule it rejects, so the verb is probed once
-# before its exit code is allowed to mean "rejected".
+# Whether this udevadm understands `verify` (systemd 253+); None until the
+# first probe. An older udevadm exits 1 on an unknown verb exactly as it does
+# on a rule it rejects, so the verb is probed before its exit code is read as
+# "rejected".
 _udev_verify_supported: bool | None = None
 
 
@@ -313,9 +313,7 @@ def refresh_udev_async(
         on_done(RefreshState.UNSUPPORTED)
         return
 
-    # One entry per udevadm step, in the order they run. A list of steps keeps
-    # the chain readable where each step used to nest a callback in the one
-    # before it.
+    # One entry per udevadm step, in the order they run.
     steps: list[tuple[str, Callable[[Callable[[bool], None]], None]]] = [
         ("reload-rules", lambda on_ok: reload_rules_async(on_ok, cancellable)),
         ("DRM trigger", lambda on_ok: trigger_drm_async(on_ok, cancellable)),

@@ -28,9 +28,9 @@ HELPER_NAME = "com.github.wl04.gpu_switcher.Helper"
 HELPER_PATH = "/com/github/wl04/gpu_switcher/Helper"
 HELPER_IFACE = "com.github.wl04.gpu_switcher.Helper"
 # The helper publishes its own interface (helper/service.py INTROSPECTION_XML);
-# these are the app's copy of it, named so a test can compare the two. Untyped
-# literals at each call site are how a renamed method or a reordered reply
-# argument turns into a D-Bus error instead of a compile-time one.
+# these are the app's copy of it, named so a test can compare the two. Plain
+# literals per call site: a renamed method or a reordered reply argument shows up
+# as a D-Bus error rather than at compile time.
 HELPER_SET_PRIMARY = "SetPrimary"
 HELPER_SET_PRIMARY_IN = "(ss)"
 HELPER_SET_PRIMARY_OUT = "(bssb)"
@@ -48,12 +48,9 @@ SESSION_MANAGER_IFACE = "org.gnome.SessionManager"
 # Logout mode 1: no GNOME confirmation dialog (the app already confirmed).
 SESSION_MANAGER_LOGOUT_MODE = 1
 
-# The helper's call timeout (HELPER_TIMEOUT_MS) comes from core/udev.py, where
-# it is derived from the helper's worst case.
-#
-# The two session-lifecycle calls are separate budgets because they are separate
-# jobs on the far side: logind starting a reboot transaction, and the GNOME
-# session manager ending this session. Neither one inherits the other's number.
+# HELPER_TIMEOUT_MS comes from core/udev.py, derived from the helper's worst
+# case. Reboot and logout are different services doing different work, so each
+# gets its own budget.
 LOGIN1_TIMEOUT_MS = 15000
 SESSION_MANAGER_TIMEOUT_MS = 15000
 

@@ -1438,10 +1438,8 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
         self.assertFalse(os.path.exists(self.rule))
 
     def test_set_primary_writes_the_rule_when_udevadm_has_no_verify_verb(self) -> None:
-        # An udevadm older than 253 exits 1 for the unknown `verify` verb, the
-        # same code it uses to reject a rule. That must not abort the write
-        # with a message blaming the rule, and it must not be reported as if
-        # the rule had been checked.
+        # With no `verify` verb the write proceeds, and a passing step must not
+        # be reported as if the rule had been checked.
         ok, message, _backup, refresh_ok = self._run_set_primary(
             {(hud.UDEVADM, "verify", "*"): {"rc": 0}, **_ok_results("card1")},
             verify_verb=False,

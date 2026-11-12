@@ -14,9 +14,9 @@ from collections.abc import Callable
 
 APP_NAME = "gpu-switcher"
 
-# The catalog directory an installed system ships. A source checkout has no
-# such directory, which is why the lookup also consults the tree next to this
-# module; the helper shares these directories and that reasoning.
+# The catalog directory an installed system ships. A source checkout has none,
+# so localedirs() also consults the tree next to this module — the helper uses
+# the same lookup.
 INSTALLED_LOCALE_DIR = "/usr/share/gpu-switcher/locale"
 
 

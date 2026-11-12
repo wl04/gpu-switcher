@@ -27,8 +27,7 @@ with `msgfmt` (build-time `gettext` dependency) and installed to
 adding one `.po` file. Catalogs are looked up in that installed directory and
 then in the checkout's `data/locale/` (`i18n.localedirs()`); the helper consults
 the same list, so running it from a source tree answers in the caller's language
-as well. The languages the helper accepts are derived from the catalogs that are
-actually shipped, never from a list kept by hand.
+as well. The languages the helper accepts come from the shipped catalogs.
 
 ## How activation works (why a reboot is not strictly required)
 
@@ -107,14 +106,13 @@ Consequences:
 - Custom action `com.github.wl04.gpu_switcher.set-primary`, `auth_admin`,
   localized `message`; the policy file is installed to
   `/usr/share/polkit-1/actions/gpu-switcher.policy`.
-- `auth_admin` rather than `auth_admin_keep`, on purpose. The D-Bus config lets
-  any user of the session call the helper, so this check is the only thing
-  between a background process and `/etc/udev/rules.d`. `auth_admin_keep` would
-  let one authentication authorize every later call until logout; instead each
-  operation is authorized on its own, which is why Apply and Reset ask again
-  even a second after the previous one succeeded. The app keeps no prompt cache
-  of its own either: the action buttons are insensitive while an operation is
-  in flight, and a helper that is already working answers another call with
+- `auth_admin`, not `auth_admin_keep`. The D-Bus config lets any user of the
+  session call the helper, so this check is the only thing between a background
+  process and `/etc/udev/rules.d`; a cached authorization would let one prompt
+  cover every later call until logout. Each operation is authorized on its own,
+  so Apply and Reset ask again even a second after the previous one succeeded.
+  The app adds no prompt cache of its own: action buttons are insensitive while an
+  operation is in flight, and a helper already working answers another call with
   `com.github.wl04.gpu_switcher.Error.Busy`.
 - The privileged mechanism is a **D-Bus-activated system-bus helper**:
   the broker starts it on demand as the hardened systemd unit
@@ -130,17 +128,15 @@ Consequences:
 
 ### Managed rule file
 
-The app manages the same file the reference script `mutter-primary-gpu.sh`
-writes — `/etc/udev/rules.d/61-mutter-primary-gpu.rules` — with the same rule
-line (`KERNELS=="<PCI>"`, vendor/device, the
-`mutter-device-preferred-primary` tag), the same backup scheme
-(`.bak.<UTC-timestamp>.<random-suffix>`), and the same conflict detection (any
-*other* rule that assigns the tag blocks the switch; the scan inspects every
-assignment on a line and joins `\` continuations). A rule the scan cannot read is
-a separate finding, never a conflict: the app ignores it (the helper repeats the
-scan as root, where it can read them) and the helper refuses the switch while
-naming the file it could not read. The script and the app
-therefore coexist without fighting over state; `udevadm verify` runs when
+The managed file is `/etc/udev/rules.d/61-mutter-primary-gpu.rules`: one rule
+line pinning the card (`KERNELS=="<PCI>"`, vendor/device) and tagging it
+`mutter-device-preferred-primary`, backups as
+`.bak.<UTC-timestamp>.<random-suffix>`, and a conflict scan that blocks the switch
+when any *other* rule assigns the tag (every assignment on a line is inspected and
+`\` continuations are joined). A rule the scan cannot read is a separate finding,
+never a conflict: the app ignores it and the helper, which repeats the scan as
+root, refuses the switch while naming the file it could not read. Hand-written
+rules for the same tag coexist with the app's; `udevadm verify` runs when
 available.
 
 ### Detection (unprivileged, app side)
@@ -160,7 +156,7 @@ available.
    `/proc/<pid>/status`), with no logind round trip; other users'/sessions' shells
    never count, and the query is bounded to that shell's start time so an earlier
    session's choice never answers for this one. Selection lines are matched by the
-   app rather than by `journalctl --grep`, which needs a PCRE2-capable build.
+   app: `journalctl --grep` needs a PCRE2-capable build.
    Zero or multiple in-scope pids leave the running primary unknown.
 4. **Configured preference**: the managed rule's `KERNELS` value, plus the
    conflict scan (the root helper repeats it authoritatively).
@@ -245,9 +241,6 @@ has a confirmation dialog.
 
 ## What a Plasma or X11 port would take (not supported today)
 
-Scope says GNOME/Mutter only. This records what the alternatives would need, so the
-limitation is a decision with a reason rather than an omission.
-
 **The lever is different on every compositor.** What the app really changes is which
 GPU the *compositor* treats as primary, and that is compositor-specific:
 
@@ -280,10 +273,9 @@ outputs read from sysfs, the helper's rule discipline (atomic write, backups,
 retention, verification), the D-Bus and polkit shape, and the state machine and UI
 states.
 
-**The same reasoning is upstream.** KWin's !9003 describes a hybrid laptop where the
-desktop ended up composited on the iGPU although the only active output was an
-external monitor on the discrete card - cross-GPU compositing and a heavy
-performance penalty. That is why this app reports display-connected outputs per card
+**Cross-GPU compositing is the cost.** KWin's !9003 describes a hybrid laptop
+composited on the iGPU while the only active output was an external monitor on the
+discrete card. That is why this app reports display-connected outputs per card
 instead of guessing from card order, and why Apply to a card with no connected
 display is warned about.
 
@@ -376,16 +368,12 @@ gpu-switcher/
   the changelog's top entry into `build/man/` (both build paths install that
   file), so an installed page cannot name a version or a date the package never
   had.
-- Maintainer scripts are written here rather than generated: `dh_installsystemd`
-  is disabled in `debian/rules` so both build paths ship the same `postinst` /
-  `postrm`. `postinst` reloads systemd (an upgraded unit file is not picked up
-  otherwise) and, on an upgrade only, `try-restart`s a helper that is still
-  running so the next call is answered by the new code instead of the code that
-  was just replaced. `postrm` reloads systemd again once the unit files are
-  gone. `systemctl` is called directly, not through `deb-systemd-invoke`: that
-  is a debhelper tool, which an installed system does not have to provide; the
-  `/run/systemd/system` guard in `debian/postinst` is the check it performs
-  internally, and the deviation is recorded in
+- Maintainer scripts are hand-written and shared by both build paths
+  (`dh_installsystemd` is disabled in `debian/rules`). `postinst` reloads systemd
+  (an upgraded unit file is not picked up otherwise) and, on an upgrade only,
+  `try-restart`s a helper that is still running so the next call gets the new
+  code; `postrm` reloads systemd again once the unit files are gone. `systemctl`
+  is called directly; the deviation from `deb-systemd-invoke` is justified in
   `debian/gpu-switcher.lintian-overrides`.
 - `postrm` leaves the managed rule and its `.bak.*` backups in place on
   `apt remove` — they are the user's primary-GPU choice, not package data.

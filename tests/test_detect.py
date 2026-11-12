@@ -260,8 +260,8 @@ class ProcessTreeUid(unittest.TestCase):
         self.assertEqual(tree[200], (100, "gnome-shell", 1000))
 
     def test_process_tree_does_not_ask_the_status_file_for_the_uid(self) -> None:
-        # A status file that disagrees with the directory owner is ignored: the
-        # ownership is where the answer comes from now.
+        # A status file that disagrees with the directory owner is ignored:
+        # ownership is the authority.
         with tempfile.TemporaryDirectory() as root:
             path = self._proc(root, 200, "gnome-shell", 100)
             with open(os.path.join(path, "status"), "w", encoding="utf-8") as f:
@@ -512,8 +512,8 @@ class RunningPrimary(unittest.TestCase):
     def test_running_primary_matches_selection_lines_without_journalctl_grep(
         self,
     ) -> None:
-        # journalctl --grep needs a PCRE2-capable build; where the distro build
-        # lacks it the call fails and the running primary used to stay unknown.
+        # Selection lines are matched in Python: journalctl --grep needs a
+        # PCRE2-capable build and fails outright where the distro built none.
         result = subprocess.CompletedProcess(
             args=[],
             returncode=0,

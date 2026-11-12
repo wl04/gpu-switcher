@@ -9,14 +9,14 @@
 # ExecStart replaced — as a throwaway unit that reports what it could and could
 # not do. Change the unit and this probe changes with it.
 #
-# Nothing is written to /etc/udev/rules.d: whether it is writable is asked with
-# access(2), so the probe never touches the directory the helper owns. The probe's
-# write attempt targets a path that ProtectSystem=strict covers, which a correct
-# sandbox holds read-only, so even a failing run leaves nothing behind.
+# Nothing is written to /etc/udev/rules.d: its writability is asked with
+# access(2). The write attempt targets a path outside the helper's
+# ReadWritePaths, which a correct sandbox holds read-only, so even a failing run
+# leaves nothing behind.
 #
 # The target must not be /tmp or /var/tmp: PrivateTmp=yes replaces those with
-# private writable mounts that sit outside the ProtectSystem fence, so writing
-# there succeeds precisely when the sandbox is working.
+# private writable mounts outside the ProtectSystem fence, so writing there
+# would report an open fence while the fence holds.
 set -euo pipefail
 umask 022
 
@@ -31,10 +31,9 @@ PROBE_UNIT_PATH="/run/systemd/system/$PROBE_UNIT"
 PROBE_DIR="/run/gpu-switcher-sandbox"
 PROBE_SCRIPT="$PROBE_DIR/probe.py"
 WRITE_DIR="/etc/udev/rules.d"
-# Outside the fence (ProtectSystem=strict mounts /etc read-only; only the
-# ReadWritePaths entry above stays writable), harmless if the fence is broken:
-# a four-byte file that the probe removes in the same breath. Choosing /etc and
-# not, say, /usr/share also catches a ReadWritePaths= that grew to all of /etc.
+# Outside the fence, and harmless if the fence is broken: a four-byte file the
+# probe removes in the same breath. /etc rather than, say, /usr/share also
+# catches a ReadWritePaths= that grew to all of /etc.
 PROBE_TARGET="/etc/gpu-switcher-sandbox-probe.write"
 
 [ -r "$UNIT_SRC" ] || {
@@ -58,7 +57,7 @@ for directive in ProtectSystem= ReadWritePaths=; do
   }
 done
 
-# A target shadowed by PrivateTmp would report an open fence while the fence holds.
+# A target shadowed by PrivateTmp would be writable whatever the fence does.
 case "$PROBE_TARGET" in
   /tmp/*|/var/tmp/*)
     if grep -q '^PrivateTmp=yes' "$UNIT_SRC"; then
@@ -69,10 +68,10 @@ case "$PROBE_TARGET" in
     ;;
 esac
 
-# A unit of the same name cached from an earlier run - or a failed state left by
-# one - makes systemd refuse to load the new fragment ("Device or resource busy"),
-# after which systemctl reports that earlier activation's status. Release the name
-# and forget the old fragment before writing anything.
+# A unit of this name cached from an earlier run - or a failed state it left -
+# makes systemd refuse to load the new fragment ("Device or resource busy"),
+# after which systemctl reports that earlier activation's status. Release the
+# name and forget the old fragment first.
 systemctl stop "$PROBE_UNIT" >/dev/null 2>&1 || true
 systemctl reset-failed "$PROBE_UNIT" >/dev/null 2>&1 || true
 rm -f "$PROBE_UNIT_PATH"
@@ -155,13 +154,11 @@ PY
   echo "Environment=GPU_SWITCHER_PROBE_TARGET=$PROBE_TARGET"
 } >"$PROBE_UNIT_PATH"
 
-# Load the new fragment before starting it. Starting a name that is still cached
-# from a previous run fails to load, and the failure would otherwise be dressed up
-# with the previous run's exit status and journal lines.
+# Load this run's fragment rather than a cached one (see the reset above).
 systemctl daemon-reload >/dev/null 2>&1 || true
 LOAD_STATE="$(systemctl show -p LoadState --value "$PROBE_UNIT")"
-# Journal evidence is bounded to this activation: unbounded, a probe that never ran
-# would present the previous run's findings as its own.
+# Journal evidence bounded to this activation, so a probe that never ran cannot
+# present an earlier run's findings as its own.
 SINCE="$(date '+%Y-%m-%d %H:%M:%S')"
 
 # timeout: a probe that hangs must not hang the check. For Type=oneshot,
@@ -172,8 +169,7 @@ STATUS="$(systemctl show -p ExecMainStatus --value "$PROBE_UNIT")"
 STATUS="${STATUS//[^0-9]/}"
 
 echo "probe unit: LoadState=${LOAD_STATE:-unknown}, Result=${RESULT:-unknown}, exit status ${STATUS:-none}"
-# The probe's own words, from this activation only: they are the reason the codes
-# mean what they mean.
+# The probe's own words: they are what makes the codes mean what they mean.
 PROBE_LINES="$(journalctl -u "$PROBE_UNIT" -o cat --no-pager -q --since "$SINCE" | grep '^probe:' || true)"
 printf '%s\n' "$PROBE_LINES"
 

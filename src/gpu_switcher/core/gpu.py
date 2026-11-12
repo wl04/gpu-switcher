@@ -57,9 +57,8 @@ def resolve_gpu(pci: str) -> tuple[str, str, str] | None:
 
 
 def rule_text(pci: str, vendor: str, device: str) -> str:
-    """The managed rule file content for the chosen GPU.
-
-    Same rule line format as the reference script mutter-primary-gpu.sh.
+    """The managed rule file content for the chosen GPU: a comment header plus
+    one rule line matching this PCI address, vendor and device.
     """
     return (
         f"# Managed by gpu-switcher; selected PCI {pci}\n"

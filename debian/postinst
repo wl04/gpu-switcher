@@ -3,11 +3,9 @@ set -e
 
 # The helper unit is not enabled: dbus-daemon starts it on demand
 # (SystemdService= in the D-Bus service file) and the process exits on its own
-# once it has been idle. Its lifecycle lives in these scripts instead of
-# debhelper-generated ones, because tools/build-deb.sh builds without debhelper
-# and both build paths must ship the same scripts. systemctl is called directly
-# for the same reason: deb-systemd-invoke is a debhelper tool, which an
-# installed system is not required to have.
+# once it has been idle. Its lifecycle lives in these scripts rather than in
+# debhelper-generated ones so both build paths ship the same ones; see
+# debian/gpu-switcher.lintian-overrides.
 
 case "$1" in
   configure)
@@ -17,9 +15,8 @@ case "$1" in
       systemctl --system daemon-reload >/dev/null || true
       if [ -n "$2" ]; then
         # Upgrade: drop a helper that is still running, or a call within the
-        # next minute could be answered by the code that was just replaced. A
-        # helper that already exited on idle is left alone (try-restart is a
-        # no-op when the unit is inactive).
+        # next minute could be answered by the code that was just replaced
+        # (try-restart is a no-op when the unit is inactive).
         systemctl --system try-restart gpu-switcher-helper.service >/dev/null || true
       fi
     fi

@@ -31,8 +31,8 @@ from gpu_switcher.core.udev import (
 )
 
 JOURNAL_UNIT = "/usr/bin/gnome-shell"
-# One journal query is bounded: journalctl reading a whole boot would otherwise
-# hold the whole detection step (see DESIGN "Detection (unprivileged, app side)").
+# One journal query is bounded: reading a whole boot would otherwise hold up the
+# whole detection step.
 JOURNAL_TIMEOUT_S = 15
 
 
@@ -223,9 +223,9 @@ def _journal_argv(pid: int, since: str | None, user_journal: bool) -> list[str]:
 
     The executable match guards against a recycled pid, `-q` drops journalctl's
     own headers and `-o cat` leaves bare message lines for
-    primary_card_from_line. Selection lines are matched here rather than with
-    `--grep`, which needs a PCRE2-capable journalctl build and fails outright
-    where the distro built it without one.
+    primary_card_from_line. Selection lines are matched here, not with `--grep`:
+    some distro builds of journalctl have no PCRE2 support and refuse the option
+    outright.
     """
     argv = ["journalctl"]
     if user_journal:

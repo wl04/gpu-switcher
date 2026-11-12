@@ -22,8 +22,8 @@ DBUS_ERROR_NAMESPACE = "com.github.wl04.gpu_switcher.Error"
 DBUS_ERROR_INTERNAL = f"{DBUS_ERROR_NAMESPACE}.Internal"
 DBUS_ERROR_BUSY = f"{DBUS_ERROR_NAMESPACE}.Busy"
 
-# The udev rule file managed by gpu-switcher (also written by the
-# mutter-primary-gpu.sh script, so the two interoperate).
+# The one rule file gpu-switcher owns. Hand-written rules for the same tag are
+# possible, so they are reported as conflicts instead of being edited.
 MANAGED_RULE = "/etc/udev/rules.d/61-mutter-primary-gpu.rules"
 
 # D-Bus timeout budget, shared by the helper and the app: the client's call

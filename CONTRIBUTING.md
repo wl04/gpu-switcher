@@ -15,10 +15,9 @@ Thanks for helping out. This page covers building, testing and releasing
   uv pip install --python .venv/bin/python -r requirements-dev.txt
   ```
 
-  `--system-site-packages` is not a convenience here: the tests import `gi`, which
-  lives in the system dist-packages, so an interpreter that cannot see them cannot
-  run this project. `make` picks `.venv/bin/python` automatically when it exists,
-  and the system `python3` otherwise (that is what CI uses).
+  `--system-site-packages` is required, not a convenience: the tests import `gi`
+  from the system dist-packages. `make` uses `.venv/bin/python` when it exists and
+  the system `python3` otherwise (that is what CI runs).
 - A gate whose tool is missing fails with the name of the tool, and
   `tools/release.sh` checks all of them before it touches `debian/changelog`.
 - gettext catalogs (`po/`) compile with `msgfmt` (build-time `gettext`
@@ -32,12 +31,11 @@ Run before every commit:
   dependencies); test names follow `Operation_Behavior_Context`.
 - `make lint` — ruff lint and format check.
 - `make lint-shell` — shellcheck over `tools/*.sh` and the maintainer scripts,
-  which run as root and under `/bin/sh`. The `shellcheck` command comes from the
-  pinned `shellcheck-py` wheel in `requirements-dev.txt`, so the gate is versioned
-  like the Python tools instead of whatever the distro happens to ship.
-- `make typecheck` — mypy over `src/` and `tests/`; `disallow_untyped_defs`
-  is enforced for the core modules and tests (the helper package and the GTK
-  UI are typed for errors but not yet for untyped defs).
+  which run as root and under `/bin/sh`. `shellcheck` comes from the pinned
+  `shellcheck-py` wheel, so the gate is versioned like the Python tools.
+- `make typecheck` — mypy over `src/` and `tests/`; `disallow_untyped_defs` is
+  enforced for the core modules and tests (the helper package and the GTK UI are
+  checked for type errors only).
 - `make coverage` — the same tests under coverage, failing below the floor in
   `pyproject.toml`. Treat the floor as a ratchet: raise it when coverage goes up,
   never lower it to make a red build green.
@@ -48,10 +46,10 @@ CI (`.github/workflows/ci.yml`) runs the tests under that coverage floor, lint,
 typecheck, both `.deb` builds with lintian, and `systemd-analyze verify` on the
 systemd unit.
 
-The window tests are gated by `GPU_SWITCHER_GUI_TESTS=1` and skipped without it.
-They assemble the real window, so they need a display - and in a normal shell the
-only display available is the developer's live session, which is not where a test
-belongs. CI runs them on a virtual one: `xvfb-run -a` with the flag set. Locally:
+The window tests are gated by `GPU_SWITCHER_GUI_TESTS=1` and skipped without it:
+they assemble the real window, so they need a display, and a developer's live
+session is not where a test belongs. CI runs them on a virtual one:
+`xvfb-run -a` with the flag set. Locally:
 `GPU_SWITCHER_GUI_TESTS=1 xvfb-run -a make test` (needs `xvfb` installed).
 
 ## End-to-end verification
@@ -74,19 +72,10 @@ sudo ./tools/verify-helper-sandbox.sh
 It copies the `[Service]` section of `debian/gpu-switcher-helper.service` into a
 throwaway unit, replaces only the process, and reports whether the probe could
 write outside `/etc/udev/rules.d` (only `EROFS` counts as a correct refusal) and
-whether that directory is still writable. Edit the unit and the probe follows it,
-which is the point: a sandbox change that breaks the helper has to fail here
-rather than on someone's machine. The probe never writes to the rule directory —
-it asks with `access(2)`.
-
-The write test targets a file in `/etc`, not in `/tmp` or `/var/tmp`:
-`PrivateTmp=yes` replaces those with private *writable* mounts that sit outside
-the `ProtectSystem` fence, so writing there succeeds exactly when the sandbox is
-healthy. `/etc` is what `ProtectSystem=strict` is supposed to close while
-`ReadWritePaths` keeps one directory open, which is the pair being verified. The
-probe also reloads systemd before starting its unit and reads only this
-activation's status and journal lines, so a run whose unit never started reports
-"nothing was measured" instead of quoting an earlier run's numbers.
+whether that directory is still writable. Edit the unit and the probe follows it:
+a sandbox change that breaks the helper has to fail here rather than on someone's
+machine. The probe never writes to the rule directory — it asks with `access(2)`;
+where it does write, and why, is in the script's header.
 
 The udev refresh is a separate risk that neither `systemd-analyze verify` nor the
 sandbox probe can see. On a multi-GPU machine with the package installed, apply a
@@ -120,9 +109,8 @@ those three files back, so an aborted release leaves no half-version in the tree
   starting with `  * `.
 - The tag `v<version>` is annotated and carries the sha256 of the `.deb` the
   release published, so a checkout can tell which artifact a release shipped.
-  `gh release create` would otherwise make the tag on the server and the local
-  repository would never have it. Tags of earlier releases are the lightweight
-  ones GitHub created for them.
+  `gh release create` would make the tag on the server, where the local
+  repository never has it. Earlier releases carry lightweight tags.
 - A version whose tag already exists, locally or on `origin`, is refused: the tag
   is the claim that a version was released.
 - Run with `--dry-run` first; the working tree must be clean.
@@ -136,10 +124,9 @@ those three files back, so an aborted release leaves no half-version in the tree
 
 ## Adding a language
 
-The languages the project ships are the `po/gpu-switcher-<lang>.po` files. The Makefile
-targets, both `.deb` build paths and the catalog tests all derive the language set from
-that directory, so a new translation is one file and a compile - not an edit of four
-lists that each keep their own copy of the set:
+The languages the project ships are the `po/gpu-switcher-<lang>.po` files: the
+Makefile targets, both `.deb` build paths and the catalog tests derive the
+language set from that directory, so a new translation is one file and a compile.
 
 1. Add `po/gpu-switcher-<lang>.po`: copy `po/gpu-switcher-en.po`, keep the header entry
    (the empty `msgid ""`), and fill every `msgstr`.

@@ -2,11 +2,10 @@
 # Render the man page header (@VERSION@ / @DATE@) from debian/changelog.
 # Usage: tools/render-man.sh <output> <source-man-page> <changelog>
 #
-# The top changelog entry is the single source of truth for the version: dpkg
-# reads it there, tools/build-deb.sh reads it there, and the manual used to say
-# whatever version someone last remembered to type into the file. The date is
-# that entry's release date for the same reason. LC_ALL=C in front of `date`
-# keeps the month name English whatever locale builds the package.
+# The top changelog entry is the single source of truth for the version (dpkg,
+# tools/build-deb.sh and this header all read it there); the date is that
+# entry's release date. LC_ALL=C in front of `date` keeps the month name English
+# whatever locale builds the package.
 set -euo pipefail
 umask 022
 

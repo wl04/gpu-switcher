@@ -57,8 +57,8 @@ class RequestedLanguage(unittest.TestCase):
             self.assertEqual(i18n._requested_language(), "ru_RU.UTF-8")
 
     def test_requested_language_honors_language_variable(self) -> None:
-        # LANGUAGE is a colon-separated preference list; its first valid
-        # entry wins, ahead of LANG (the hand-rolled lookup ignored it).
+        # LANGUAGE is a colon-separated preference list: its first valid entry
+        # wins over LANG.
         with _locale_env(
             LANGUAGE="ru:en", LC_ALL=None, LC_MESSAGES=None, LANG="en_US.UTF-8"
         ):

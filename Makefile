@@ -20,7 +20,8 @@ LANGUAGES := $(notdir $(patsubst po/gpu-switcher-%.po,%,$(wildcard po/gpu-switch
 PYTHON ?= $(shell test -x .venv/bin/python && echo .venv/bin/python || echo python3)
 
 # Whether the coverage gate can run at all: coverage must be importable by the
-# interpreter the tests run on.
+# interpreter the tests run on, because they import gi from the system
+# dist-packages and cannot run in an isolated tool venv.
 COVERAGE_IMPORT_CHECK := $(PYTHON) -c 'import coverage'
 
 # Run the unit tests (stdlib unittest; tests live in tests/).
@@ -44,12 +45,7 @@ typecheck:
 	mypy
 
 # Run the suite under coverage and enforce the floor set in pyproject.toml.
-# The floor is a ratchet: raise it when coverage goes up, never lower it to turn a
-# red build green.
-# coverage must be importable by the same python3 that runs the tests: they import
-# gi from the system dist-packages, so an isolated tool venv cannot run them. The
-# check names the missing tool instead of leaving a ModuleNotFoundError as the
-# gate's output.
+# A missing tool is named, not left as a ModuleNotFoundError.
 coverage:
 	@$(COVERAGE_IMPORT_CHECK) 2>/dev/null || { \
 	  echo "error: coverage is not importable by $(PYTHON) - install the pinned" >&2; \

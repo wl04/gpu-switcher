@@ -109,8 +109,8 @@ if [ "$DRY" -eq 0 ]; then
 fi
 
 # --- preflight: every command the run needs must exist ----------------------
-# Checked before anything is rewritten: a missing tool used to abort the run
-# halfway, leaving a bumped changelog and no release.
+# Checked before anything is rewritten: a missing tool must not abort the run
+# halfway with a bumped changelog and no release.
 missing=""
 for cmd in ruff mypy shellcheck msgfmt dpkg-buildpackage lintian; do
   command -v "$cmd" >/dev/null 2>&1 || missing="$missing $cmd"
@@ -147,16 +147,16 @@ done
 
 # --- prepend the changelog entry (establishes the new version) --------------
 # Only now the tree is mutated, and always with a backup: unless the release
-# commit actually happened, the three version-carrying files go back to their
-# committed state, so an aborted run cannot leave a half-release behind and a
-# retry cannot prepend the same version twice.
+# commit happened, the version-carrying files go back to their committed state,
+# so an aborted run cannot leave a half-release behind and a retry cannot
+# prepend the same version twice.
 BACKUP="$(mktemp -d)"
 cp "$CHANGELOG" "$BACKUP/changelog"
 cp pyproject.toml "$BACKUP/pyproject.toml"
 cp src/gpu_switcher/__init__.py "$BACKUP/__init__.py"
 COMMITTED=0
-# One EXIT trap for the whole run: it puts the version-carrying files back unless
-# the release commit happened, and drops the temporary notes file.
+# One EXIT trap for the whole run: it restores those files unless the release
+# commit happened, and drops the temporary notes file.
 cleanup() {
   if [ "$COMMITTED" -eq 0 ]; then
     cp "$BACKUP/changelog" "$CHANGELOG"
@@ -195,9 +195,8 @@ DEB="../${PKG}_${NEW_VERSION}_all.deb"
 [ -f "$DEB" ] || { echo "error: build did not produce $DEB" >&2; exit 1; }
 
 # Both build paths (dh via debian/rules, plain via tools/build-deb.sh) install
-# the same files through `make install` and the same maintainer scripts from
-# debian/, so their package contents are identical by construction; no
-# cross-check is needed.
+# the same files through `make install` and the same maintainer scripts, so
+# their package contents are identical by construction.
 lintian "$DEB"
 SHA256="$(sha256sum "$DEB" | awk '{print $1}')"
 echo "built: $DEB"
