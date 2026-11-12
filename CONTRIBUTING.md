@@ -7,9 +7,19 @@ Thanks for helping out. This page covers building, testing and releasing
 ## Setup
 
 - Plain Python 3 (>= 3.12) + PyGObject (GTK 4); there is nothing to compile.
-- Dev tools (not package dependencies) are pinned in `requirements-dev.txt`;
-  install them once, e.g. `uv pip install -r requirements-dev.txt` or
-  `uv tool install ruff mypy coverage shellcheck-py`.
+- Dev tools (not package dependencies) are pinned in `requirements-dev.txt`.
+  Create the venv the checks use and install them into it:
+
+  ```sh
+  uv venv --system-site-packages .venv
+  uv pip install --python .venv/bin/python -r requirements-dev.txt
+  ```
+
+  `--system-site-packages` is not a convenience here: the tests import `gi`, which
+  lives in the system dist-packages, so an interpreter that cannot see them cannot
+  run this project. `make` picks `.venv/bin/python` automatically when it exists,
+  and the system `python3` otherwise (that is what CI uses).
+- A gate whose tool is missing fails with the name of the tool.
 - gettext catalogs (`po/`) compile with `msgfmt` (build-time `gettext`
   dependency).
 

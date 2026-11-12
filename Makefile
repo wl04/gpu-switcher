@@ -12,9 +12,20 @@ CHANGELOG := debian/changelog
 # scripts, or the tests - they all derive the set from po/).
 LANGUAGES := $(notdir $(patsubst po/gpu-switcher-%.po,%,$(wildcard po/gpu-switcher-*.po)))
 
+# The interpreter the checks run on: .venv/bin/python when the contributor created
+# the venv CONTRIBUTING describes (created with --system-site-packages, so the
+# system python3-gi stays importable), otherwise the system python3, which is what
+# CI runs. The tests import gi, so an interpreter that cannot see the system
+# dist-packages cannot run this project at all.
+PYTHON ?= $(shell test -x .venv/bin/python && echo .venv/bin/python || echo python3)
+
+# Whether the coverage gate can run at all: coverage must be importable by the
+# interpreter the tests run on.
+COVERAGE_IMPORT_CHECK := $(PYTHON) -c 'import coverage'
+
 # Run the unit tests (stdlib unittest; tests live in tests/).
 test:
-	PYTHONPATH=src python3 -m unittest discover -s tests -v
+	PYTHONPATH=src $(PYTHON) -m unittest discover -s tests -v
 
 # Lint and check formatting (ruff; config in pyproject.toml).
 lint:
@@ -32,12 +43,21 @@ lint-shell:
 typecheck:
 	mypy
 
-# Run the suite under coverage and enforce the floor set in pyproject.toml. The
-# floor is a ratchet: raise it when coverage goes up, never lower it to turn a
+# Run the suite under coverage and enforce the floor set in pyproject.toml.
+# The floor is a ratchet: raise it when coverage goes up, never lower it to turn a
 # red build green.
+# coverage must be importable by the same python3 that runs the tests: they import
+# gi from the system dist-packages, so an isolated tool venv cannot run them. The
+# check names the missing tool instead of leaving a ModuleNotFoundError as the
+# gate's output.
 coverage:
-	PYTHONPATH=src python3 -m coverage run -m unittest discover -s tests
-	python3 -m coverage report
+	@$(COVERAGE_IMPORT_CHECK) 2>/dev/null || { \
+	  echo "error: coverage is not importable by $(PYTHON) - install the pinned" >&2; \
+	  echo "       dev tools into that interpreter (see CONTRIBUTING)" >&2; \
+	  exit 1; \
+	}
+	PYTHONPATH=src $(PYTHON) -m coverage run -m unittest discover -s tests
+	$(PYTHON) -m coverage report
 
 # Compile the gettext catalogs in the source tree (used by dev runs).
 locale:

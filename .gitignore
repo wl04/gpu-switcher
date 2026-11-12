@@ -7,6 +7,7 @@ debian/gpu-switcher.substvars
 debian/files
 debian/changelog.tmp
 __pycache__/
+.venv/
 debian/*.debhelper
 .coverage
 htmlcov/
