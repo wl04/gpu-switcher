@@ -16,6 +16,13 @@ lint:
 	ruff check src tests
 	ruff format --check src tests
 
+# shellcheck over the shell that actually ships or runs the build: the tools a
+# maintainer types and the maintainer scripts, which run as root on every install
+# and under dash, not bash. Info-level style notes are tolerated; warnings and
+# above fail the build.
+lint-shell:
+	shellcheck --severity=warning tools/*.sh debian/postinst debian/postrm
+
 # Type-check (mypy; config in pyproject.toml).
 typecheck:
 	mypy
@@ -90,4 +97,4 @@ install:
 uninstall:
 	sudo apt remove gpu-switcher
 
-.PHONY: test lint typecheck coverage locale man clean package install uninstall
+.PHONY: test lint lint-shell typecheck coverage locale man clean package install uninstall

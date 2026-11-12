@@ -8,7 +8,8 @@ Thanks for helping out. This page covers building, testing and releasing
 
 - Plain Python 3 (>= 3.12) + PyGObject (GTK 4); there is nothing to compile.
 - Dev tools (not package dependencies) are pinned in `requirements-dev.txt`;
-  install them once, e.g. `uv tool install ruff mypy`.
+  install them once, e.g. `uv pip install -r requirements-dev.txt` or
+  `uv tool install ruff mypy coverage shellcheck-py`.
 - gettext catalogs (`po/`) compile with `msgfmt` (build-time `gettext`
   dependency).
 
@@ -19,6 +20,10 @@ Run before every commit:
 - `make test` — unit tests. Plain stdlib `unittest` (no test-framework
   dependencies); test names follow `Operation_Behavior_Context`.
 - `make lint` — ruff lint and format check.
+- `make lint-shell` — shellcheck over `tools/*.sh` and the maintainer scripts,
+  which run as root and under `/bin/sh`. The `shellcheck` command comes from the
+  pinned `shellcheck-py` wheel in `requirements-dev.txt`, so the gate is versioned
+  like the Python tools instead of whatever the distro happens to ship.
 - `make typecheck` — mypy over `src/` and `tests/`; `disallow_untyped_defs`
   is enforced for the core modules and tests (the helper package and the GTK
   UI are typed for errors but not yet for untyped defs).

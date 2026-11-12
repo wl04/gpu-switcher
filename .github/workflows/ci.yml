@@ -30,6 +30,8 @@ jobs:
         run: xvfb-run -a make coverage
       - name: Lint and format
         run: make lint
+      - name: Shell scripts
+        run: make lint-shell
       - name: Type check
         run: make typecheck
 
