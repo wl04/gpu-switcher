@@ -955,10 +955,23 @@ class ErrorNames(unittest.TestCase):
             self.assertRegex(name, r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
 
 
+@contextlib.contextmanager
+def _verify_capability(supported: bool | None) -> Any:
+    """Seed the helper's one-shot `udevadm verify` capability cache (None
+    means not probed yet) and restore it afterwards."""
+    previous = hud._udev_verify_supported
+    hud._udev_verify_supported = supported
+    try:
+        yield
+    finally:
+        hud._udev_verify_supported = previous
+
+
 class VerifyRule(unittest.TestCase):
     def test_verify_rule_returns_verified_when_udevadm_accepts(self) -> None:
         started: list[list[str]] = []
         with (
+            _verify_capability(True),
             _fake_udev({(hud.UDEVADM, "verify", "/tmp/r.rules"): {"rc": 0}}, started),
             mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
@@ -969,6 +982,7 @@ class VerifyRule(unittest.TestCase):
 
     def test_verify_rule_returns_failed_when_udevadm_rejects(self) -> None:
         with (
+            _verify_capability(True),
             _fake_udev({(hud.UDEVADM, "verify", "/tmp/r.rules"): {"rc": 1}}, []),
             mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
@@ -979,6 +993,7 @@ class VerifyRule(unittest.TestCase):
     def test_verify_rule_returns_failed_when_step_times_out(self) -> None:
         error = GLib.Error.new_literal(_IO_QUARK, "Operation was cancelled", 8)
         with (
+            _verify_capability(True),
             _fake_udev({(hud.UDEVADM, "verify", "/tmp/r.rules"): {"error": error}}, []),
             mock.patch.object(hud, "check_udevadm", return_value=True),
         ):
@@ -993,6 +1008,60 @@ class VerifyRule(unittest.TestCase):
             hud.verify_rule_async("/tmp/r.rules", result.append)
             self.assertEqual(result, [hud.RefreshState.UNSUPPORTED])
         self.assertEqual(started, [])
+
+    def test_verify_rule_reports_unsupported_when_udevadm_has_no_verify_verb(
+        self,
+    ) -> None:
+        # An udevadm older than 253 exits 1 for an unknown verb: the same code
+        # it uses to reject a rule, so it must not be reported as a rejection
+        # of the user's rule.
+        started: list[list[str]] = []
+        with (
+            _verify_capability(None),
+            _fake_udev(
+                {
+                    (hud.UDEVADM, "verify", "--help"): {
+                        "rc": 1,
+                        "err": "Unknown command verb 'verify'.",
+                    },
+                    (hud.UDEVADM, "verify", "/tmp/r.rules"): {"rc": 1},
+                },
+                started,
+            ),
+            mock.patch.object(hud, "check_udevadm", return_value=True),
+        ):
+            result: list[hud.RefreshState] = []
+            hud.verify_rule_async("/tmp/r.rules", result.append)
+
+        self.assertEqual(result, [hud.RefreshState.UNSUPPORTED])
+        self.assertEqual(started, [[hud.UDEVADM, "verify", "--help"]])
+
+    def test_verify_rule_probes_the_verb_only_once_per_process(self) -> None:
+        started: list[list[str]] = []
+        with (
+            _verify_capability(None),
+            _fake_udev(
+                {
+                    (hud.UDEVADM, "verify", "--help"): {"rc": 0},
+                    (hud.UDEVADM, "verify", "/tmp/r.rules"): {"rc": 0},
+                },
+                started,
+            ),
+            mock.patch.object(hud, "check_udevadm", return_value=True),
+        ):
+            result: list[hud.RefreshState] = []
+            hud.verify_rule_async("/tmp/r.rules", result.append)
+            hud.verify_rule_async("/tmp/r.rules", result.append)
+
+        self.assertEqual(result, [hud.RefreshState.VERIFIED, hud.RefreshState.VERIFIED])
+        self.assertEqual(
+            started,
+            [
+                [hud.UDEVADM, "verify", "--help"],
+                [hud.UDEVADM, "verify", "/tmp/r.rules"],
+                [hud.UDEVADM, "verify", "/tmp/r.rules"],
+            ],
+        )
 
 
 class RefreshUdev(unittest.TestCase):
@@ -1103,10 +1172,12 @@ class SetPrimaryTransactionBase(unittest.TestCase):
         results: dict[Any, dict[str, Any]],
         invocation: Any = None,
         udevadm: bool = True,
+        verify_verb: bool = True,
     ) -> Any:
         inv = invocation or _invocation()
         patches = [
             _fake_udev(results, []),
+            _verify_capability(verify_verb),
             mock.patch.object(rule_store, "MANAGED_RULE", self.rule),
             mock.patch.object(
                 auth, "authorize", _fake_authorize(AuthStatus.AUTHORIZED, "")
@@ -1159,6 +1230,20 @@ class SetPrimaryTransaction(SetPrimaryTransactionBase):
             (False, "udevadm verify rejected the rule; nothing changed.", "", False),
         )
         self.assertFalse(os.path.exists(self.rule))
+
+    def test_set_primary_writes_the_rule_when_udevadm_has_no_verify_verb(self) -> None:
+        # An udevadm older than 253 exits 1 for the unknown `verify` verb, the
+        # same code it uses to reject a rule. That must not abort the write
+        # with a message blaming the rule the user never got a chance to fix.
+        ok, message, _backup, refresh_ok = self._run_set_primary(
+            {(hud.UDEVADM, "verify", "*"): {"rc": 0}, **_ok_results("card1")},
+            verify_verb=False,
+        )
+
+        self.assertTrue(ok)
+        self.assertTrue(refresh_ok)
+        self.assertIn("Rule written for 0000:12:00.0.", message)
+        self.assertTrue(os.path.exists(self.rule))
 
     def test_set_primary_does_not_rename_when_backup_fails(self) -> None:
         results = {

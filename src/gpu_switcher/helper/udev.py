@@ -27,7 +27,7 @@ class RefreshState(Enum):
     """
 
     VERIFIED = "verified"  # every step succeeded; tags confirmed
-    UNSUPPORTED = "unsupported"  # udevadm unavailable; cannot verify
+    UNSUPPORTED = "unsupported"  # udevadm cannot verify: missing or too old
     FAILED = "failed"  # a step errored, timed out, or was rejected
 
 
@@ -35,6 +35,11 @@ class RefreshState(Enum):
 UDEVADM = "/usr/bin/udevadm"
 # Checked once per process by check_udevadm().
 _udevadm_available = None
+# Whether this udevadm understands the `verify` verb (it exists since systemd
+# 253); None until the first probe. An older udevadm exits 1 on an unknown
+# verb, exactly like it does on a rule it rejects, so the verb is probed once
+# before its exit code is allowed to mean "rejected".
+_udev_verify_supported: bool | None = None
 
 
 def check_udevadm() -> bool:
@@ -142,12 +147,31 @@ def run_udev_async(argv, on_done, cancellable=None):
 def verify_rule_async(path, on_done, cancellable=None):
     """Run `udevadm verify` on path; on_done(RefreshState).
 
-    VERIFIED: accepted. UNSUPPORTED: udevadm cannot run (not a rejection, but
-    not confirmed either). FAILED: errored, timed out or rejected the rule."""
+    VERIFIED: accepted. UNSUPPORTED: udevadm is missing or predates the
+    `verify` verb — nothing was checked, which is not a rejection. FAILED:
+    errored, timed out, or rejected the rule.
+    """
     if not check_udevadm():
         print("udev verify: udevadm not available; rule not verified", file=sys.stderr)
         on_done(RefreshState.UNSUPPORTED)
         return
+    if _udev_verify_supported is False:
+        print(
+            "udev verify: this udevadm has no 'verify' verb; rule not verified",
+            file=sys.stderr,
+        )
+        on_done(RefreshState.UNSUPPORTED)
+        return
+    if _udev_verify_supported is True:
+        _verify_rule_run(path, on_done, cancellable)
+        return
+
+    _probe_verify_verb(path, on_done, cancellable)
+
+
+def _verify_rule_run(path, on_done, cancellable=None) -> None:
+    """`udevadm verify <path>`. The step already logs the command's output to
+    the journal, which is where the verifier names the broken rule."""
 
     def on_run(rc, _out, _err):
         if rc != 0:
@@ -157,6 +181,31 @@ def verify_rule_async(path, on_done, cancellable=None):
             on_done(RefreshState.VERIFIED)
 
     run_udev_async([UDEVADM, "verify", path], on_run, cancellable)
+
+
+def _probe_verify_verb(path, on_done, cancellable=None) -> None:
+    """Ask udevadm once per process whether it knows the `verify` verb.
+
+    `udevadm verify --help` exits 0 when the verb exists; an older udevadm
+    answers "Unknown command verb" and exits 1. Without this probe the two
+    look identical to the caller.
+    """
+
+    def on_probe(rc, _out, err):
+        global _udev_verify_supported
+        _udev_verify_supported = rc == 0
+        reason = err.strip()
+        print(
+            f"udev verify: 'verify' verb supported={_udev_verify_supported}"
+            + (f" ({reason})" if reason else ""),
+            file=sys.stderr,
+        )
+        if not _udev_verify_supported:
+            on_done(RefreshState.UNSUPPORTED)
+            return
+        _verify_rule_run(path, on_done, cancellable)
+
+    run_udev_async([UDEVADM, "verify", "--help"], on_probe, cancellable)
 
 
 def reload_rules_async(on_done, cancellable=None):
