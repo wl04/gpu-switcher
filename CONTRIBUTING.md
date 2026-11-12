@@ -107,12 +107,25 @@ Expect `udev refresh: reload-rules, DRM trigger and tag check succeeded`.
 
 ## Releasing
 
-`tools/release.sh <version> <changelog-bullets-file> [--dry-run]` prepends the
-changelog entry (the version's source of truth; urgency from `$URGENCY`,
-default `low`), syncs `pyproject.toml`, runs the tests, lint and type checks,
-builds and lints the `.deb`, commits, pushes and creates the GitHub
-release. Each changelog bullet must be a single line starting with `  * `.
-Run with `--dry-run` first; the working tree must be clean.
+`tools/release.sh <version> <changelog-bullets-file> [--dry-run]` checks the gate
+tools, runs the tests, lint, shellcheck, type and coverage checks and the catalog
+compile, builds and lints the `.deb`, and only then prepends the changelog entry
+(the version's source of truth; urgency from `$URGENCY`, default `low`), syncs
+`pyproject.toml` and `gpu_switcher.__version__`, commits, tags, pushes both and
+creates the GitHub release on that tag. A run that fails before the commit puts
+those three files back, so an aborted release leaves no half-version in the tree.
+
+- Keep the bullets file outside the repository (`../release-notes/`): the package
+  build runs `make clean`, which removes `build/`. Each bullet is one line
+  starting with `  * `.
+- The tag `v<version>` is annotated and carries the sha256 of the `.deb` the
+  release published, so a checkout can tell which artifact a release shipped.
+  `gh release create` would otherwise make the tag on the server and the local
+  repository would never have it. Tags of earlier releases are the lightweight
+  ones GitHub created for them.
+- A version whose tag already exists, locally or on `origin`, is refused: the tag
+  is the claim that a version was released.
+- Run with `--dry-run` first; the working tree must be clean.
 
 ## Conventions
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Release gpu-switcher: run the checks first, then prepend the debian/changelog
 # entry (the version's source of truth), sync pyproject.toml and
-# gpu_switcher.__version__, build + lintian the .deb, commit, push, and create
-# the GitHub release (tag v<version>, .deb as the asset).
+# gpu_switcher.__version__, build + lintian the .deb, commit, tag, push both, and
+# create the GitHub release on that tag with the .deb as the asset.
 #
 # Usage: tools/release.sh <new-version> <changelog-bullets-file> [--dry-run]
 #
@@ -17,12 +17,16 @@
 #       removes build/, so a bullets file kept there does not survive the very
 #       release it describes.
 #   --dry-run
-#       Do everything except git commit/push and the gh release step;
+#       Do everything except git commit/tag/push and the gh release step;
 #       debian/changelog, pyproject.toml and gpu_switcher/__init__.py are
 #       restored afterwards (the built .deb is kept in the parent directory).
 #
 # A run that fails before the release commit puts those three files back, so an
 # aborted release leaves no half-finished version in the working tree.
+#
+# The tag is created here, annotated, and pushed before `gh release create` runs:
+# gh would otherwise create the release's tag on the server, and the repository
+# (and every clone of it) would never see it locally.
 #
 # Environment:
 #   URGENCY   changelog urgency (default: low)
@@ -80,6 +84,20 @@ MAINTAINER="$(sed -n 's/^Maintainer: //p' "$CONTROL" | head -n 1)"
   echo "error: $NEW_VERSION is already the current version" >&2
   exit 1
 }
+
+# The release tag is this run's claim on the version: if it exists, the version is
+# released already and a second run would either fail at gh or, worse, retag a
+# published version. A local tag is always checked; the remote one only when the
+# run would publish (a dry run should not need the network).
+TAG="v$NEW_VERSION"
+if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+  echo "error: tag $TAG already exists locally - this version was released" >&2
+  exit 1
+fi
+if [ "$DRY" -eq 0 ] && git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+  echo "error: tag $TAG already exists on origin - this version was released" >&2
+  exit 1
+fi
 
 if [ "$DRY" -eq 0 ]; then
   dirty="$(git status --porcelain)"
@@ -216,7 +234,7 @@ NOTES="$(mktemp)"
 } > "$NOTES"
 
 if [ "$DRY" -eq 1 ]; then
-  echo "dry-run: skipped git commit/push and gh release."
+  echo "dry-run: skipped git commit/tag/push and gh release."
   echo "notes file: $NOTES"
   exit 0
 fi
@@ -224,8 +242,10 @@ fi
 # --- publish --------------------------------------------------------------------
 git commit -am "Release: $NEW_VERSION"
 COMMITTED=1
+git tag -a "$TAG" -m "Release $NEW_VERSION" -m "sha256  $SHA256"
 git push
-gh release create "v$NEW_VERSION" "$DEB" \
+git push origin "refs/tags/$TAG"
+gh release create "$TAG" "$DEB" \
   --title "$NEW_VERSION" \
   --notes-file "$NOTES"
-echo "released v$NEW_VERSION"
+echo "released $TAG"
