@@ -69,8 +69,18 @@ case "$PROBE_TARGET" in
     ;;
 esac
 
+# A unit of the same name cached from an earlier run - or a failed state left by
+# one - makes systemd refuse to load the new fragment ("Device or resource busy"),
+# after which systemctl reports that earlier activation's status. Release the name
+# and forget the old fragment before writing anything.
+systemctl stop "$PROBE_UNIT" >/dev/null 2>&1 || true
+systemctl reset-failed "$PROBE_UNIT" >/dev/null 2>&1 || true
+rm -f "$PROBE_UNIT_PATH"
+systemctl daemon-reload >/dev/null 2>&1 || true
+
 cleanup() {
   systemctl stop "$PROBE_UNIT" >/dev/null 2>&1 || true
+  systemctl reset-failed "$PROBE_UNIT" >/dev/null 2>&1 || true
   rm -f "$PROBE_UNIT_PATH" "$PROBE_SCRIPT"
   rmdir "$PROBE_DIR" 2>/dev/null || true
   systemctl daemon-reload >/dev/null 2>&1 || true
@@ -145,6 +155,15 @@ PY
   echo "Environment=GPU_SWITCHER_PROBE_TARGET=$PROBE_TARGET"
 } >"$PROBE_UNIT_PATH"
 
+# Load the new fragment before starting it. Starting a name that is still cached
+# from a previous run fails to load, and the failure would otherwise be dressed up
+# with the previous run's exit status and journal lines.
+systemctl daemon-reload >/dev/null 2>&1 || true
+LOAD_STATE="$(systemctl show -p LoadState --value "$PROBE_UNIT")"
+# Journal evidence is bounded to this activation: unbounded, a probe that never ran
+# would present the previous run's findings as its own.
+SINCE="$(date '+%Y-%m-%d %H:%M:%S')"
+
 # timeout: a probe that hangs must not hang the check. For Type=oneshot,
 # `systemctl start` already waits for the process, so 30 s is the ceiling.
 timeout 30 systemctl start "$PROBE_UNIT" || true
@@ -152,9 +171,16 @@ RESULT="$(systemctl show -p Result --value "$PROBE_UNIT")"
 STATUS="$(systemctl show -p ExecMainStatus --value "$PROBE_UNIT")"
 STATUS="${STATUS//[^0-9]/}"
 
-echo "probe unit: Result=${RESULT:-unknown}, exit status ${STATUS:-none}"
-# The probe's own words, which are the reason the codes mean what they mean.
-journalctl -u "$PROBE_UNIT" -o cat --no-pager -q | grep '^probe:' || true
+echo "probe unit: LoadState=${LOAD_STATE:-unknown}, Result=${RESULT:-unknown}, exit status ${STATUS:-none}"
+# The probe's own words, from this activation only: they are the reason the codes
+# mean what they mean.
+PROBE_LINES="$(journalctl -u "$PROBE_UNIT" -o cat --no-pager -q --since "$SINCE" | grep '^probe:' || true)"
+printf '%s\n' "$PROBE_LINES"
+
+if [ "$LOAD_STATE" != loaded ] || [ -z "$PROBE_LINES" ]; then
+  echo "FAIL: the probe never ran (LoadState=${LOAD_STATE:-unknown}, Result=${RESULT:-unknown}) — nothing was measured" >&2
+  exit 1
+fi
 
 if [ -z "$STATUS" ]; then
   echo "FAIL: the probe never ran (Result=${RESULT:-unknown}) — check the unit for errors" >&2
