@@ -39,15 +39,30 @@ journalctl -b0 /usr/bin/gnome-shell | grep -E 'selected (as )?primary'
 ```
 
 Also check that the packaged unit's sandbox (`ProtectSystem=strict`,
-`ProtectKernelTunables=yes`) still lets the helper re-emit DRM uevents. On a
-multi-GPU machine with the package installed, apply a switch and inspect
+`ProtectKernelTunables=yes`) still lets the helper write its rule and nothing
+more:
+
+```sh
+sudo ./tools/verify-helper-sandbox.sh
+```
+
+It copies the `[Service]` section of `debian/gpu-switcher-helper.service` into a
+throwaway unit, replaces only the process, and reports whether the probe could
+write outside `/etc/udev/rules.d` (only `EROFS` counts as a correct refusal) and
+whether that directory is still writable. Edit the unit and the probe follows it,
+which is the point: a sandbox change that breaks the helper has to fail here
+rather than on someone's machine. The probe never writes to the rule directory —
+it asks with `access(2)`.
+
+The udev refresh is a separate risk that neither `systemd-analyze verify` nor the
+sandbox probe can see. On a multi-GPU machine with the package installed, apply a
+switch and inspect
 
 ```sh
 journalctl -u gpu-switcher-helper.service | grep -i 'udev refresh'
 ```
 
 Expect `udev refresh: reload-rules, DRM trigger and tag check succeeded`.
-`systemd-analyze verify` cannot detect a blocked refresh.
 
 ## Packaging
 
