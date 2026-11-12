@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Release gpu-switcher: prepend the debian/changelog entry (the version's
-# source of truth), sync pyproject.toml and gpu_switcher.__version__, run the
-# checks, build + lintian the .deb, commit, push, and create the GitHub release
-# (tag v<version>, .deb as the asset).
+# Release gpu-switcher: run the checks first, then prepend the debian/changelog
+# entry (the version's source of truth), sync pyproject.toml and
+# gpu_switcher.__version__, build + lintian the .deb, commit, push, and create
+# the GitHub release (tag v<version>, .deb as the asset).
 #
 # Usage: tools/release.sh <new-version> <changelog-bullets-file> [--dry-run]
 #
@@ -16,6 +16,9 @@
 #       Do everything except git commit/push and the gh release step;
 #       debian/changelog, pyproject.toml and gpu_switcher/__init__.py are
 #       restored afterwards (the built .deb is kept in the parent directory).
+#
+# A run that fails before the release commit puts those three files back, so an
+# aborted release leaves no half-finished version in the working tree.
 #
 # Environment:
 #   URGENCY   changelog urgency (default: low)
@@ -81,14 +84,67 @@ if [ "$DRY" -eq 0 ]; then
   }
 fi
 
-# --- prepend the changelog entry (establishes the new version) --------------
-if [ "$DRY" -eq 1 ]; then
-  BACKUP="$(mktemp -d)"
-  cp "$CHANGELOG" "$BACKUP/changelog"
-  cp pyproject.toml "$BACKUP/pyproject.toml"
-  cp src/gpu_switcher/__init__.py "$BACKUP/__init__.py"
-  trap 'cp "$BACKUP/changelog" "$CHANGELOG"; cp "$BACKUP/pyproject.toml" pyproject.toml; cp "$BACKUP/__init__.py" src/gpu_switcher/__init__.py; rm -rf "$BACKUP"' EXIT
+# --- preflight: every command the run needs must exist ----------------------
+# Checked before anything is rewritten: a missing tool used to abort the run
+# halfway, leaving a bumped changelog and no release.
+missing=""
+for cmd in ruff mypy shellcheck msgfmt dpkg-buildpackage lintian; do
+  command -v "$cmd" >/dev/null 2>&1 || missing="$missing $cmd"
+done
+# coverage is checked the way the gate uses it: imported by the interpreter the
+# tests run on, which is .venv/bin/python when that venv exists and the system
+# python3 otherwise - the same rule the Makefile applies.
+PYTHON="$([ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)"
+"$PYTHON" -c 'import coverage' >/dev/null 2>&1 || missing="$missing coverage"
+if [ "$DRY" -eq 0 ]; then
+  command -v gh >/dev/null 2>&1 || missing="$missing gh"
 fi
+if [ -n "$missing" ]; then
+  echo "error: not available:$missing" >&2
+  echo "       the gates run the pinned tools of requirements-dev.txt on the Python 3" >&2
+  echo "       the tests run on - install them as described in CONTRIBUTING." >&2
+  exit 1
+fi
+
+# --- checks first: a failed gate must leave the tree untouched --------------
+# The same gates CI runs, so a release is never cut on a state CI would reject.
+make test
+make lint
+make lint-shell
+make typecheck
+make coverage
+# Catalog consistency gate (reference compiler), one invocation per catalog in
+# po/ - the same source of the language set as the Makefile and the tests.
+# -o /dev/null: GNU msgfmt -c still writes the default
+# messages.mo to the CWD without an explicit output file.
+for catalog in po/gpu-switcher-*.po; do
+  msgfmt -c -o /dev/null "$catalog"
+done
+
+# --- prepend the changelog entry (establishes the new version) --------------
+# Only now the tree is mutated, and always with a backup: unless the release
+# commit actually happened, the three version-carrying files go back to their
+# committed state, so an aborted run cannot leave a half-release behind and a
+# retry cannot prepend the same version twice.
+BACKUP="$(mktemp -d)"
+cp "$CHANGELOG" "$BACKUP/changelog"
+cp pyproject.toml "$BACKUP/pyproject.toml"
+cp src/gpu_switcher/__init__.py "$BACKUP/__init__.py"
+COMMITTED=0
+# One EXIT trap for the whole run: it puts the version-carrying files back unless
+# the release commit happened, and drops the temporary notes file.
+cleanup() {
+  if [ "$COMMITTED" -eq 0 ]; then
+    cp "$BACKUP/changelog" "$CHANGELOG"
+    cp "$BACKUP/pyproject.toml" pyproject.toml
+    cp "$BACKUP/__init__.py" src/gpu_switcher/__init__.py
+  fi
+  rm -rf "$BACKUP"
+  if [ -n "${NOTES:-}" ]; then
+    rm -f "$NOTES"
+  fi
+}
+trap cleanup EXIT
 DATE="$(LC_ALL=C date '+%a, %d %b %Y %H:%M:%S %z')"
 {
   echo "$PKG ($NEW_VERSION) unstable; urgency=${URGENCY:-low}"
@@ -109,20 +165,7 @@ UPSTREAM="${NEW_VERSION%-*}"
 sed -i "s/^version = \".*\"/version = \"$UPSTREAM\"/" pyproject.toml
 sed -i "s/^__version__ = \".*\"/__version__ = \"$UPSTREAM\"/" src/gpu_switcher/__init__.py
 
-# --- checks, build, verify ----------------------------------------------------
-# The same gates CI runs, so a release is never cut on a state CI would reject.
-make test
-make lint
-make lint-shell
-make typecheck
-make coverage
-# Catalog consistency gate (reference compiler), one invocation per catalog in
-# po/ - the same source of the language set as the Makefile and the tests.
-# -o /dev/null: GNU msgfmt -c still writes the default
-# messages.mo to the CWD without an explicit output file.
-for catalog in po/gpu-switcher-*.po; do
-  msgfmt -c -o /dev/null "$catalog"
-done
+# --- build and verify --------------------------------------------------------
 make package
 DEB="../${PKG}_${NEW_VERSION}_all.deb"
 [ -f "$DEB" ] || { echo "error: build did not produce $DEB" >&2; exit 1; }
@@ -138,9 +181,6 @@ echo "sha256: $SHA256"
 
 # --- release notes ------------------------------------------------------------
 NOTES="$(mktemp)"
-if [ "$DRY" -eq 0 ]; then
-  trap 'rm -f "$NOTES"' EXIT
-fi
 {
   echo "## What's new (since $OLD_VERSION)"
   echo
@@ -177,6 +217,7 @@ fi
 
 # --- publish --------------------------------------------------------------------
 git commit -am "Release: $NEW_VERSION"
+COMMITTED=1
 git push
 gh release create "v$NEW_VERSION" "$DEB" \
   --title "$NEW_VERSION" \

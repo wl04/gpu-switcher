@@ -19,7 +19,8 @@ Thanks for helping out. This page covers building, testing and releasing
   lives in the system dist-packages, so an interpreter that cannot see them cannot
   run this project. `make` picks `.venv/bin/python` automatically when it exists,
   and the system `python3` otherwise (that is what CI uses).
-- A gate whose tool is missing fails with the name of the tool.
+- A gate whose tool is missing fails with the name of the tool, and
+  `tools/release.sh` checks all of them before it touches `debian/changelog`.
 - gettext catalogs (`po/`) compile with `msgfmt` (build-time `gettext`
   dependency).
 
