@@ -1,3 +1,14 @@
+gpu-switcher (0.5.0-1) unstable; urgency=low
+
+  * Distinguish the edited GPU preference from the running GPU and its outputs.
+  * Group hardware details by GPU and use model aliases throughout the window.
+  * Fit expanded details and keep action buttons visible on smaller screens.
+  * Apply either a GPU or automatic selection with one button.
+  * Offer Log out or Reboot now only for the saved preference's pending switch.
+  * Update English and Russian messages, the screenshot, and the user manual.
+
+ -- wl04 <wl04@users.noreply.github.com>  Sun, 22 Nov 2026 01:02:46 +0100
+
 gpu-switcher (0.4.0-1) unstable; urgency=low
 
   * New: gpu-switcher list, status and version answer in a terminal.
