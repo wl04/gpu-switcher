@@ -1,5 +1,6 @@
 *.deb
 build/
+dist/
 debian/gpu-switcher/
 debian/.debhelper/
 debian/debhelper-build-stamp

@@ -1,12 +1,7 @@
 """Tests for the GTK row builder, the assembled window, and the window's own rule.
 
-A GPU row is two lines: the name (the radio's child, so it is the accessible name
-and is clickable) and below it the PCI address plus badges, which keeps the window
-narrow. What a row *says* is decided in decisions.py and tested there; this file
-covers what the window does with those answers - the banner it shows, what it does
-with a refusal to Apply, which buttons stay live - and the one decision that
-belongs to a window rather than to a situation: when coming back to it should read
-the world again.
+The GTK tests cover the selection draft, detected runtime and physical outputs,
+recovery paths, and session-dependent actions.
 
 The window tests need a display and skip without one; CI runs the suite under xvfb.
 """
@@ -14,12 +9,13 @@ The window tests need a display and skip without one; CI runs the suite under xv
 import contextlib
 import os
 import unittest
+from collections.abc import Callable
 from unittest import mock
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from gpu_switcher import decisions, i18n, main, selection
 from gpu_switcher.core.connectors import DisplayState
@@ -103,40 +99,6 @@ def _label_texts(root: Gtk.Widget) -> list[str]:
     return found
 
 
-class GpuRowBuildTest(unittest.TestCase):
-    def test_gpu_row_builds_name_and_detail_lines_when_sub_and_badges_present(
-        self,
-    ) -> None:
-        radio = Gtk.CheckButton()
-        row = main._gpu_row(
-            radio,
-            "Radeon RX 9070",
-            "PCI 0000:03:00.0 · /dev/dri/card0",
-            ["In use now"],
-        )
-        self.assertIsInstance(row, Gtk.Box)
-        # Two lines: the radio (its child is the name) and the detail line.
-        self.assertIs(row.get_first_child(), radio)
-        self.assertIsNotNone(row.get_last_child())
-        self.assertIsNot(row.get_first_child(), row.get_last_child())
-
-    def test_gpu_row_sets_name_label_as_radio_child(self) -> None:
-        # The name label is the radio's child: it is the row's accessible
-        # name (Orca announces it) and clicking it toggles the selection.
-        radio = Gtk.CheckButton()
-        main._gpu_row(radio, "Radeon RX 9070", "", [])
-        name_label = radio.get_child()
-        self.assertIsInstance(name_label, Gtk.Label)
-        self.assertEqual(name_label.get_text(), "Radeon RX 9070")
-
-    def test_gpu_row_omits_detail_line_when_no_sub_and_no_badges(self) -> None:
-        # With neither a subtitle nor badges only the name line remains.
-        radio = Gtk.CheckButton()
-        row = main._gpu_row(radio, "Radeon RX 9070", "", [])
-        self.assertIs(row.get_first_child(), row.get_last_child())
-        self.assertIs(row.get_first_child(), radio)
-
-
 class RecheckOnReturn(unittest.TestCase):
     """Deciding whether returning to the window should read the world again.
 
@@ -211,11 +173,193 @@ class WindowBuildTest(unittest.TestCase):
         so the snapshot is given directly: every assertion below is then about this
         snapshot and not about the machine running the test.
         """
+        self.app._detect_generation += 1
         self.app.detection = detection
         self.app._build_content()
 
     def banner_text(self) -> str:
         return self.app.banner_label.get_label()
+
+    def wait_for_layout(self, condition: Callable[[], bool]) -> None:
+        loop = GLib.MainLoop()
+
+        def poll() -> bool:
+            if condition():
+                loop.quit()
+            return True
+
+        poll_id = GLib.timeout_add(10, poll)
+
+        def timeout() -> bool:
+            loop.quit()
+            return True
+
+        timeout_id = GLib.timeout_add(2000, timeout)
+        try:
+            loop.run()
+        finally:
+            GLib.source_remove(poll_id)
+            GLib.source_remove(timeout_id)
+        self.assertTrue(condition(), "window layout did not settle")
+
+    def test_expand_details_shows_only_its_gpu_without_changing_selection(self) -> None:
+        self.build(_detection())
+        details = self.app.radios_by_gpu[CARD2].get_next_sibling()
+        self.assertIsInstance(details, Gtk.Expander)
+        self.assertFalse(details.get_expanded())
+
+        details.set_expanded(True)
+
+        text = " ".join(_label_texts(details.get_child()))
+        self.assertIn(CARD2_PCI, text)
+        self.assertIn(f"/dev/dri/{CARD2}", text)
+        self.assertNotIn(CARD1_PCI, text)
+        self.assertTrue(self.app.auto_radio.get_active())
+        self.assertFalse(self.app.apply_btn.get_sensitive())
+
+    def test_expand_details_resizes_window_in_both_directions(self) -> None:
+        self.build(_detection())
+        window = self.app.window
+        details = self.app.radios_by_gpu[CARD1].get_next_sibling()
+        self.assertIsInstance(details, Gtk.Expander)
+        scroll = details.get_ancestor(Gtk.ScrolledWindow)
+        adjustment = scroll.get_vadjustment()
+        self.wait_for_layout(
+            lambda: (
+                details.get_height() > 0
+                and adjustment.get_upper() <= adjustment.get_page_size()
+            )
+        )
+        collapsed = window.get_height()
+
+        details.set_expanded(True)
+        self.wait_for_layout(lambda: window.get_height() > collapsed)
+        details.set_expanded(False)
+        self.wait_for_layout(lambda: window.get_height() == collapsed)
+
+    def test_show_banner_grows_window_to_fit_pending_switch_message(self) -> None:
+        with mock.patch.object(self.app, "outcome", main.Outcome.success_refreshed):
+            self.build(_detection(preferred_pci=CARD2_PCI, rule_state=RuleState.VALID))
+            scroll = self.app.rows_box.get_ancestor(Gtk.ScrolledWindow)
+            adjustment = scroll.get_vadjustment()
+            self.wait_for_layout(
+                lambda: (
+                    scroll.get_height() > 0
+                    and scroll.get_height()
+                    == scroll.measure(
+                        Gtk.Orientation.VERTICAL, scroll.get_width()
+                    ).natural
+                )
+            )
+            before = self.app.window.get_height()
+
+            self.app._banner_show(
+                "Rule written.\nudev rules reloaded.", main.BannerKind.SUCCESS
+            )
+
+            self.wait_for_layout(
+                lambda: (
+                    self.app.window.get_height() > before
+                    and adjustment.get_upper() <= adjustment.get_page_size()
+                )
+            )
+            self.assertTrue(self.app.logout_btn.get_visible())
+
+    def test_window_keeps_actions_outside_scrollable_content(self) -> None:
+        self.build(_detection())
+        self.assertIsNotNone(self.app.rows_box.get_ancestor(Gtk.ScrolledWindow))
+        self.assertIsNone(self.app.apply_btn.get_ancestor(Gtk.ScrolledWindow))
+
+    def test_select_gpu_keeps_buttons_equal_height_when_saved_name_wraps(self) -> None:
+        saved = _gpu(name="Radeon " + "Graphics " * 24)
+        detection = _detection(
+            gpus=[saved, _gpu(CARD2, CARD2_PCI)],
+            preferred_pci=CARD1_PCI,
+            rule_state=RuleState.VALID,
+            running_card=CARD2,
+        )
+        detection.tag_applied = False
+        self.build(detection)
+        self.app.radios_by_gpu[CARD2].set_active(True)
+
+        self.wait_for_layout(
+            lambda: (
+                self.app.draft_label.get_height() > 0
+                and self.app.reboot_btn.get_height() > 0
+            )
+        )
+
+        self.assertEqual(
+            self.app.reboot_btn.get_height(), self.app.apply_btn.get_height()
+        )
+
+    def test_apply_names_target_in_banner_without_losing_helper_diagnostic(
+        self,
+    ) -> None:
+        self.build(_detection(gpus=[_gpu(name="AMD Navi 48 [Radeon Graphics]")]))
+        self.app.radios_by_gpu[CARD1].set_active(True)
+
+        with mock.patch.object(main.bus, "set_primary") as send:
+            self.app._do_apply(True, CARD1_PCI)
+            target, _, done = send.call_args.args
+            self.assertEqual(target, CARD1_PCI)
+            done(False, "Authorization denied", False, False)
+
+        self.assertEqual(
+            self.banner_text().splitlines(), ["Radeon Graphics", "Authorization denied"]
+        )
+
+    def test_select_gpu_changes_draft_without_moving_runtime_or_display(self) -> None:
+        self.build(
+            _detection(
+                gpus=[
+                    _gpu(in_use=True),
+                    _gpu(CARD2, CARD2_PCI, connected_displays=["DP-1", "HDMI-A-1"]),
+                ],
+                preferred_pci=CARD1_PCI,
+                rule_state=RuleState.VALID,
+            )
+        )
+        self.assertFalse(self.app.apply_btn.get_sensitive())
+        self.assertFalse(self.app.reboot_btn.get_visible())
+
+        self.app.radios_by_gpu[CARD2].set_active(True)
+
+        self.assertTrue(self.app.apply_btn.get_sensitive())
+        self.assertIn(CARD1_PCI, self.app.draft_label.get_text())
+        self.assertIn(_text("In use now"), _label_texts(self.app.radios_by_gpu[CARD1]))
+        self.assertNotIn(
+            _text("In use now"), _label_texts(self.app.radios_by_gpu[CARD2])
+        )
+        for connector in ("DP-1", "HDMI-A-1"):
+            self.assertIn(connector, _label_texts(self.app.radios_by_gpu[CARD2]))
+
+    def test_select_auto_allows_recovery_when_saved_rule_is_unreadable(self) -> None:
+        self.build(_detection(rule_state=RuleState.UNREADABLE))
+        self.assertFalse(self.app.auto_radio.get_active())
+        self.app.auto_radio.set_active(True)
+        self.assertTrue(self.app.apply_btn.get_sensitive())
+
+    def test_window_offers_matching_action_when_switch_is_pending(self) -> None:
+        detection = _detection(preferred_pci=CARD2_PCI, rule_state=RuleState.VALID)
+        for outcome, logout in (
+            (main.Outcome.success_refreshed, True),
+            (main.Outcome.success_refresh_failed, False),
+        ):
+            with (
+                self.subTest(outcome=outcome),
+                mock.patch.object(self.app, "outcome", outcome),
+            ):
+                self.build(detection)
+                self.assertEqual(self.app.logout_btn.get_visible(), logout)
+                self.assertEqual(self.app.reboot_btn.get_visible(), not logout)
+                self.assertFalse(self.app.apply_btn.get_sensitive())
+
+    def test_window_shows_unknown_when_no_connector_data_is_available(self) -> None:
+        self.build(_detection())
+        row = _label_texts(self.app.radios_by_gpu[CARD1])
+        self.assertIn(_text("Display status unknown"), row)
+        self.assertNotIn(_text("No display connected"), row)
 
     def test_window_shows_the_warning_about_a_rule_pinning_an_absent_gpu(self) -> None:
         detection = _rule_pinning_an_absent_gpu()
@@ -253,7 +397,10 @@ class WindowBuildTest(unittest.TestCase):
             )
             % "99-other.rules",
         )
-        self.assertIn(_text("Preferred (configured)"), _label_texts(self.app.rows_box))
+        self.assertTrue(self.app.radios_by_gpu[CARD2].get_active())
+        self.assertNotIn(
+            _text("Preferred (configured)"), _label_texts(self.app.rows_box)
+        )
 
     def test_window_has_one_selectable_row_per_detected_gpu(self) -> None:
         detection = _detection()
@@ -328,7 +475,7 @@ class WindowBuildTest(unittest.TestCase):
 
     def test_window_keeps_privileged_actions_off_outside_gnome_wayland(self) -> None:
         self.build(_detection(gnome_wayland=False))
-        for button in (self.app.apply_btn, self.app.reset_btn, self.app.reboot_btn):
+        for button in (self.app.apply_btn, self.app.logout_btn, self.app.reboot_btn):
             self.assertFalse(button.get_sensitive())
         # Reading the world again asks nothing of polkit, so it stays available.
         self.assertTrue(self.app.refresh_btn.get_sensitive())

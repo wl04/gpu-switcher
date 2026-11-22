@@ -82,6 +82,11 @@ class GpuRowBadges(unittest.TestCase):
     configured, and what is plugged into this card's outputs.
     """
 
+    def test_state_status_omits_summary_when_rows_explain_active_and_auto(self) -> None:
+        for state in (GpuState.ACTIVE, GpuState.AUTO):
+            with self.subTest(state=state):
+                self.assertIsNone(decisions.state_status(state, _detection()))
+
     def test_gpu_badges_report_no_display_when_the_outputs_of_a_card_are_all_free(
         self,
     ) -> None:
@@ -173,6 +178,37 @@ class ApplyDecision(unittest.TestCase):
             ),
         )
 
+    def test_apply_decision_uses_row_alias_in_confirmation_and_display_warning(
+        self,
+    ) -> None:
+        gpu = _gpu(name="AMD Navi 48 [Radeon RX 9070]", display_state=DisplayState.NONE)
+
+        decision = decisions.apply_decision(_detection(gpus=[gpu]), CARD1)
+
+        self.assertIsNotNone(decision.confirm_text)
+        text = decision.confirm_text or ""
+        self.assertEqual(text.count("Radeon RX 9070"), 2)
+        self.assertNotIn("Navi 48", text)
+        self.assertIn(CARD1_PCI, text)
+
+    def test_state_status_disambiguates_matching_aliases_when_rule_is_ignored(
+        self,
+    ) -> None:
+        detection = _detection(
+            gpus=[
+                _gpu(name="Device A [Radeon Graphics]"),
+                _gpu(CARD2, CARD2_PCI, name="Device B [Radeon Graphics]"),
+            ],
+            running_card=CARD1,
+            preferred_pci=CARD2_PCI,
+        )
+        status = decisions.state_status(GpuState.IGNORED, detection)
+
+        self.assertIsNotNone(status)
+        assert status is not None
+        for pci in (CARD1_PCI, CARD2_PCI):
+            self.assertIn(f"Radeon Graphics (PCI {pci})", status[0])
+
     def test_apply_decision_names_the_gpu_and_its_pci_when_a_gpu_is_selected(
         self,
     ) -> None:
@@ -226,7 +262,7 @@ class ApplyDecision(unittest.TestCase):
         text, kind = decision.banner
         self.assertIs(kind, BannerKind.WARNING)
         self.assertIn(CARD3_PCI, text)
-        self.assertIn("Reset to auto", text)
+        self.assertIn("system default", text)
 
     def test_apply_decision_rechecks_when_the_selected_card_is_no_longer_detected(
         self,
@@ -314,7 +350,7 @@ class StartupBanner(unittest.TestCase):
                     _text(
                         "The managed udev rule could not be interpreted, so the "
                         "configured GPU is unknown (this is not automatic "
-                        "selection). Use 'Reset to auto' or Apply to rewrite it."
+                        "selection). Apply a preference to replace or remove it."
                     ),
                 )
 

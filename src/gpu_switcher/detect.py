@@ -67,6 +67,14 @@ class Gpu:
     display_state: DisplayState = DisplayState.UNKNOWN
     connected_displays: list[str] = dataclasses.field(default_factory=list)
 
+    @property
+    def alias(self) -> str:
+        """Use the trailing lspci model alias when available."""
+        _, separator, model = self.name.rpartition(" [")
+        if separator and model.endswith("]") and model[:-1]:
+            return model[:-1]
+        return self.name
+
 
 @dataclasses.dataclass
 class Detection:
@@ -85,6 +93,14 @@ class Detection:
     # Whether udev currently carries the preferred-GPU tag on the configured card;
     # None when nothing was configured or udev could not be asked.
     tag_applied: bool | None = None
+
+    def gpu_title(self, gpu: Gpu) -> str:
+        """Disambiguate identical model aliases with their PCI address."""
+        if any(
+            other.pci != gpu.pci and other.alias == gpu.alias for other in self.gpus
+        ):
+            return f"{gpu.alias} (PCI {gpu.pci})"
+        return gpu.alias
 
 
 # Display-controller PCI device classes: 0x0300 (VGA) and 0x0302 (3D).

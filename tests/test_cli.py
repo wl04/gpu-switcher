@@ -204,7 +204,7 @@ class StatusLines(unittest.TestCase):
             _text(
                 "The managed udev rule could not be interpreted, so the "
                 "configured GPU is unknown (this is not automatic "
-                "selection). Use 'Reset to auto' or Apply to rewrite it."
+                "selection). Apply a preference to replace or remove it."
             ),
             lines,
         )

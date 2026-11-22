@@ -91,10 +91,7 @@ def parse_args(argv: Sequence[str]) -> Request:
 def gpu_rows(detection: detect.Detection) -> list[str]:
     """One row per detected GPU: card, PCI, model, then what marks it.
 
-    The marks are the window's own badges, so a terminal and the window describe a
-    card the same way. A card whose sysfs could not be read carries no display
-    badge at all: "no display connected" is a fact the kernel reported, never an
-    absence of an answer.
+    Unknown display status is omitted from the terminal listing.
     """
     if not detection.gpus:
         return [i18n._("No GPUs detected.")]
@@ -126,8 +123,8 @@ def _rule_line(detection: detect.Detection) -> str:
     if detection.rule_state is detect.RuleState.UNRECOGNIZED:
         return _(
             "The managed udev rule could not be interpreted, so the configured "
-            "GPU is unknown (this is not automatic selection). Use 'Reset to "
-            "auto' or Apply to rewrite it."
+            "GPU is unknown (this is not automatic selection). Apply a preference "
+            "to replace or remove it."
         )
     return _("Managed rule sets PCI %s") % str(detection.preferred_pci)
 

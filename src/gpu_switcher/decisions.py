@@ -94,7 +94,7 @@ def apply_warning(gpu: detect.Gpu) -> str | None:
             "leave the session without a screen until a monitor is plugged into one of "
             "its outputs."
         )
-        % gpu.name
+        % gpu.alias
     )
 
 
@@ -118,7 +118,7 @@ def apply_decision(detection: detect.Detection, selected_card: str) -> ApplyDeci
                     i18n._(
                         "The configured GPU (PCI %s) is not currently "
                         "detected, so there is nothing to apply. The rule "
-                        "stays on disk; use 'Reset to auto' to remove it."
+                        "stays on disk; apply the system default to remove it."
                     )
                     % pci,
                     BannerKind.WARNING,
@@ -151,7 +151,7 @@ def apply_decision(detection: detect.Detection, selected_card: str) -> ApplyDeci
         "The managed udev rule is written; if a rule is present, a "
         "backup is saved. The change takes effect after a reboot, or "
         "after logging out and back in."
-    ) % (gpu.name, gpu.pci)
+    ) % (gpu.alias, gpu.pci)
     warning = apply_warning(gpu)
     if warning is not None:
         confirm_text += "\n\n" + warning
@@ -175,8 +175,8 @@ def startup_banner(
             i18n._(
                 "The configured GPU (PCI %s) is not currently "
                 "detected. The rule remains on disk; it takes "
-                "effect when the GPU is available again. Use "
-                "'Reset to auto' to remove it."
+                "effect when the GPU is available again. Apply the "
+                "system default to remove it."
             )
             % unavailable_pci,
             BannerKind.WARNING,
@@ -189,7 +189,7 @@ def startup_banner(
             i18n._(
                 "The managed udev rule could not be interpreted, so the "
                 "configured GPU is unknown (this is not automatic "
-                "selection). Use 'Reset to auto' or Apply to rewrite it."
+                "selection). Apply a preference to replace or remove it."
             ),
             BannerKind.WARNING,
         )
@@ -211,13 +211,11 @@ def state_status(
     """What the state row says: (text, style, icon name), or None when it has
     nothing to add.
 
-    Silent in two cases worth naming: a state with no text at all (not a GNOME
-    Wayland session, where the session warning already says that), and an unknown
-    state whose cause another warning already explains - a rule that cannot be
-    read, a rule that is not understood, a rule pinning an absent GPU, or a
-    conflicting rule. Repeating "unknown" under such a warning adds a line and no
-    information.
+    Omit steady states conveyed by the rows and unknown states already
+    explained by a more specific warning.
     """
+    if state in (GpuState.ACTIVE, GpuState.AUTO):
+        return None
     text = describe(state, detection)
     rule_problem = (
         configured_unavailable_pci(detection) is not None

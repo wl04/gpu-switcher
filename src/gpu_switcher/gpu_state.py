@@ -114,7 +114,7 @@ def derive_state(detection: detect.Detection, outcome: Outcome) -> GpuState:
 
 def _gpu_name(detection: detect.Detection, card: str | None) -> str:
     gpu = next((g for g in detection.gpus if g.card == card), None)
-    return gpu.name if gpu is not None else str(card)
+    return detection.gpu_title(gpu) if gpu is not None else str(card)
 
 
 def describe(state: GpuState, detection: detect.Detection) -> str:

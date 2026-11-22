@@ -76,8 +76,18 @@ msgstr "automatic selection"
 msgid "Apply"
 msgstr "Apply"
 
-msgid "Reset to auto"
-msgstr "Reset to auto"
+
+msgid "Hardware details"
+msgstr "Hardware details"
+
+msgid "Display status unknown"
+msgstr "Display status unknown"
+
+msgid "Unknown"
+msgstr "Unknown"
+
+msgid "Unsaved change · Saved preference: %s"
+msgstr "Unsaved change · Saved preference: %s"
 
 msgid "Reboot now"
 msgstr "Reboot now"
@@ -145,8 +155,8 @@ msgstr "and look for a line like:"
 msgid "Reboot the computer now?"
 msgstr "Reboot the computer now?"
 
-msgid "Are you sure? The system will reboot immediately and the selected GPU will become primary on boot."
-msgstr "Are you sure? The system will reboot immediately and the selected GPU will become primary on boot."
+msgid "Are you sure? The system will reboot immediately. Unsaved GPU changes will be lost."
+msgstr "Are you sure? The system will reboot immediately. Unsaved GPU changes will be lost."
 
 msgid "Apply sets %s (PCI %s) as the primary display adapter.\n\nThe managed udev rule is written; if a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
 msgstr "Apply sets %s (PCI %s) as the primary display adapter.\n\nThe managed udev rule is written; if a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
@@ -154,11 +164,11 @@ msgstr "Apply sets %s (PCI %s) as the primary display adapter.\n\nThe managed ud
 msgid "Apply removes the managed udev rule, returning to automatic GPU selection.\n\nIf a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
 msgstr "Apply removes the managed udev rule, returning to automatic GPU selection.\n\nIf a rule is present, a backup is saved. The change takes effect after a reboot, or after logging out and back in."
 
-msgid "The configured GPU (PCI %s) is not currently detected. The rule remains on disk; it takes effect when the GPU is available again. Use 'Reset to auto' to remove it."
-msgstr "The configured GPU (PCI %s) is not currently detected. The rule remains on disk; it takes effect when the GPU is available again. Use 'Reset to auto' to remove it."
+msgid "The configured GPU (PCI %s) is not currently detected. The rule remains on disk; it takes effect when the GPU is available again. Apply the system default to remove it."
+msgstr "The configured GPU (PCI %s) is not currently detected. The rule remains on disk; it takes effect when the GPU is available again. Apply the system default to remove it."
 
-msgid "The configured GPU (PCI %s) is not currently detected, so there is nothing to apply. The rule stays on disk; use 'Reset to auto' to remove it."
-msgstr "The configured GPU (PCI %s) is not currently detected, so there is nothing to apply. The rule stays on disk; use 'Reset to auto' to remove it."
+msgid "The configured GPU (PCI %s) is not currently detected, so there is nothing to apply. The rule stays on disk; apply the system default to remove it."
+msgstr "The configured GPU (PCI %s) is not currently detected, so there is nothing to apply. The rule stays on disk; apply the system default to remove it."
 
 # Helper messages (the helper loads the same catalogs; one message is shared
 # with the app's startup conflict warning)
@@ -252,5 +262,5 @@ msgstr "Detection failed: %s."
 msgid "The selected GPU is no longer detected; re-checking…"
 msgstr "The selected GPU is no longer detected; re-checking…"
 
-msgid "The managed udev rule could not be interpreted, so the configured GPU is unknown (this is not automatic selection). Use 'Reset to auto' or Apply to rewrite it."
-msgstr "The managed udev rule could not be interpreted, so the configured GPU is unknown (this is not automatic selection). Use 'Reset to auto' or Apply to rewrite it."
+msgid "The managed udev rule could not be interpreted, so the configured GPU is unknown (this is not automatic selection). Apply a preference to replace or remove it."
+msgstr "The managed udev rule could not be interpreted, so the configured GPU is unknown (this is not automatic selection). Apply a preference to replace or remove it."
