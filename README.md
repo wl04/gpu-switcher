@@ -15,18 +15,15 @@ Switch which GPU GNOME (Mutter) uses as the **primary display adapter** - no
 hand-edited udev rules. Built for multi-GPU machines, e.g. a CPU's
 integrated graphics plus one or more discrete GPUs.
 
-![gpu-switcher](docs/screenshot.png)
+![GPU choices with the running GPU marked “In use now” and connected displays listed under each adapter](docs/screenshot.png)
 
 ## Features
 
-- GPU list with `lspci` names, PCI addresses and `/dev/dri` nodes
-- Badges: **In use now** (primary selected by gnome-shell this boot) and
-  **Preferred (configured)** (managed udev rule on disk)
-- **Apply** / **Reset to auto** under polkit authorization
-- **Reboot now** and a **Log out** fast path, enabled after a successful apply
-- **State row**: what is running now versus what is configured for the next
-  login, whether a log out or a reboot is needed, and, after login, whether
-  GNOME actually picked the configured GPU (or ignored the rule)
+- GPU preference list with an independent **In use now** indicator and monitor icons
+- Expand **Hardware details** under any GPU to inspect its full name, PCI address and `/dev/dri` node without selecting it
+- Apply a specific GPU or **System default (auto)** under polkit authorization
+- Contextual **Reboot now** or **Log out** action when a session change is needed
+- Status messages explain pending changes, an ignored preference, or why the running GPU cannot be verified
 - Confirmation dialogs, result banners and a manual verification hint
 - `gpu-switcher list` and `gpu-switcher status` answer the same questions in a
   terminal, over SSH too
@@ -83,12 +80,15 @@ need it (see [Recovery](#recovery)).
 
 1. Launch **gpu-switcher** from the GNOME app grid (`man gpu-switcher` is also
    installed).
-2. Select a GPU and click **Apply**; authenticate in the polkit prompt.
-   **Reset to auto** removes the rule and returns to automatic selection.
-3. Click **Log out** (or **Reboot now**) so GNOME picks the new GPU at the next
-   session start.
-4. After logging back in, the state row confirms that GNOME is using the
-   configured GPU. If the app cannot tell (for example the journal is
+2. Select a GPU, or **System default (auto)** to let GNOME choose. The radio is
+   the preference you are editing. Until you click **Apply** and authorize the
+   change, the saved preference stays the same. **In use now** marks the running
+   GPU; the display line on each row describes that card’s monitor connections.
+3. Follow the status for the **saved** preference: **Log out** appears when a
+   new login is enough; **Reboot now** appears when a reboot is needed. Neither
+   button appears when the saved GPU is already in use.
+4. After logging back in, **In use now** identifies the running GPU.
+   If the app cannot tell (for example the journal is
    unreadable), or GNOME ignored the rule, the window opens the manual check
    instead; you can also run it yourself:
 
@@ -107,11 +107,10 @@ gpu-switcher status    # the rule on disk, the tag udev applies, what runs now
 gpu-switcher version   # the version of the package
 ```
 
-`list` prints the window's own badges (**In use now**, **Preferred
-(configured)**, the outputs that report a monitor), and `status` says what the
-rule pins, whether udev applies that tag, which adapter the desktop runs on and
-what that adds up to. The commands share the window's detection and decision
-logic, so the two cannot disagree about the machine.
+`list` prints the full device name and labels both **In use now** and **Preferred
+(configured)** when applicable. It lists connected outputs and omits display
+status if the kernel did not report it. `status` reports the managed rule, the
+udev tag, and the running adapter. Neither command changes the preference.
 
 ## Recovery
 

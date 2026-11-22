@@ -13,17 +13,23 @@ which GPU the GNOME compositor (Mutter) uses as the
 .B primary
 display adapter by managing the udev rule
 .B /etc/udev/rules.d/61-mutter-primary-gpu.rules
-and activates the change with a reboot or a logout.
+for the next session start.
 .PP
-Pick a GPU in the list and press
+The radio buttons edit the preference;
+.B "In use now"
+marks the GPU GNOME is actually using. Each GPU row shows its own display
+status. Expand its hardware details to see the full name, PCI address and
+device node without selecting it.
+.PP
+Select a different GPU and press
 .B Apply
-to write the rule for it, or press
-.B "Reset to auto"
-to remove the rule and let Mutter choose again. The action buttons work only in
-a supported GNOME/Wayland session; in any other session the app shows a warning
-banner and changes nothing.
+to write the rule for it, or apply
+.B "System default (auto)"
+to remove the rule and let Mutter choose again. An unsaved choice does not
+change the running adapter or the rule on disk. Changing the preference is
+supported only in a GNOME/Wayland session.
 .PP
-Every operation is authorized by polkit (action
+Each rule change is authorized by polkit (action
 .BR com.github.wl04.gpu_switcher.set-primary ,
 administrator authentication, not cached: a call that succeeded a moment ago is
 authorized again). The helper then writes the rule and udev is reloaded and
@@ -31,8 +37,12 @@ re-triggered
 .RB ( udevadm " control \-\-reload-rules" ,
 .BR "udevadm trigger" ,
 .BR "udevadm info" ),
-so the primary tag appears on the card without waiting for a reboot. The
-display layout itself settles after the reboot or the logout the app offers.
+to refresh the tags before the next session. For a pending change, the window
+offers
+.B "Log out"
+if a new login is sufficient, or
+.B "Reboot now"
+if a reboot is needed. Neither button is shown otherwise.
 .SH COMMANDS
 With no command
 .B gpu-switcher
@@ -42,8 +52,7 @@ display, so it works over SSH as well:
 .B list
 One row per display GPU: the
 .B /dev/dri
-card name, its PCI address, the model name, then what marks the card - the same
-badges the window shows:
+card name, its PCI address, the model name, then the terminal badges:
 .BR "In use now" ,
 .BR "Preferred (configured)" ,
 the outputs that report a monitor, or
@@ -75,9 +84,8 @@ copied to
 the five newest backups are kept).
 .B "apt remove"
 leaves the rule and its backups in place: they record the user's choice, not
-package data. To undo the change completely, delete the rule, run
-.BR "udevadm control \-\-reload-rules" ,
-then log out.
+package data. To restore automatic selection manually, delete the managed rule
+and reboot so udev re-evaluates the devices.
 .SH HELPER
 The rule is written by a root helper: the systemd unit
 .B gpu-switcher-helper.service
@@ -92,7 +100,7 @@ so the app itself never holds privileged access. The helper's log is read with
 .SH DIAGNOSTICS
 What udev actually applied to a card:
 .HP
-.B "udevadm info /sys/dev/dri/card1 | grep CURRENT_TAGS"
+.B "udevadm info /sys/class/drm/card1 | grep CURRENT_TAGS"
 .PP
 The tag
 .B mutter-device-preferred-primary

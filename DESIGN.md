@@ -40,16 +40,16 @@ Consequences:
 
 - After the rule file changes, the current tags are stale until udev
   re-runs its rules:
-  - **reboot** — udev re-evaluates everything at boot; always works, or
+  - **reboot** — udev re-evaluates the devices at boot, or
   - `udevadm control --reload-rules` + scoped
     `udevadm trigger --subsystem-match=drm --settle` — udev re-emits the DRM
     events and every card's current tags are recomputed under the new rule
     (only the configured card carries the tag); a **logout/login** is then
     enough (gnome-shell restarts and reads the fresh current tags).
-- The app therefore offers both paths: **Reboot** (default, safe) and
-  **Log out** (fast path; enabled only when the refresh ran successfully).
-  The refresh runs inside Apply / Reset under the same polkit authorization,
-  so the fast path needs no extra prompt.
+- The UI offers **Log out** only for a pending login, after a successful udev
+  refresh. For a pending reboot it offers **Reboot now** instead. Both actions
+  concern the saved preference, never an unsaved radio selection. The refresh
+  runs as part of Apply under the same polkit authorization.
 - Mutter's own docs phrase it the same way: "Reboot or manual triggering of
   udev rules to make it take effect may be required."
 
@@ -110,7 +110,7 @@ Consequences:
   session call the helper, so this check is the only thing between a background
   process and `/etc/udev/rules.d`; a cached authorization would let one prompt
   cover every later call until logout. Each operation is authorized on its own,
-  so Apply and Reset ask again even a second after the previous one succeeded.
+  whether Apply writes a GPU preference or restores automatic selection.
   The app adds no prompt cache of its own: action buttons are insensitive while an
   operation is in flight, and a helper already working answers another call with
   `com.github.wl04.gpu_switcher.Error.Busy`.
@@ -174,22 +174,20 @@ available.
 
 ### Commands in a terminal
 
-`gpu-switcher list`, `status` and `version` answer the two questions a terminal
-user has, from the same `detect()` snapshot and the same `decisions.py` answers
-the window uses — the two front-ends cannot disagree about the machine.
+`gpu-switcher list` and `status` use the same detection code as the window.
+`version` reports the installed package version.
 
 - **Why there is no `set` verb.** Writing a rule needs three things a shell does
   not provide: an announced consequence, a confirmation, and a polkit prompt a
   terminal cannot show (`CheckAuthorization` describes the caller's window). So
-  Apply and Reset exist only in the UI, and a script cannot talk the CLI into a
-  change — which also leaves the helper's authorization model unchanged.
+  applying a preference (including auto) is a GUI operation; the CLI is read-only.
 - **GTK is imported only for the window.** The wrapper hands every command line
   to `cli.run()`, which imports `main` in the no-command branch. `gpu-switcher
   list` therefore works over SSH, where the user has no display server.
-- **Answers use the window's own wording.** Badges, rule findings and the derived
-  state come from the localized strings already in the catalogs, so a terminal and
-  the window describe one card the same way, in the user's language.
-- **The state is read with `Outcome.idle`.** A terminal read has no Apply/Reset
+- **Terminal labels describe the saved state.** `list` prints full device names
+  and a **Preferred (configured)** badge. The window uses model aliases and a
+  radio that can represent an unsaved choice. Neither changes the running mark.
+- **The state is read with `Outcome.idle`.** A terminal read has no GUI apply outcome
   behind it and must not claim one; the state comes from the disk and session
   evidence alone.
 - **Exit codes are the contract.** 0 when the answer was given, 2 when the command
@@ -200,23 +198,25 @@ the window uses — the two front-ends cannot disagree about the machine.
 
 One window (Adwaita, no custom CSS):
 
-- GPU rows: `lspci` name, `PCI <addr> · /dev/dri/cardN`, badges **"In use
-  now"** (running primary), **"Preferred (configured)"** (managed rule), and
-  what is plugged into the card: **"Display: HDMI-A-1"** for outputs the kernel
-  reports connected, **"No display connected"** when the card has outputs and
-  none of them is occupied. Nothing is said when sysfs did not answer (see
-  *Detection*): "no display" is a claim a user acts on.
+- GPU rows: radio for the preference being edited, a symbolic **In use now**
+  mark for the running adapter, and a monitor icon with each connected output.
+  Unknown display status is distinct from no display connected. Each GPU has an
+  independent hardware disclosure with its full name, PCI address and DRM node.
+  One bordered list separates the choices. Rows, confirmations and status messages
+  use the model alias; the PCI address distinguishes cards with the same alias.
+- The window fits its content at the current width. When space is limited, the
+  device list, messages and help scroll together above the visible action buttons.
 - Apply to a card whose outputs are all free adds a warning to the confirmation:
   the session can end up with no screen until a cable is moved onto one of that
   card's outputs, which the app cannot fix from software.
-- Radio selection: each GPU + **"System default (auto)"**.
-- **Apply** — confirmation dialog → polkit → `SetPrimary` (+ backup notice).
-- **Reset to auto** — `SetAuto` (+ note that auto-selection applies after
-  restart).
-- **Reboot now** — two confirmations → login1 `Manager.Reboot`.
-- **Log out** — fast path via the GNOME session manager `Logout` on the
-  session bus; enabled only after an Apply/Reset whose udev refresh
-  succeeded (no polkit prompt of its own).
+- Radio selection: each GPU plus **System default (auto)**. An unsaved selection
+  reveals the saved preference above the footer buttons without changing their height.
+- **Apply** confirms a changed preference and requests polkit authorization:
+  `SetPrimary` for a GPU or `SetAuto` for the system default.
+- **Reboot now** — offered for pending reboot; two confirmations → login1 `Manager.Reboot`.
+- **Log out** — offered for pending login; calls `Logout` on the GNOME session
+  manager without a separate polkit prompt. Neither session action is shown in
+  other states.
 - **Refresh** — re-read GPUs, the rule on disk and the running adapter; needs no
   authorization. Returning to the window does the same automatically when the
   snapshot is older than ~15 s and nothing is in flight (a confirmation dialog or
@@ -224,20 +224,17 @@ One window (Adwaita, no custom CSS):
   happens under the user's hands.
 - Contextual status banners: applied / denied / conflict / unavailable
   configured GPU / unknown outcome after a timeout.
-- State row (`gpu_state.py`): an icon + text derived from the running
-  primary, the managed rule, the rule's mtime versus gnome-shell's start time,
-  the tag evidence and the last Apply/Reset outcome. States: auto, active (GNOME
-  picked the configured GPU), pending login / pending reboot (rule changed after
-  the session started; the refresh result is not persisted, so after an app
-  restart pending means reboot — and pending reboot also when udev provably does
-  not carry the tag at all), ignored (udev applies the rule and GNOME still chose
-  another GPU), unknown.
+- The status row explains a pending login, pending reboot, ignored rule, or
+  unknown running GPU. Active and automatic states need no summary row; a
+  specific rule warning also takes precedence over a generic unknown message.
+  `gpu_state.py` derives the state from the running adapter, managed rule,
+  session and rule timestamps, udev tag and outcome of the last Apply.
 - Collapsible verification hint: the exact `journalctl` command to confirm
-  after restart; expanded only when the state is unknown or ignored.
+  after restart; expanded by default only when the state is unknown or ignored.
 
 Interaction rules: privileged calls are async (the buttons are disabled while
 an operation or a re-detection runs; the UI never blocks, detection runs on a
-worker thread); Apply/Reset change the udev rule, and every destructive step
+worker thread); Apply changes the udev rule, and every destructive step
 has a confirmation dialog.
 
 ## What a Plasma or X11 port would take (not supported today)
